@@ -1,0 +1,63 @@
+# 包装模板 C · 监控壳体（pack-hud-monitor）
+#
+# 给整片套一层"界面"：常驻条 / 角标 / 时间码 / 章节导航。观众看到的是「一个系统在运行」。
+# 这是参考片里复用率最高、也最容易抄坏的一族——抄坏了就成了模板套壳。
+#
+# 来源片（同一族的两种壳型：条状与角标）：
+#   AI剪辑12个行业模板   角标 13–14%H · 字高 1.4%H · `// REEL 01` + `● 00:06:00` + 右侧水印
+#   剪辑skill全流程      胶片齿孔 1.5–2%W 双侧 · HUD 角标 1.5%H · 四角安全留白 3–5% · CHAPTER 五连切间隔 0.7s
+#   把所有权限交给AI     顶部通栏条 0–4.7%H · 9 个条目 + REC 角标 · 当前项黄/淡蓝双色高亮
+#   质感剪辑3大法宝      通栏章节条 0–5%H
+#   口播动效包装教程     顶部 7 步总览条 0.10–0.30H · 左上步骤角标内缩 0.03W
+#   workbuddy            5×21px 红竖条 @6.7–7.4%W / 11.6–13.2%H（极简版章节锚点）
+
+name: pack-hud-monitor
+label: 监控壳体（常驻条/角标/时间码）
+family: C
+
+canvas:
+  aspect: [16:9, 9:16]
+  fps: [24, 25, 30]
+
+shell:
+  type: [top_bar, corner_badge, chapter_rail]
+  bar:
+    height_h: 0.05              # 实测 4.7–5
+    background: "#000000"
+    items: [5, 9]               # 实测 5–9 条；条目数写死，步数变了会挤
+    type_scale_h: 0.014         # 壳内字高 1.4–1.5%H
+    highlight: [amber, pale_blue]
+  badge:
+    y_h: [0.116, 0.14]          # 角标落在 11.6–14%H
+    type_scale_h: 0.014
+    corner_inset_w: 0.03
+    safe_corner_w: 0.03         # 四角安全留白 3–5%
+  timecode:
+    format: "REC 00:0X:XX:00"
+    red_dot_x_w: [0.59, 0.87]
+  film_frame:
+    sprocket_width_w: [0.015, 0.02]
+    only_if_source_is_rough: true   # 见 fails_on 第一条
+
+content_area:
+  # 壳体吃掉多少画面（这些数字直接决定字幕带能放哪）
+  usable_h_with_bar: 0.86       # 顶部 4.7% + 底部字幕 90.4% 起
+  usable_h_with_badge: 0.75
+
+tempo:
+  shot_median_s: [2.0, 8.5]
+  chapter_card_hold_s: [0.5, 1.4]
+  chapter_card_chain_gap_s: 0.7    # 五连切章节卡用 0.7s 间隔连闪
+  sfx_density_per_min: [2.0, 6.3]
+  # 关键：切开时音效命中率实测 66–72%（12/18、13/17、13/18），不是 100%
+
+applies_to:
+  - 工具实测、工作流演示、教程、多章节内容
+  - 素材含大量录屏/界面——本身就有「系统感」，壳是顺水推舟
+  - 观众是同行/从业者，愿意读小字
+
+fails_on:
+  - **双侧胶片齿孔 + 精致素材 = 双重包装**，一眼就是套壳（剪辑skill 那片自己都说只适合"录制过程感强、可以显得糙"的素材）
+  - 角标卡在 13–14%H：主体偏上的素材必穿脸
+  - 条目数写死：7 步总览改成 6 步，间距立刻挤到不可读
+  - 竖屏 + 顶条会同时挤压主体和字幕，可用高度掉到 0.75 以下
