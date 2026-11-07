@@ -1,0 +1,12 @@
+{
+ "raw": "用熊工在工地现场讲的原声，做一条 40 秒左右的竖版短片，讲讲国产和进口材料到底差在哪。",
+ "audience": "正在装修、在国产和进口艺术涂料之间犹豫的业主（25-45 岁，小红书/视频号重度用户）",
+ "promise": "看完能说清差的不是功能参数而是审美与配方深度，并按预算和审美各自选，不是一边倒",
+ "duration_s": 40,
+ "aspect": "9:16",
+ "avoid": [],
+ "cut_source": "speech",
+ "visual_selector": "single_cam_talking",
+ "style_pack": "talking-head-v1",
+ "created": "2026-11-07T16:35:19"
+}

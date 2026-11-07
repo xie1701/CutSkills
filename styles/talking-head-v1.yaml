@@ -1,0 +1,54 @@
+# 风格包 #1 · 知识口播竖版（talking-head-v1）
+# 参数来自对一条真实知识型口播片的逐帧反解（126.58s / 576x1024 / 24fps，
+# 113 条字幕、38 个切点、7 处音效、零 BGM）。C 段实现时按这份参数执行，
+# check_edl.py 里的节奏/字幕断言也以这里为准。
+#
+# 一个包的内部不许混：混出来的就是"拼贴感"。
+
+name: talking-head-v1
+label: 知识口播竖版
+canvas:
+  width: 1080
+  height: 1920
+  fps: 30
+
+subtitle:
+  font: AlimamaShuHeiTi-Bold        # 阿里妈妈数黑，免费商用；必须给真字体文件，不能 local()
+  size_px: 80                       # 72–84
+  weight: ExtraBold
+  color: "#FFFFFF"
+  shadow: "0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9)"
+  center_y_px: 1294                 # 67.4% 高
+  safe_bottom_px: 300               # 平台底栏，正文不许进
+  max_chars_per_line: 12            # 目标 8–9，超了断句，别缩字号
+  hold_min_s: 0.75
+  hold_max_s: 2.4
+  density_per_min: [45, 58]         # 实测 50–56；低于 40 显拖
+  entry: hard_cut                   # 硬切，不做入场动画
+
+emphasis:
+  grammars: [big_keyword, strikethrough, quote]   # 只有三种
+  keyword_color: "#F6EB34"          # 并列选项、转折词
+  negation_color: "#C1121F"         # 否定结论
+  big_keyword_px: [133, 304]        # 占画面高 10–16%
+  max_one_action_per_caption: true
+
+shots:
+  talking_median_s: 2.4             # 口播段；信息段 4–12
+  max_single_shot_s: 12             # 超了要在 why 里写明刻意留白
+  medium_change_within_s: 40        # 40s 内至少换一次介质
+
+sfx:
+  density_per_min: [3, 7]
+  placement: on_cut_only            # 只打在切点
+  tolerance_frames: 2
+  bgm: none_or_very_low             # 无 BGM 或极轻垫音
+
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  cut_fade_ms: 30
+  duck_db: 12                       # 口播期间 BGM 让位
+
+card:
+  bottom_edge_max_px: 1080          # 卡片底边不超过这里，否则白字幕被浅色卡片吞掉

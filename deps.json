@@ -1,0 +1,21 @@
+{
+ "version": 1,
+ "why": "依赖清单。scripts/runtime.sh install 只装这里列出、且本地还缺的东西，全部落在 $CUTSKILLS_HOME（默认 ~/.cutskills）里，不散到各个任务目录。",
+ "npm": {
+  "hyperframes": "latest"
+ },
+ "pip": {
+  "pypinyin": "==0.55.0"
+ },
+ "system": {
+  "ffmpeg": ">=6（解码、切点、混音）",
+  "ffprobe": ">=6（规格探测）",
+  "node": ">=22（hyperframes 要求）",
+  "python3": ">=3.9",
+  "coli": "本地 ASR：coli asr --model sensevoice，离线"
+ },
+ "models": {
+  "asr": "sensevoice 随 coli 自带，不下载",
+  "whisper": "只有降级到 hyperframes transcribe 时才需要，权重落在 $CUTSKILLS_HOME/models/hf"
+ }
+}
