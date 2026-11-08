@@ -786,12 +786,17 @@ def main() -> int:
             for idx, sh in enumerate(shots):
                 med = sh["s"].get("medium")
                 if idx and med != prev_med and (sfx_dir / "whoosh.wav").exists():
-                    sfx_cues.append({"t": round(_starts[idx], 3), "name": "whoosh", "gain_db": -16})
+                    # 增益按"能不能听见"定，不按"别太吵"定。
+                    # 实测：-16 dB 的 whoosh 落在 -48 dB 的语音空档里能高 33 dB（很响），
+                    # 可同样 -16 落在 -18 dB 的连续人声底下只高 3.5 dB（等于没打）。
+                    # 素材本身峰值 -6、RMS -21，-14 那一档在 100ms 窗口里能量只涨 0.0 dB。
+                    sfx_cues.append({"t": round(_starts[idx], 3), "name": "whoosh", "gain_db": -7})
                 prev_med = med
             for c in card_proj:
                 nm = "pop" if c.get("kind") in ("keyword", "behind", "cutout") else "tick"
                 if (sfx_dir / f"{nm}.wav").exists():
-                    sfx_cues.append({"t": round(c["start"], 3), "name": nm, "gain_db": -13})
+                    sfx_cues.append({"t": round(c["start"], 3), "name": nm,
+                                     "gain_db": -3 if nm == "pop" else -4})
             # 按模板给的上限截断（每个切点都打是最典型的"音效疲劳"）
             cap = float((style.get("sfx") or {}).get("density_per_min", [0, 8])[-1])
             limit = max(1, int(round(cap * total / 60)))
@@ -813,7 +818,20 @@ def main() -> int:
                                 "--cues", str(cues_p), "--out", str(mixed)],
                                capture_output=True, text=True)
             if r.returncode == 0 and mixed.exists():
-                final_audio = mixed
+                # 混完再归一一次。
+                # 混音前的轨已经被 loudnorm 顶到 -1 dBTP，往上面加任何东西都会顶天花板，
+                # mix_sfx 的护栏只能把音效床整体压掉——压到听不见，等于白做（实测 9 处里有 6 处
+                # 带内提升 0.0 dB）。正确顺序是「先混、再归一」：让响度归一器一次性去解决
+                # 人声和音效的关系，而不是先定死人声、再逼音效让路。
+                remaster = work / "audio_final.wav"
+                rg = subprocess.run(
+                    ["ffmpeg", "-v", "error", "-y", "-i", str(mixed), "-af",
+                     "loudnorm=I=-14:TP=-1:LRA=11", "-ar", "48000", "-ac", "2", str(remaster)],
+                    capture_output=True, text=True)
+                if rg.returncode == 0 and remaster.exists():
+                    final_audio = remaster
+                else:
+                    final_audio = mixed
                 tail = [x for x in (r.stdout or "").strip().splitlines() if x.strip()][-1:]
                 print(f"  混音 {tail[0] if tail else '完成'}")
             else:
