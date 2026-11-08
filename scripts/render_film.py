@@ -35,6 +35,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pack_style  # noqa: E402  包装模板 → 像素参数 / 壳体叠加层
+
 W_FALLBACK = 1080
 H_FALLBACK = 1920
 
@@ -148,7 +151,7 @@ def load_chars(lib: Path, aid: str) -> list[tuple[str, float, float]]:
 
 
 def build_cues(segments: list[dict], index_by_id: dict, chars_cache: dict,
-               lib: Path, max_chars: int) -> list[dict]:
+               lib: Path, max_chars: int, soft_chars: int = 6) -> list[dict]:
     """把逐字时间拼成字幕条，时间换算到输出时间轴。
 
     output_time = 字.start - seg_in + seg_start —— 硬规则第 6 条。
@@ -223,9 +226,9 @@ def build_cues(segments: list[dict], index_by_id: dict, chars_cache: dict,
                 flush()
             elif ch in "，、；：" and cur >= 4:
                 flush()
-            elif cur >= 9:                                   # 硬上限 9 字
+            elif cur >= max_chars:                           # 硬上限（模板定）
                 flush()
-            elif cur >= 6 and (nxt is None or nxt - it[2] >= 0.12):
+            elif cur >= soft_chars and (nxt is None or nxt - it[2] >= 0.12):
                 flush()
         flush()
     cues.sort(key=lambda c: c["start"])
@@ -249,7 +252,8 @@ def build_cues(segments: list[dict], index_by_id: dict, chars_cache: dict,
 
 
 def render_sub_pngs(cues: list[dict], font: Path, size: int, w: int, band: tuple[int, int],
-                    out_dir: Path) -> tuple[list[Path], dict]:
+                    out_dir: Path, stroke: int = 5, shadow: bool = True,
+                    fill: tuple = (255, 255, 255, 255)) -> tuple[list[Path], dict]:
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
     f = ImageFont.truetype(str(font), size)
@@ -260,15 +264,17 @@ def render_sub_pngs(cues: list[dict], font: Path, size: int, w: int, band: tuple
     out_dir.mkdir(parents=True, exist_ok=True)
     for i, c in enumerate(cues):
         img = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
-        # 先画阴影层再画字：直接 stroke 只能描边，没有投影的柔和过渡
-        sh = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
-        d_sh = ImageDraw.Draw(sh)
-        d_sh.text((bw / 2 + 2, bh / 2 + 5), c["text"], font=f, fill=(0, 0, 0, 190), anchor="mm")
-        sh = sh.filter(ImageFilter.GaussianBlur(6))
-        img.alpha_composite(sh)
+        # 描边和投影二选一（跨族铁律第 2 条）：宋体描边会糊笔画，黑体才用描边。
+        # 叠着来一定脏，所以这里是模板说了算，不是"两个都给上一点"。
+        if shadow:
+            sh = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+            d_sh = ImageDraw.Draw(sh)
+            d_sh.text((bw / 2 + 2, bh / 2 + 5), c["text"], font=f,
+                      fill=(0, 0, 0, 190), anchor="mm")
+            img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(6)))
         d = ImageDraw.Draw(img)
-        d.text((bw / 2, bh / 2), c["text"], font=f, fill=(255, 255, 255, 255),
-               anchor="mm", stroke_width=5, stroke_fill=(0, 0, 0, 245))
+        d.text((bw / 2, bh / 2), c["text"], font=f, fill=fill, anchor="mm",
+               stroke_width=stroke, stroke_fill=(0, 0, 0, 245))
         p = out_dir / f"sub{i:04d}.png"
         img.save(p)
         paths.append(p)
@@ -322,6 +328,15 @@ def main() -> int:
     ap.add_argument("--project", required=True)
     ap.add_argument("--library", required=True)
     ap.add_argument("--style", default=None)
+
+    # 包装模板（不写 --style 时用）
+    ap.add_argument("--pack", default=None,
+                    help="字幕系统模板：pack-safe-talking / pack-paper-brand / pack-bilingual 等")
+    ap.add_argument("--shell", default=None,
+                    help="壳体模板（可选）：pack-hud-monitor。只出壳，字幕系统仍由 --pack 定")
+    ap.add_argument("--canvas", default="1080x1920", help="WxH；用 --pack 时生效")
+    ap.add_argument("--fps", type=int, default=30)
+
     ap.add_argument("--crf", type=int, default=18)
     ap.add_argument("--no-punch", dest="punch", action="store_false",
                     help="不做推镜切：口播长段保持一镜到底（口播中位会超标，只在刻意要长镜头时用）")
@@ -330,15 +345,24 @@ def main() -> int:
     proj = Path(a.project).expanduser().resolve()
     lib = Path(a.library).expanduser().resolve()
     edl = json.loads((proj / "edl.json").read_text())
-    if a.style:
+
+    # 三条路进同一个 style dict：显式 --style / --pack（包装模板）/ EDL 里写的风格包。
+    # 包装模板存的是比例，所以画布要现给（--canvas/--fps），默认竖版 1080×1920@30。
+    if a.pack:
+        cw, ch = (int(x) for x in a.canvas.lower().split("x"))
+        style = pack_style.to_style(pack_style.load(a.pack), cw, ch, a.fps)
+        style["name"] = pack_style.load(a.pack).get("name")
+    elif a.style:
         style_path = Path(a.style).expanduser()
+        style = yaml.safe_load(style_path.read_text())
     else:
         name = edl.get("style_pack") or "talking-head-v1"
         style_path = Path(__file__).resolve().parent.parent / "styles" / f"{name}.yaml"
-    style = yaml.safe_load(style_path.read_text())
-    W = style["canvas"]["width"] if W_FALLBACK is None else style["canvas"]["width"]
+        style = yaml.safe_load(style_path.read_text())
+    W = style["canvas"]["width"]
     H = style["canvas"]["height"]
     FPS = style["canvas"]["fps"]
+    shell_pack = pack_style.load(a.shell) if a.shell else None
 
     index = json.loads((lib / "_cutskills" / "index.json").read_text())
     by_id = {x["id"]: x for x in index["assets"]}
@@ -372,7 +396,9 @@ def main() -> int:
     target = float(style["shots"]["talking_median_s"])
     shots: list[dict] = []
     for i, s in enumerate(segs, 1):
-        if a.punch and s.get("medium") == "talking" and s["_dur"] > target * 1.6:
+        # 1.25 倍才拆：模板写的中位是**上界的一半**，1.6 倍会留下 4.8–5.4s 的洞
+        # （实测 5.14s 的口播段不拆，镜头中位直接顶到 5.1s，超模板上限 4.8s）。
+        if a.punch and s.get("medium") == "talking" and s["_dur"] > target * 1.25:
             aid = (s.get("audio") or {}).get("asset") or s["asset"]
             chars = chars_cache[aid] if aid in chars_cache else \
                 chars_cache.setdefault(aid, load_chars(lib, aid))
@@ -559,11 +585,25 @@ def main() -> int:
         cues = []
         pngs, info = [], {}
     else:
-        cues = build_cues(segs, by_id, chars_cache, lib, int(sub["max_chars_per_line"]))
+        # 包装模板自带 chars_soft；老样式包（talking-head-v1）没有这个键，
+        # 就保持原来的 6/9——12 是那个包的**绝对上限**，不是断句目标。
+        # 直接拿 12 当硬上限，实测字幕从 37 条掉到 30 条（密度 28→22.8 条/分）。
+        if sub.get("chars_soft"):
+            soft_c, hard_c = int(sub["chars_soft"]), int(sub["max_chars_per_line"])
+        else:
+            soft_c, hard_c = 6, 9
+        cues = build_cues(segs, by_id, chars_cache, lib, hard_c, soft_c)
         band_top = max(0, int(sub["center_y_px"]) - 260)
         band_bot = min(H, int(sub["center_y_px"]) + 260)
+        col = str(sub.get("color") or "#FFFFFF").lstrip("#")
+        fill = tuple(int(col[i:i + 2], 16) for i in (0, 2, 4)) + (255,) if len(col) == 6 else (255,) * 4
         pngs, info = render_sub_pngs(cues, font, int(sub["size_px"]), W,
-                                     (band_top, band_bot), work / "subs")
+                                     (band_top, band_bot), work / "subs",
+                                     # 5px 是老样式的默认值；包装模板会显式给
+                                     # stroke_px（A 族 7、B 族 0——宋体一律投影）
+                                     stroke=int(sub.get("stroke_px", 5)),
+                                     shadow=bool(sub.get("shadow")),
+                                     fill=fill)
         hold = sub.get("hold_min_s", 0.75)
         for c in cues:
             if c["end"] - c["start"] < hold:
@@ -604,6 +644,30 @@ def main() -> int:
                 for i, p in enumerate(pngs)]
     overlays += [{"path": c["path"], "y": c["y"], "loop": True, "card": True,
                   "start": c["start"], "end": c["end"]} for c in cards]
+
+    # 壳体（C 族）：顶条 / 角标 / 时间码。
+    #
+    # 条目从 EDL 的 beats 来，不是从模板里抄一串固定词——「常驻条」之所以有用，
+    # 是因为它告诉观众"现在是第几章、还有几章"，抄一串没有含义的条目只是装饰。
+    # 时间码逐镜重画：一张静止 PNG 里的数字不会自己走。
+    if shell_pack:
+        beats = edl.get("beats") or []
+        titles = [str(b.get("title") or f"第{b['n']}章")[:8] for b in beats]
+        beat_of_seg = {i: s.get("beat") for i, s in enumerate(segs, 1)}
+        shell_shots, tt2 = [], 0.0
+        for sh in shots:
+            b = beat_of_seg.get(sh["seg"])
+            shell_shots.append({"start": round(tt2, 4), "dur": sh["dur"],
+                                "active": (int(b) - 1) if isinstance(b, int) and b else None})
+            tt2 = round(tt2 + sh["dur"], 4)
+        layers = pack_style.shell_layers(
+            shell_pack, W, H,
+            {"title": str(edl.get("brand") or ""), "entries": titles,
+             "total": total, "shots": shell_shots},
+            work / "shell")
+        overlays += [{"path": l["path"], "y": l["y"], "start": l["start"], "end": l["end"],
+                      "shell": True} for l in layers]
+        print(f"  壳体 {shell_pack.get('name')}  层 {len(layers)}  条目 {len(titles)}")
 
     film = out / "film.mp4"
 

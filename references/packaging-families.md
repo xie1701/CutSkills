@@ -20,7 +20,7 @@
 **族可以叠加，但只允许 A/B/D 里的字幕系统 + C 的壳 + E 的卡这种组合。**
 四支片实际就是叠的：`剪辑skill全流程` = C 壳 + D 双语；`恒大` = E 分屏 + A 字幕；`AI剪辑12` = C 角标 + D 双语。
 
-## 二、五族各自的参数带（机器可读版在各 `styles/pack-*.yaml`）
+## 二、五族各自的参数带（机器可读版在 `styles/` 下，一族一个文件（`pack-safe-talking` / `pack-paper-brand` / `pack-hud-monitor` / `pack-bilingual` / `pack-ui-narrative`））
 
 | 项 | A 安全口播 | B 纸感品牌 | C 监控壳体 | D 双语双行 | E 图文叙事 |
 |---|---|---|---|---|---|

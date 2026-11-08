@@ -1,0 +1,256 @@
+# 包装套 · 柒造（set-qizao）
+#
+# 20 支参考片反解出 5 族模板，其中 4 族收进这一套，按**层**组合，不按风格拼贴。
+# 允许的叠法只有一句：字幕系统（A 或 B，二选一）+ C 的壳（0 或 1）+ E 的卡（0 或 1）。
+# 这条不是设计偏好，是 references/packaging-families.md 第二节「族可以叠加，但只允许
+# A/B/D 里的字幕系统 + C 的壳 + E 的卡」的直接落地。
+#
+# 为什么**不收 D 双语双行**：
+#   这套片子（柒造）的目标观众是中文施工方与业主——包工头、设计公司采购、正在比价艺术涂料的
+#   业主。第二行英文在这个交付链上没有接收方：施工方不读英文，业主不会因为多一行英文就更信
+#   你的落地能力，而 D 的宽松档要永久让出 14–15% 画面（竖屏贴 85–95% 还会被平台底栏吃）。
+#   代价付了、收益端是零，所以不进套。
+#   D 的模板本体继续留在 styles/pack-bilingual.yaml，面向双语受众、或需要「看起来专业」的
+#   知识型内容时单独取用——不是删掉，是不默认。
+#
+# 三维各自负责什么、互不重叠（这是「能叠」的前提，不是「想叠就叠」）：
+#   subtitle_system  决定字怎么排（字体族 / 字幕带位置 / 描边或投影）
+#   shell            决定画框边上有没有常驻信息（条 / 角标 / 章节锚点 / 时间码）
+#   cards            决定画面里有没有替观众搭结构的界面（卡 / 分屏 / 标注 / 刻度）
+# 三层都碰字幕带位置时以 subtitle_system 为准，壳和卡只许让位（见 content_area 与 band_by_layout）。
+
+name: set-qizao
+label: 柒造可组合包装套（字幕系统 + 壳 + 卡）
+version: 1
+status: draft
+built_from: references/packaging-families.md
+
+members:
+  subtitle_system:
+    choice: one_of
+    description: 字幕系统，必选且只选一个
+    packs: [pack-safe-talking, pack-paper-brand]
+  shell:
+    choice: zero_or_one
+    description: 壳体，可选，最多一个
+    packs: [pack-hud-monitor]
+  cards:
+    choice: zero_or_one
+    description: 卡片与标注层，可选，最多一个
+    packs: [pack-ui-narrative]
+
+excluded:
+  - pack: pack-bilingual
+    family: D
+    reason: 目标观众是中文施工方与业主，第二行英文没有接收方
+    still_available: 模板仍在 styles/pack-bilingual.yaml，双语受众或知识型内容单独取用
+
+# ------------------------------------------------------------------ 三个成员各自的实测边界
+#
+# 下面这些不是新写的形容词，全部抄自 styles/pack-*.yaml 的 applies_to / fails_on 原文。
+
+A_pack-safe-talking:
+  applies_to:
+    - 单人坐姿口播、讲座、访谈精剪（机位几乎不动）
+    - 素材本身构图干净、不需要靠图形层解释
+    - 时长 40s–10min 都成立
+  fails_on:
+    - 亮底素材 + 只用投影不用描边 → 白字直接消失（「读书」那片就是这么做的，只能在暗底成立）
+    - 字幕带中心 <0.79H 且单条 >14 字 → 换行后压住画面主体
+    - 主体偏上的竖屏素材：0.86 中心正好落在手上/桌面上
+  yield_variant: 包装置零的让位变体（band_center_h 0.69 · 纯描边不投影 · 图形层全 0 · 不压饱和 0.325），画面本身是主角（空间、材质、光）时用
+
+B_pack-paper-brand:
+  applies_to:
+    - 品牌/空间/质感类素材（家装、展厅、产品、面料）
+    - 有大量静止细节可看的长镜头
+    - 讲情绪、讲品味，不讲信息密度
+  fails_on:
+    - 有色彩价值的素材（实拍红木、花艺、霓虹）会被 saturation_cap 压成灰片——这是这个家族的成立前提，不是缺陷
+    - 需要信息推进的内容：11.4s 中位 + 零音效会像「卡住了」
+    - 字号 <3%H 时宋体笔画开始粘连，字号红利消失
+
+C_pack-hud-monitor:
+  applies_to:
+    - 工具实测、工作流演示、教程、多章节内容
+    - 素材含大量录屏/界面——本身就有「系统感」，壳是顺水推舟
+    - 观众是同行/从业者，愿意读小字
+  fails_on:
+    - 双侧胶片齿孔 + 精致素材 = 双重包装，一眼就是套壳
+    - 角标卡在 13–14%H：主体偏上的素材必穿脸
+    - 条目数写死：7 步总览改成 6 步，间距立刻挤到不可读
+    - 竖屏 + 顶条会同时挤压主体和字幕，可用高度掉到 0.75 以下
+
+E_pack-ui-narrative:
+  applies_to:
+    - 方法论、测评、清单、对比、改造过程
+    - 内容本身有「结构」可以画出来（步骤、象限、尺寸、进程）
+    - 单条素材能撑起一张卡（不是一堆碎镜头）
+  fails_on:
+    - 卡面占片长过半 + 4.1s 中位 → 节奏闷死
+    - 标注层在调色之前 → 红色被抽成灰粉
+    - 刻度轴/进度条与内容不同步 → 观众立刻发现是贴上去的
+    - 83s 长镜靠手工动作撑：素材撑不住就是死气
+
+# ------------------------------------------------------------------ 八条具体组合
+#
+# 组合 = 字幕系统 × （壳 有/无）× （卡 有/无）。八个格子全部列出，因为「没有壳」和
+# 「有壳但内容不够」是两件事，选的时候要能指着格子说话。
+
+combos:
+
+  - id: A
+    compose:
+      subtitle_system: pack-safe-talking
+      shell: null
+      cards: null
+    label: 纯字幕版（A）
+    use_when:
+      - 单人坐姿口播、讲座、访谈精剪（机位几乎不动），且素材本身构图干净、不需要靠图形层解释
+      - 一处信息都画不成卡，硬加卡就是贴纸
+    risk:
+      - 主体偏上的竖屏素材：0.86 中心正好落在手上/桌面上
+      - 亮底素材 + 只用投影不用描边 → 白字直接消失
+    render_flags: --pack pack-safe-talking
+
+  - id: A-C
+    compose:
+      subtitle_system: pack-safe-talking
+      shell: pack-hud-monitor
+      cards: null
+    label: 壳 + 字幕版（A+C）
+    use_when:
+      - 素材含大量录屏/界面——本身就有「系统感」，壳是顺水推舟
+      - 观众是同行/从业者，愿意读小字
+      - 流程/步骤/教程/多章节，需要观众随时知道走到第几步
+    risk:
+      - 竖屏 + 顶条会同时挤压主体和字幕，可用高度掉到 0.75 以下
+      - 双侧胶片齿孔 + 精致素材 = 双重包装，一眼就是套壳
+    render_flags: --pack pack-safe-talking --shell pack-hud-monitor
+
+  - id: A-E
+    compose:
+      subtitle_system: pack-safe-talking
+      shell: null
+      cards: pack-ui-narrative
+    label: 字幕 + 卡（A+E）
+    use_when:
+      - 内容本身有「结构」可以画出来（步骤、象限、尺寸、进程），但只有两三处，不值得整片套壳
+      - 单条素材能撑起一张卡（不是一堆碎镜头）
+    risk:
+      - 卡面占片长过半 + 4.1s 中位 → 节奏闷死
+      - 标注层在调色之前 → 红色被抽成灰粉
+    render_flags: --pack pack-safe-talking （卡由 plan 的 card 字段带出）
+
+  - id: A-C-E
+    compose:
+      subtitle_system: pack-safe-talking
+      shell: pack-hud-monitor
+      cards: pack-ui-narrative
+    label: 壳 + 字幕 + 卡（A+C+E）
+    use_when:
+      - 方法论、测评、清单、对比、改造过程，且片子长到需要章节定位（>300s 或 6 个以上 beat）
+      - 观众是同行/从业者，愿意读小字
+    risk:
+      - 竖屏 + 顶条会同时挤压主体和字幕，可用高度掉到 0.75 以下
+      - 壳吃顶部 4.7%H、字幕带 90.4%H 起，卡宽 80–90%W 只能落在中间那一条
+    render_flags: --pack pack-safe-talking --shell pack-hud-monitor
+
+  - id: B
+    compose:
+      subtitle_system: pack-paper-brand
+      shell: null
+      cards: null
+    label: 纸感字幕版（B）
+    use_when:
+      - 品牌/空间/质感类素材（家装、展厅、产品、面料），有大量静止细节可看的长镜头
+      - 讲情绪、讲品味，不讲信息密度
+    risk:
+      - 需要信息推进的内容：11.4s 中位 + 零音效会像「卡住了」
+      - 有色彩价值的素材（实拍红木、花艺、霓虹）会被 saturation_cap 压成灰片
+    render_flags: --pack pack-paper-brand
+
+  - id: B-C
+    compose:
+      subtitle_system: pack-paper-brand
+      shell: pack-hud-monitor
+      cards: null
+    label: 纸感 + 壳（B+C）
+    use_when:
+      - 品牌类长片，章节多到必须给观众路标，但画面本身可以慢
+    risk:
+      - 双侧胶片齿孔 + 精致素材 = 双重包装，一眼就是套壳（B 的素材正是精致素材）
+      - 需要信息推进的内容：11.4s 中位 + 零音效会像「卡住了」，壳只会让「卡住」更明显
+    render_flags: --pack pack-paper-brand --shell pack-hud-monitor
+    note: 这套里风险最高的一格，选之前先想清楚壳是给谁看的
+
+  - id: B-E
+    compose:
+      subtitle_system: pack-paper-brand
+      shell: null
+      cards: pack-ui-narrative
+    label: 纸感 + 卡（B+E）
+    use_when:
+      - 空间/材质类内容里有「结构」可画（尺寸、对位、改造前后），纸感与纸片卡同源
+      - 有大量静止细节可看的长镜头，卡可以停在细节上
+    risk:
+      - 卡面占片长过半 + 4.1s 中位 → 节奏闷死（B 的镜头中位 8.5–11.4s，和卡停留 4–7s 不是同一节拍）
+    render_flags: --pack pack-paper-brand （卡由 plan 的 card 字段带出）
+
+  - id: B-C-E
+    compose:
+      subtitle_system: pack-paper-brand
+      shell: pack-hud-monitor
+      cards: pack-ui-narrative
+    label: 纸感 + 壳 + 卡（B+C+E）
+    use_when:
+      - 只在「品牌长片 + 有多章节 + 有可画的结构」三件事同时成立时才用
+    risk:
+      - 三层都吃画面，B 的签名（底部让空 24%H）会被壳底条和卡挤掉
+      - 双侧胶片齿孔 + 精致素材 = 双重包装，一眼就是套壳
+    render_flags: --pack pack-paper-brand --shell pack-hud-monitor
+    note: 保留这一格是为了让禁忌可见，不是推荐
+
+# ------------------------------------------------------------------ 互斥规则
+#
+# 1、2 是套内互斥（选错了当场看得出来），3、4 是跨族铁律（见 references/packaging-families.md 第三节）。
+
+mutual_exclusion:
+
+  - id: sub-one-of
+    rule: subtitle_system 只能有一个，A 与 B 同片不许混
+    why: A 是黑体 + 描边，字幕带中心 0.79–0.92H、下沿距底 ≥5%H；B 是宋体 + 投影，中心 0.62–0.76H、下沿距底 ≥24%H。带位差 10–16 个百分点、字体族不同——混用等于一条时间轴上跑两套字
+    enforce: pick_pack 只会挑一个；渲染时 --pack 只接一个名字
+
+  - id: shell-one-type
+    rule: C 的壳型只许选一种，竖条与顶条不许同屏
+    why: 顶条是 0–4.7%H 通栏（5–9 个条目）；竖条是 5×21px 红竖条 @6.7–7.4%W / 11.6–13.2%H 的章节锚点。两种都是「你在第几段」的指示器，同屏就是两条进度在打架
+    enforce: 壳型在 render 时由 pack 的 shell.type 定，一套片只取 [top_bar, corner_badge, chapter_rail] 里的一个
+
+  - id: layer-cap
+    rule: 每层最多一个 pack，壳与卡都是 0 或 1
+    why: 两个壳 = 两个系统在跑；两张卡 = 观众要同时读两层结构
+    enforce: members.*.choice 里写死 one_of / zero_or_one
+
+  - id: bottom-5
+    rule: 字幕带下沿不许进最后 5%H
+    why: E 的下沿已经贴到 4.5%H；竖屏改造会被平台底栏吃掉。这条跨所有族，没有例外
+    enforce: 加壳时以 C 的 content_area 为准（带顶条可用高 0.86、带角标 0.75）
+
+  - id: stroke-or-shadow
+    rule: 同一层字，描边和投影二选一
+    why: 宋体一律投影（描边糊笔画），黑体可以用描边（投影在亮底不够）；两者叠用的片子，字看起来永远脏
+    enforce: 选了 B 就全片投影，选了 A 就全片描边，壳内小字用 2–3px 描边
+
+  - id: graphics-after-grade
+    rule: 壳与卡都在调色之后叠
+    why: 买鞋自由那片明确记了——红色尺寸标注如果进了调色链，会跟画面一起被抽灰；E 的标注色 #D4231F 一旦被 saturation_cap 压过就成了灰粉
+    enforce: E 的 annotation.must_render_after_grade 为 true，壳同理
+
+# ------------------------------------------------------------------ 落地接口
+#
+# 渲染侧只认两个参数，卡不单独给参数：
+render:
+  pack_flag: --pack      # 取 members.subtitle_system 里的一个
+  shell_flag: --shell    # 取 members.shell 里的一个，或省略
+  cards_note: E 的卡由 plan.json 里段落的 card 字段驱动（text / at / dur），不在命令行另开开关

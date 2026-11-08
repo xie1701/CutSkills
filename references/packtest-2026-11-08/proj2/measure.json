@@ -1,0 +1,92 @@
+[
+ {
+  "measured": {
+   "video": "film.mp4",
+   "seconds": 10.4,
+   "present": true,
+   "band_center_h": 0.8602,
+   "glyph_h_ratio": 0.05,
+   "bottom_gap_h": 0.1156,
+   "cues": 2,
+   "cues_per_min": 11.5,
+   "covered_pct": 21.2,
+   "width_pct": 94.0,
+   "bar_h": 0.0484,
+   "bar_type_h": 0.0109,
+   "badge_y_h": 0.1234,
+   "cuts": 3,
+   "shot_median_s": 2.6,
+   "sat_mean": 0.304,
+   "sfx_per_min": 0.0,
+   "silent_pct": 15.5,
+   "loudness_db": -14.2
+  },
+  "check": [
+   {
+    "item": "字幕带中心（%H）",
+    "declared": [
+     0.79,
+     0.92
+    ],
+    "measured": 0.8602,
+    "verdict": "在带内"
+   },
+   {
+    "item": "字形高度（%H）",
+    "declared": [
+     0.033,
+     0.06
+    ],
+    "measured": 0.05,
+    "verdict": "在带内"
+   },
+   {
+    "item": "字幕下沿距底（%H）",
+    "declared": "≥0.05",
+    "measured": 0.1156,
+    "verdict": "在带内"
+   },
+   {
+    "item": "镜头中位（秒）",
+    "declared": [
+     2.0,
+     8.5
+    ],
+    "measured": 2.6,
+    "verdict": "在带内"
+   },
+   {
+    "item": "音效密度（处/分）",
+    "declared": [
+     2.0,
+     6.3
+    ],
+    "measured": 0.0,
+    "verdict": "带外"
+   },
+   {
+    "item": "顶条高度（%H）",
+    "declared": 0.05,
+    "measured": 0.0484,
+    "verdict": "在带内"
+   },
+   {
+    "item": "顶条字高（%H）",
+    "declared": 0.014,
+    "measured": 0.0109,
+    "verdict": "在带内"
+   },
+   {
+    "item": "角标高度（%H）",
+    "declared": [
+     0.116,
+     0.14
+    ],
+    "measured": 0.1234,
+    "verdict": "在带内"
+   }
+  ],
+  "pass": 7,
+  "fail": 1
+ }
+]

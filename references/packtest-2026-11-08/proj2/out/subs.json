@@ -1,0 +1,53 @@
+{
+ "cues": [
+  {
+   "start": 0.0,
+   "end": 2.52,
+   "text": "那么因为有不同的需求，"
+  },
+  {
+   "start": 2.52,
+   "end": 4.2,
+   "text": "就是说我们也不能说是只"
+  },
+  {
+   "start": 4.2,
+   "end": 5.16,
+   "text": "是只拿进"
+  },
+  {
+   "start": 5.187,
+   "end": 5.937,
+   "text": "口产品，"
+  },
+  {
+   "start": 5.787,
+   "end": 7.527,
+   "text": "因为毕竟进口的产品它的"
+  },
+  {
+   "start": 7.527,
+   "end": 8.847,
+   "text": "成本比较高。"
+  },
+  {
+   "start": 8.847,
+   "end": 10.347,
+   "text": "有一些商业落地的话，"
+  }
+ ],
+ "band": [
+  1391,
+  1911
+ ],
+ "font": "/Users/jerry/Library/Fonts/AlimamaShuHeiTi-Bold.otf",
+ "size": 96,
+ "overflow": [
+  "那么因为有不同的需求，",
+  "就是说我们也不能说是只",
+  "因为毕竟进口的产品它的"
+ ],
+ "speech_chars": 57,
+ "avg_chars": 8.14,
+ "chars_per_s": 5.44
+}

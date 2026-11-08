@@ -296,6 +296,40 @@ python3 <SKILL_DIR>/scripts/render_film.py --project <项目目录> --library "<
 
 EDL 进，`out/film.mp4` 出。只做四件能在成片上验的事：**画幅统一、声音对齐、字幕贴准、响度达标**。
 
+### 包装模板：用 `--pack` / `--shell`，不要手改像素
+
+```bash
+# 只出字幕系统（A 族）
+python3 <SKILL_DIR>/scripts/render_film.py --project <项目> --library "<库>" \
+  --pack pack-safe-talking --canvas 1080x1920 --fps 30
+
+# 壳 + 字幕系统（C 族的顶条/角标/时间码叠在 A 的字幕上）
+python3 <SKILL_DIR>/scripts/render_film.py --project <项目> --library "<库>" \
+  --pack pack-safe-talking --shell pack-hud-monitor --canvas 1080x1920 --fps 30
+```
+
+`styles/` 里有 5 族模板（从 20 支参考片反解出来的，见 [references/packaging-families.md](references/packaging-families.md)），
+外加一套给本地商家内容用的可组合套 [styles/set-qizao.yaml](styles/set-qizao.yaml)。分层是硬的：
+
+| 角色 | 谁能当 | 说明 |
+|---|---|---|
+| 字幕系统（`--pack`） | A 安全口播 / B 纸感品牌 / D 双语双行 | 二选一，不许同片混两支 |
+| 壳（`--shell`） | C 监控壳体 | 可选，0 或 1 |
+| 卡（EDL 里的 `card`） | E 图文界面叙事 | 可选，跟着段走 |
+
+**C 和 E 不能传给 `--pack`**——它们没有字幕系统，`pack_style.to_style()` 会直接停下并告诉你该配哪支。这条不是靠文档守，是靠代码守。
+
+模板里存的是**比例**（字高占画幅 4.5%、顶条占 5%H），`scripts/pack_style.py` 负责翻成像素：
+字号不是 `4.5%×1920`，而是用 PIL 量一次真字形墨迹高度再反算（直接乘会小 20–30%），
+所以"按模板做"和"照参考片做"能对到一起。改完模板先跑一行自检，比渲一遍便宜：
+
+```bash
+python3 <SKILL_DIR>/scripts/pack_style.py --pack pack-safe-talking --canvas 1080x1920
+```
+
+包到什么程度算复刻到位：**换素材之后声明的区间还在带内**，这一条有实测存档——
+[references/packtest-2026-11-08/report.md](references/packtest-2026-11-08/report.md)（10 秒、同素材换模板、8 个 token、7 个搬得走 1 个搬不动）。
+
 | 步 | 做法 | 为什么这么做 |
 |---|---|---|
 | 逐段渲 | 每段单独编码到 `work/v**.mp4`（1080×1920 / 30fps / x264 CRF18），再 `concat -c copy` | 单通道 filtergraph 一次合成，改一段就得整片重编码 |
@@ -370,6 +404,20 @@ python3 <SKILL_DIR>/scripts/verify_film.py --project <项目目录>
 3. **冷暖不统一，靠全局加暖治不好。** 口播是暖光室内、工地是日光灰，全局加暖会把本来正常的镜头一起染黄。做法是每镜缩到 1×1 量 R/B，统一到口播段的中位数，增益夹在 0.90–1.12。实测 R/B 从 1.15–1.35 收到 1.32–1.44。
 4. **单机位长口播，靠"推镜切"过节奏关。** 同一段画面按 1.0× / 1.12× 交替、切点吸到字界，声音不拆——口播中位从 4.95s 降到 2.43s，听感不断。
 5. **字幕密度这个指标依赖语速。** 参考片 8 字/秒才有 45–58 条/分钟；这条片子 3.7 字/秒、每条 7–9 字，期望值就是 29 条/分钟。所以 D 段判的是"和期望值差多少"，绝对数字照样写进说明。
+
+### 按包装模板量：`measure_pack.py`
+
+```bash
+python3 <SKILL_DIR>/scripts/measure_pack.py --video out/film.mp4 \
+  --pack pack-safe-talking [--shell pack-hud-monitor] --json out/measure.json
+```
+
+只看**成片像素**，不读渲染器的 JSON；量 8 个 token 和模板声明的区间对账（字幕带中心 / 字形高 / 下沿距底 /
+镜头中位 / 音效密度 / 顶条高 / 顶条字高 / 角标高）。判读只有三种：`在带内` / `带外` / `未声明`。
+
+两个口径上的坑，量之前先知道：
+- **字形高度含描边。** 模板写的是字的墨迹高，实测是"字 + 2×描边"。7px 描边会让 0.045H 量成 0.052H，别当成超限。
+- **白像素不能用来找字幕。** 白字压亮底（白墙、白水泥）时整行白像素和背景同量级，判据直接失效（实测报"没有字幕"）。改成判**横向边缘能量随时间的起伏**才稳；角标同理，判"同一镜头内两帧像素差 <5"（叠加层是画上去的，不动），按亮度判会被亮地面骗到 24.7%H。
 
 **D 只覆盖能量出来的东西。** 节奏顺不顺、话说清没清，得人看一遍——报告末尾就写着这句，别让人误以为绿灯等于能发。
 
@@ -479,6 +527,9 @@ source scripts/runtime.sh env && scripts/runtime.sh install
 - [references/plan-templates.md](references/plan-templates.md) — 六套剪辑方案骨架（beats + role），以及怎么按库里的素材挑一套
 - [references/blind-test-playbook.md](references/blind-test-playbook.md) — 盲测怎么落地：三种身份、同源偏差七条缓解、怎么判读、机器能查的 vs 只有裁判能查的
 - [references/stage-b-playbook.md](references/stage-b-playbook.md) — B 段怎么选段、怎么写理由、什么时候该砍
+- [references/packaging-families.md](references/packaging-families.md) — 20 支参考片反解出的 5 族包装语言 + 四条跨族铁律（含 A 族的「让位变体」）
+- [references/pack-compose-set.md](references/pack-compose-set.md) — 可组合套怎么选：手动挑 / `pick_pack.py` 自动判 / 沿用上一次
+- [references/packtest-2026-11-08/report.md](references/packtest-2026-11-08/report.md) — **换素材的 10 秒：模板和临摹的分界线**，8 个 token 的实测与三个新坑
 - [references/cli.md](references/cli.md) — **全部脚本的全部参数**（从代码生成，不要手改）
 - [references/production-line.md](references/production-line.md) — 这套东西当**产线**看时的验收：要量的四个数、现在各有多少、为什么「一条片 12 项绿灯」证明不了可复用
 - [references/stranger-run-2026-11-07/卡点.md](references/stranger-run-2026-11-07/卡点.md) — 一个没参加过讨论的人照这份说明书跑一遍的卡点清单，以及为此改了什么。**下次大改文档后再找一个人跑一遍**，这是唯一能查出「你以为写清了」的裁判

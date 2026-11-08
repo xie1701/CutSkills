@@ -234,6 +234,10 @@
 | `--project` | **必填** |
 | `--library` | **必填** |
 | `--style` | — |
+| `--pack` | 字幕系统模板：pack-safe-talking / pack-paper-brand / pack-bilingual 等 |
+| `--shell` | 壳体模板（可选）：pack-hud-monitor。只出壳，字幕系统仍由 --pack 定 |
+| `--canvas` | WxH；用 --pack 时生效（默认 '1080x1920'） |
+| `--fps` | （默认 30） |
 | `--crf` | （默认 18） |
 | `--no-punch` | 不做推镜切：口播长段保持一镜到底（口播中位会超标，只在刻意要长镜头时用） |
 
@@ -280,6 +284,53 @@
 | `--plan` | 默认用项目里的 plan.json |
 | `--render-only` | 只量渲染+验收（改一段的返工成本） |
 | `--show` | 只打印历史 |
+
+### `measure_pack.py`
+*读像素的包装裁判：量出成片**实际长什么样**，和包装模板声明的区间对账。*
+
+| 参数 | 说明 |
+|---|---|
+| `--video` | **必填** |
+| `--pack` | **必填** |
+| `--shell` | — |
+| `--json` | — |
+
+### `pack_style.py`
+*包装模板 → 渲染参数 + 壳体叠加层。*
+
+| 参数 | 说明 |
+|---|---|
+| `--pack` | **必填** |
+| `--canvas` | （默认 '1080x1920'） |
+| `--fps` | （默认 30） |
+
+### `pick_pack.py`
+*CutSkills · 包装选择：按实测规则，从一套包装里挑出「字幕系统 + 壳 + 卡」。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填**　项目目录（_cutskills/projects/<slug>） |
+| `--library` | 素材库根；不给就按项目路径往上找 |
+| `--set` | 包装套 yaml，默认 styles/set-qizao.yaml |
+| `--json` | 打印机器可读结果 |
+| `--no-write` | 不写 pack-choice.md |
+
+### `probe_packaging.py`
+*CutSkills · 包装探针：从参考片里量出「包装」这一层的规格。*
+
+| 参数 | 说明 |
+|---|---|
+| `--dir` | **必填** |
+| `--out` | 默认 <dir>/_packaging |
+| `--only` | 只跑文件名含该子串的 |
+
+### `ref_frames.py`
+*CutSkills · 参考片取样：把一支片子的「包装信息量最大的那些帧」拼成联系表，交给视觉模型看。*
+
+| 参数 | 说明 |
+|---|---|
+| `--dir` | **必填** |
+| `--only` | — |
 
 ### `selftest.py`
 *端到端自测：从零造一个小素材库，把 A→B→C→D 整条链跑一遍。*
