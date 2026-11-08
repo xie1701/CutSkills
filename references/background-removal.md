@@ -12,20 +12,26 @@
 
 ## 权重怎么放
 
-```
-~/.cache/hyperframes/background-removal/models/u2net_human_seg.onnx     # 168 MB
-```
-
-来源是 `https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net_human_seg.onnx`，
-`render_hf.py` 那条记录里的 `MODEL_URLS` 就是这个地址。用 `curl -L -C -` 支持断点续传，
-网络抽风重试几次就下来了。
+**这台机器上早就有一份**：`~/models/matte/u2net_human_seg.onnx`（2026-10-28 就有，168 MB）。
+我一开始没查，又从 GitHub 下了一份一模一样的（md5 相同），白下了 168 MB。
+正确做法是**软链过去**，不要再下：
 
 ```sh
-mkdir -p ~/.cache/hyperframes/background-removal/models
-curl -L --retry 5 -C - -o ~/.cache/hyperframes/background-removal/models/u2net_human_seg.onnx \
-  https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net_human_seg.onnx
+for d in ~/.cache/hyperframes/background-removal/models \
+         ~/.cutskills/cache/hyperframes/background-removal/models; do
+  mkdir -p "$d"
+  ln -sfn ~/models/matte/u2net_human_seg.onnx "$d/u2net_human_seg.onnx"
+done
 npx --yes hyperframes@0.9.23 remove-background --info   # Weights cached: yes
 ```
+
+两个路径都要有：直接跑用 `~/.cache`，`source scripts/runtime.sh env` 之后
+`XDG_CACHE_HOME` 被改成 `~/.cutskills/cache`，hyperframes 就去那边找。
+
+真要重下的话（换机器），地址是
+`https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net_human_seg.onnx`，
+`hyperframes` 里的 `MODEL_URLS` 就是这个。`curl -L --retry 5 -C -` 支持断点续传；
+之前报 `HTTP 504` 是网络抽风，不是链接错。
 
 本机有 **CoreML** provider（`Available providers: cpu, coreml`），会自动选中。
 
