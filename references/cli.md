@@ -285,6 +285,26 @@
 | `--render-only` | 只量渲染+验收（改一段的返工成本） |
 | `--show` | 只打印历史 |
 
+### `gen_boroll.py`
+*CutSkills · B-roll 图形卡生成器：三种可参数化的图形卡 → 透明 PNG 叠加层。*
+
+| 参数 | 说明 |
+|---|---|
+| `--kind` | **必填** |
+| `--spec` | **必填**　JSON 或 YAML 参数文件（字段表见 references/boroll-specs.md） |
+| `--out` | **必填**　输出 PNG（RGBA，画幅外全透明） |
+| `--canvas` | WxH，默认 1080x1920；spec 里也能写 canvas |
+| `--font` | f'字体，默认 {FONT_DEFAULT}（默认 str(FONT_DEFAULT)） |
+
+### `gen_sfx.py`
+*CutSkills · 合成音效素材：一次算完落盘，之后只读复用。*
+
+| 参数 | 说明 |
+|---|---|
+| `--name` | 只做这一个 |
+| `--force` | 已存在也重做 |
+| `--dir` | 输出目录（默认 $CUTSKILLS_HOME/assets/sfx） |
+
 ### `measure_pack.py`
 *读像素的包装裁判：量出成片**实际长什么样**，和包装模板声明的区间对账。*
 
@@ -294,6 +314,17 @@
 | `--pack` | **必填** |
 | `--shell` | — |
 | `--json` | — |
+
+### `mix_sfx.py`
+*CutSkills · 按时间点把音效混进一条人声轨。*
+
+| 参数 | 说明 |
+|---|---|
+| `--audio` | **必填**　人声轨 wav（混音的底） |
+| `--cues` | **必填**　cues.json：[{t, name, gain_db}] |
+| `--out` | **必填**　输出 wav |
+| `--sfx-dir` | 音效目录（默认 $CUTSKILLS_HOME/assets/sfx） |
+| `--ceiling-db` | f'混后峰值硬顶（默认 {CEILING_DB} dBFS）。人声轨若已经过 loudnorm，它的样本峰本身就贴着 -1dBTP，硬顶设得更严只会把音效压没（默认 CEILING_DB） |
 
 ### `pack_style.py`
 *包装模板 → 渲染参数 + 壳体叠加层。*

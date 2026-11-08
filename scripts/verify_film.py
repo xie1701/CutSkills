@@ -70,6 +70,25 @@ def main() -> int:
         style_path = (Path(__file__).resolve().parent.parent / "styles"
                       / f"{edl.get('style_pack') or 'talking-head-v1'}.yaml")
     style = yaml.safe_load(style_path.read_text())
+    # 包装模板（pack-*.yaml）不是渲染参数表：它的画幅写成 `canvas.aspect`（[9:16, 16:9]），
+    # 因为同一族要跨两个方向用。验收这一步却需要**一个**确定画幅。
+    # 所以碰到这种模板，画幅/帧率一律以成片自己的流信息为准，模板在这两项上不发言——
+    # 硬塞一个 width 进去，等于让模板替片子决定它该是什么尺寸。
+    if "subtitle" in style and "stem" not in (style.get("subtitle") or {}):
+        # 走渲染时用的同一个翻译层，别让验收去读模板的原始字段：
+        # 两边各读一套字段，迟早会出现"渲的时候 0.098H、验的时候 0.070H"这种对不上的事。
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pack_style as _ps
+        _c = style.get("canvas") or {}
+        _W = int(_c.get("width") or 1080)
+        _H = int(_c.get("height") or 1920)
+        _f = _c.get("fps")
+        _fps = int((_f[0] if isinstance(_f, (list, tuple)) else _f) or 30)
+        style = _ps.to_style(style, _W, _H, _fps)
+        # 模板允许两种帧率（[24, 30]）时，翻译层只会挑第一个。验收得知道"哪些都算对"，
+        # 不然 30fps 的成片会被 24 判红——这不是片子的问题，是我们把选择权丢了。
+        if isinstance(_f, (list, tuple)):
+            style.setdefault("canvas", {})["fps"] = list(_f)
     film = proj / "out" / "film.mp4"
     if not film.exists():
         print(f"没有成片：{film}（先跑 render_film.py）", file=sys.stderr)
@@ -90,12 +109,23 @@ def main() -> int:
 
     # 画幅 / 帧率
     canvas = style["canvas"]
-    ok = (W, H) == (int(canvas["width"]), int(canvas["height"]))
-    add("画幅", f"{W}×{H}", "green" if ok else "red",
-        "" if ok else f"应为 {canvas['width']}×{canvas['height']}")
-    ok = abs(fps_v - float(canvas["fps"])) < 0.05
-    add("帧率", f"{fps_v:.2f}", "green" if ok else "red",
-        "" if ok else f"应为 {canvas['fps']}")
+    if canvas.get("width"):
+        ok = (W, H) == (int(canvas["width"]), int(canvas["height"]))
+        add("画幅", f"{W}×{H}", "green" if ok else "red",
+            "" if ok else f"应为 {canvas['width']}×{canvas['height']}")
+    else:
+        add("画幅", f"{W}×{H}", "green", "包装模板不限定画幅，以成片为准")
+    fps_spec = canvas.get("fps")
+    if isinstance(fps_spec, (list, tuple)):     # 模板写 [24, 30] = 两个方向都接受
+        ok = any(abs(fps_v - float(x)) < 0.05 for x in fps_spec)
+        add("帧率", f"{fps_v:.2f}", "green" if ok else "red",
+            "" if ok else f"应为 {'/'.join(str(x) for x in fps_spec)}")
+    elif fps_spec:
+        ok = abs(fps_v - float(fps_spec)) < 0.05
+        add("帧率", f"{fps_v:.2f}", "green" if ok else "red",
+            "" if ok else f"应为 {fps_spec}")
+    else:
+        add("帧率", f"{fps_v:.2f}", "green", "包装模板不限定帧率，以成片为准")
 
     # 音轨
     ok = aud.get("codec_name") == "aac" and int(aud.get("channels") or 0) == 2
@@ -187,7 +217,8 @@ def main() -> int:
     cues = subs.get("cues") or []
     if cues:
         per_min = len(cues) / (dur / 60) if dur else 0
-        lo, hi = style["subtitle"]["density_per_min"]
+        # 包装模板不声明密度（A 族 0–8.5 处/分这种跨度没有意义），所以这一项可以缺
+        lo, hi = (style["subtitle"].get("density_per_min") or ["—", "—"])
         # 密度这个指标本身依赖语速：参考片 8 字/秒，45–58 条/分钟；这条片子 3.8 字/秒，
         # 同样拆成 8–9 字一条就只有 25 条/分钟。所以判的是**期望值对不对**，
         # 绝对数字照样写在说明里，别让"内容慢"背成"剪辑懒"的锅。
@@ -200,7 +231,7 @@ def main() -> int:
             f"参考片 {lo}–{hi}（快语速）；本片语速 {cps:.1f} 字/秒、"
             f"单条 {avg:.1f} 字 → 期望 {derived:.0f} 条/分钟")
         longest = max(len(c["text"]) for c in cues)
-        mx = int(style["subtitle"]["max_chars_per_line"])
+        mx = int(style["subtitle"].get("max_chars_per_line") or 16)
         add("单条最长", f"{longest} 字", "green" if longest <= mx else "yellow",
             f"上限 {mx}（超了断句，别缩字号）")
         gaps = [(cues[i + 1]["start"] - cues[i]["end"]) for i in range(len(cues) - 1)]
@@ -247,12 +278,13 @@ def main() -> int:
     talk = [u["dur"] for u in units if u.get("medium") == "talking"]
     if talk:
         med = statistics.median(talk)
-        tgt = float(style["shots"]["talking_median_s"])
+        tgt = float((style.get("shots") or {}).get("talking_median_s")
+                    or ((style.get("tempo") or {}).get("shot_median_s") or [2.4])[0])
         level = "green" if abs(med - tgt) <= 0.8 else ("yellow" if abs(med - tgt) <= 2.0 else "red")
         add("口播镜头中位", f"{med:.2f}s", level, f"目标 {tgt}s")
 
     # 介质变化
-    win = float(style["shots"]["medium_change_within_s"])
+    win = float((style.get("shots") or {}).get("medium_change_within_s") or 40.0)
     last, worst = 0.0, 0.0
     t = 0.0
     prev = None

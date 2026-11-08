@@ -299,18 +299,29 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
     out_dir.mkdir(parents=True, exist_ok=True)
     out, long_texts = [], []
     for i, c in enumerate(projects):
+        if c.get("path"):                    # 现成的图（B-roll 卡）直接贴，不再画字
+            out.append({"path": c["path"], "y": 0, "kind": "boroll",
+                        "start": c["start"], "end": c["end"]})
+            continue
         text = c["text"]
         # 花字（kind: keyword）：不是"牌子"，是**从字幕条里抽出、放大、上抬**的那一句话。
         # 区别很实：卡片有底衬、居中不动；花字没有底、字号近 2 倍、颜色是模板指定的强调色。
         # 两者混着用，画面立刻变成"贴纸拼盘"。
-        big = c.get("kind") == "keyword" and bool(emphasis)
+        big = c.get("kind") in ("keyword", "behind", "cutout") and bool(emphasis)
         if big:
             size = int(emphasis["size_px"])
-            band_h = int(size * 2.0)
+            f = ImageFont.truetype(str(font), size)
+            # 花字默认**一行**；只有一行在 9:16 里放不下时才折两行，而且不缩字号。
+            # 缩字号会把"大字"塌成一条又长又细的横幅——那正是它不像大字的全部原因。
+            lines = [text]
+            if f.getlength(text) > 0.92 * w and len(text) > 2:
+                cut = (len(text) + 1) // 2
+                lines = [text[:cut], text[cut:]]
+            band_h = int(size * (1.30 * len(lines) + 0.55))
             y = int(emphasis["center_y_px"]) - band_h // 2
         else:
             size, band_h, y = 58, 220, 900    # 卡片中线：字幕带上方，避开平台底栏
-        f = ImageFont.truetype(str(font), size)
+            f = ImageFont.truetype(str(font), size)
         if len(text) > 24:
             long_texts.append(text)
         img = Image.new("RGBA", (w, band_h), (0, 0, 0, 0))
@@ -318,9 +329,12 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
         if big:
             col = str(emphasis.get("color") or "#F5D33A").lstrip("#")
             fill = tuple(int(col[k:k + 2], 16) for k in (0, 2, 4)) + (255,)
-            d0.text((w / 2, band_h / 2), text, font=f, fill=fill, anchor="mm",
-                    stroke_width=int(emphasis.get("stroke_px") or 0),
-                    stroke_fill=(0, 0, 0, 245))
+            lh = size * 1.30
+            y0 = (band_h - lh * len(lines)) / 2 + lh / 2
+            for k, ln in enumerate(lines):
+                d0.text((w / 2, y0 + k * lh), ln, font=f, fill=fill, anchor="mm",
+                        stroke_width=int(emphasis.get("stroke_px") or 0),
+                        stroke_fill=(0, 0, 0, 245))
         else:
             tw = f.getlength(text)
             pad_x, pad_y = 44, 30
@@ -334,6 +348,52 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
         out.append({"path": str(p), "y": y, "kind": c.get("kind") or "card",
                     "start": c["start"], "end": c["end"], "text": text})
     return out, {"too_long": long_texts}
+
+
+MASK_BIN = Path(__file__).resolve().parent / "native" / "person_mask"
+
+
+def person_masks(shot_video: Path, dur: float, fps: float, cache: Path) -> Path | None:
+    """对**已经标准化过的镜头**（work/vNNN.mp4）逐帧出人物遮罩，返回灰度 mask 视频。
+
+    为什么在标准化之后的镜头上抠，而不是原始素材上：
+    手机竖拍的素材是横向编码 + rotation 元数据，原始帧是 1920×1080 躺着的；
+    ffmpeg 会按 rotation 转正，Vision 不会——直接拿原始素材抠出来的 mask
+    和画面对不上（实测第一次抠像，白色人形整个跑到画面右边）。
+    在 work/ 里的镜头抠，两边都是同一套像素坐标，不用对变换。
+
+    为什么遮罩编成视频而不是 PNG 序列：一套 3 秒镜头 90 张 1080×1920 PNG ≈ 300MB，
+    一个项目下来几个 G；编成灰度 h264 就是几百 KB，ffmpeg 用 `format=gray` 取回来一模一样。
+    """
+    # 抠像器是 Swift 写的（用 macOS 自带 Vision，不下载任何模型）。
+    # 第一次用到时现编：`swiftc -O` 1 秒出二进制，比"让用户先跑一条 build 命令"可靠——
+    # 忘跑 build 的表现是"静默退化成没有抠像"，那种失败最难发现。
+    if not MASK_BIN.exists():
+        src = MASK_BIN.with_suffix(".swift")
+        if not src.exists():
+            return None
+        r = subprocess.run(["swiftc", "-O", str(src), "-o", str(MASK_BIN)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  ！抠像器编译失败：{(r.stderr or '')[-300:]}", file=sys.stderr)
+            return None
+    frames = cache / "mask_png"
+    out = cache / "mask.mp4"
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    if cache.exists() and (cache / "mask.mp4").exists():
+        pass
+    frames.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run([str(MASK_BIN), str(shot_video), "0", f"{max(0.1, dur):.3f}",
+                        str(frames), str(fps)], capture_output=True, text=True)
+    if r.returncode != 0 or not any(frames.glob("f*.png")):
+        return None
+    n = len(list(frames.glob("f*.png")))
+    run(["ffmpeg", "-v", "error", "-y", "-framerate", f"{fps}", "-i",
+         str(frames / "f%04d.png"), "-vf", "format=gray", "-frames:v", str(n),
+         "-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+         str(out)])
+    return out
 
 
 # ---------------------------------------------------------------- 主流程
@@ -450,7 +510,9 @@ def main() -> int:
     total = t
 
     # ---- 白平衡对齐：先量每一镜的 R/B，再统一到口播段的水平
-    GRADE = {"warm_high_sat": ",eq=saturation=1.30:contrast=1.04,"
+    # 饱和度 1.42：参考片实测 sat_mean 0.511，初版 1.30 出来只有 0.436，
+    # 差 0.075 就是"看着发灰"的全部来源。别再加对比度——提对比会把暗部压死。
+    GRADE = {"warm_high_sat": ",eq=saturation=1.42:contrast=1.04,"
                              "colortemperature=temperature=4900:mix=0.45"}
 
     def base_vf(hdr: bool) -> str:
@@ -651,14 +713,111 @@ def main() -> int:
         at = c.get("at")
         start = round(s["_start"] + (float(at) if isinstance(at, (int, float)) else 0.25), 3)
         kind = str(c.get("kind") or "card")
-        if kind == "keyword" and style.get("emphasis"):
+        if kind in ("keyword", "behind", "cutout") and style.get("emphasis"):
             hold = style["emphasis"]["hold_s"]
             d = max(float(hold[0]), min(d, float(hold[1])))
             start = round(s["_start"] + (float(at) if isinstance(at, (int, float)) else 0.6), 3)
-        card_proj.append({"text": str(c["text"]), "start": start,
-                          "end": round(start + d, 3), "kind": kind})
+            # 大字**什么时候出**不由我们拍板，由这句话**什么时候被说出来**决定。
+            # `on` 写这句话里的一个词（几个字），这里去逐字时间戳里找它的起止：
+            # 提前 0.12s 起（让字比话音早一点点"亮"起来，人耳才不觉得迟），
+            # 停留时间取这个词说完为止，夹在模板给的 1.0–1.5s 之间。
+            # 之前固定"段内 0.6s"出来的大字，对不上任何一个重音——这就是"时机不对"。
+            on = str(c.get("on") or "").strip()
+            aid = (s.get("audio") or {}).get("asset") or s["asset"]
+            a_in = float((s.get("audio") or {}).get("in", s["in"]))
+            if on:
+                chars = chars_cache[aid] if aid in chars_cache else \
+                    chars_cache.setdefault(aid, load_chars(lib, aid))
+                win = [(ch, st, en) for ch, st, en in chars
+                       if a_in - 0.05 <= st < a_in + s["_dur_q"] + 0.05]
+                txt = "".join(ch for ch, _, _ in win)
+                j = txt.find(on)
+                if j >= 0:
+                    st0 = win[j][1] - a_in + s["_start"] - 0.12
+                    st1 = win[min(j + len(on) - 1, len(win) - 1)][2] - a_in + s["_start"]
+                    start = round(max(s["_start"] + 0.15, st0), 3)
+                    d = round(min(float(hold[1]), max(float(hold[0]), st1 - start + 0.25)), 3)
+                else:
+                    print(f"  ！大字对不上原话「{on}」（段 {s['n']}），沿用默认时机", file=sys.stderr)
+        card_proj.append({"text": str(c.get("text") or ""), "start": start,
+                          "end": round(start + d, 3), "kind": kind,
+                          "spec": c.get("spec"), "boroll_kind": c.get("boroll_kind")})
+    # B-roll 图形卡（色块章节卡 / 侧栏卡 / 对比条）：不画字，交给 gen_boroll.py 用代码画。
+    # 这一类卡和"一句话的牌子"不是一回事：它承载的是一屏需要读的结构，
+    # 所以停留时间按模板给的 3–5s，而且**整屏盖住画面**（y=0，全幅 PNG）。
+    bor_gen = Path(__file__).resolve().parent / "gen_boroll.py"
+    for c in [x for x in card_proj if x.get("kind") == "boroll"]:
+        # spec 写相对路径时按**项目目录**解析：卡是项目的一部分，不是"当前目录的一部分"
+        spec = Path(str(c.get("spec") or "")).expanduser()
+        if not spec.is_absolute():
+            spec = proj / spec
+        if not spec.exists():
+            print(f"  ！B-roll spec 不存在：{spec}", file=sys.stderr)
+            continue
+        png = work / "boroll" / f"{spec.stem}-{W}x{H}.png"
+        png.parent.mkdir(parents=True, exist_ok=True)
+        if not png.exists():
+            r = subprocess.run([sys.executable, str(bor_gen), "--kind",
+                                str(c.get("boroll_kind") or "grid"), "--spec", str(spec),
+                                "--out", str(png), "--canvas", f"{W}x{H}"],
+                               capture_output=True, text=True)
+            if r.returncode != 0 or not png.exists():
+                print(f"  ！B-roll 生成失败：{(r.stdout + r.stderr)[-300:]}", file=sys.stderr)
+                continue
+        c["path"] = str(png)
+        c["start"], c["end"] = c["start"], c["start"] + max(3.0, min(5.0, c["end"] - c["start"]))
+    card_proj = [c for c in card_proj if c.get("kind") != "boroll" or c.get("path")]
     cards, card_info = render_cards(segs, card_proj, font, W, work / "cards",
                                     style.get("emphasis"), H) if (font and card_proj) else ([], {})
+
+    # 音效：按模板的 sfx 带上限来选点，不是每刀都给。
+    # 参考片的教训（family doc 第三条铁律）：音效密度和切点密度必须解耦——
+    # 95 个切点只有 13 个有瞬态也是成立的。这里只给**换介质**的切点和**大字/卡的出场**，
+    # 给出的处数再按模板的 per-minute 上限截断，宁可少不可多。
+    sfx_cues: list[dict] = []
+    _starts, _t = [], 0.0
+    for sh in shots:
+        _starts.append(_t)
+        _t = round(_t + sh["dur"], 4)
+    if style.get("sfx") and shell_pack is None or (style.get("sfx") and shell_pack):
+        sfx_dir = Path(os.environ.get("CUTSKILLS_HOME") or (Path.home() / ".cutskills")) / "assets" / "sfx"
+        if sfx_dir.exists():
+            prev_med = None
+            for idx, sh in enumerate(shots):
+                med = sh["s"].get("medium")
+                if idx and med != prev_med and (sfx_dir / "whoosh.wav").exists():
+                    sfx_cues.append({"t": round(_starts[idx], 3), "name": "whoosh", "gain_db": -16})
+                prev_med = med
+            for c in card_proj:
+                nm = "pop" if c.get("kind") in ("keyword", "behind", "cutout") else "tick"
+                if (sfx_dir / f"{nm}.wav").exists():
+                    sfx_cues.append({"t": round(c["start"], 3), "name": nm, "gain_db": -13})
+            # 按模板给的上限截断（每个切点都打是最典型的"音效疲劳"）
+            cap = float((style.get("sfx") or {}).get("density_per_min", [0, 8])[-1])
+            limit = max(1, int(round(cap * total / 60)))
+            if len(sfx_cues) > limit:
+                keep = sorted(sfx_cues, key=lambda x: x["name"] != "pop")[:limit]
+                sfx_cues = sorted(keep, key=lambda x: x["t"])
+            print(f"  音效 {len(sfx_cues)} 处（模板上限 {cap}/分 → {limit} 处）")
+
+    # 混音：音效轨和归一后的人声轨相加（mix_sfx 用 numpy 相加，不用 ffmpeg amix——
+    # amix 会按输入数做归一，人声会被压下去）。
+    final_audio = norm
+    if sfx_cues:
+        mixer = Path(__file__).resolve().parent / "mix_sfx.py"
+        cues_p = work / "sfx_cues.json"
+        cues_p.write_text(json.dumps(sfx_cues, ensure_ascii=False, indent=1), encoding="utf-8")
+        mixed = work / "audio_sfx.wav"
+        if mixer.exists():
+            r = subprocess.run([sys.executable, str(mixer), "--audio", str(norm),
+                                "--cues", str(cues_p), "--out", str(mixed)],
+                               capture_output=True, text=True)
+            if r.returncode == 0 and mixed.exists():
+                final_audio = mixed
+                tail = [x for x in (r.stdout or "").strip().splitlines() if x.strip()][-1:]
+                print(f"  混音 {tail[0] if tail else '完成'}")
+            else:
+                print(f"  ！混音失败，保留无音效版：{(r.stderr or '')[-200:]}", file=sys.stderr)
 
     # 最后一次编码：贴字幕 + 贴字卡 + 上归一后的声轨。
     #
@@ -670,6 +829,7 @@ def main() -> int:
                  "start": cues[i]["start"], "end": cues[i]["end"]}
                 for i, p in enumerate(pngs)]
     overlays += [{"path": c["path"], "y": c["y"], "loop": True, "card": True,
+                  "kind": c.get("kind") or "card", "bg": c.get("bg"),
                   "start": c["start"], "end": c["end"]} for c in cards]
 
     # 壳体（C 族）：顶条 / 角标 / 时间码。
@@ -707,6 +867,9 @@ def main() -> int:
     for sh in shots:
         shot_start.append(tt)
         tt = round(tt + sh["dur"], 4)
+
+    # 抠像层：`kind: behind`（大字从人物背后穿过）/ `kind: cutout`（抠像换底 + 大字）
+    back_cards = [o for o in overlays if o.get("card") and o.get("kind") in ("behind", "cutout")]
     parts = []
     for idx, sh in enumerate(shots, 1):
         ss, sd = shot_start[idx - 1], sh["dur"]
@@ -714,20 +877,74 @@ def main() -> int:
                 if not o.get("card")
                 and min(sd, o["end"] - ss) > max(0.0, o["start"] - ss) + 0.02]
         srcp = work / f"v{idx:03d}.mp4"
-        if not mine:
+
+        # 这一镜头里有没有压着抠像卡
+        bc = None
+        for o in back_cards:
+            wa, wb = max(0.0, o["start"] - ss), min(sd, o["end"] - ss)
+            if wb > wa + 0.05:
+                bc = dict(o, _wa=wa, _wb=wb)
+                break
+
+        if not mine and not bc:
             parts.append(srcp)
             continue
+
         op = work / f"ov{idx:03d}.mp4"
         inputs = ["-i", str(srcp)]
+        n_sub = len(mine)
         for o in mine:
             lim = max(1.0, min(sd, o["end"] - ss) + 0.6)
             inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{lim:.2f}", "-i", o["path"]]
+
         fc, prev = [], "[0:v]"
-        for n, o in enumerate(mine, 1):
-            wa = max(0.0, o["start"] - ss)
-            wb = min(sd, o["end"] - ss)
-            fc.append(f"{prev}[{n}:v]overlay=0:{o['y']}:enable='between(t,{wa:.3f},{wb:.3f})'[v{n}]")
-            prev = f"[v{n}]"
+        sub_base = 1                      # 字幕图层在 inputs 里的起始下标
+        if bc:
+            # 层级：底(画面) → 大字 → 人物(抠出来压在字上) → 字幕
+            mask = person_masks(srcp, sd, FPS, work / f"mask{idx:03d}")
+            if mask:
+                inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{sd:.3f}",
+                           "-i", bc["path"],          # 大字（静止图，所以 -loop 1）
+                           "-i", str(mask)]           # 遮罩（视频，不能加 -loop）
+                # 输入顺序：字幕 PNG 先加（1..n_sub），然后是这张大字卡、最后是遮罩。
+                # 所以字幕的下标从 1 起，不能被"后面又加了两个输入"带偏——
+                # 写错过一次，表现是 ffmpeg 报 "Invalid file index 4"（一共只有 4 个输入）。
+                t_i, m_i = 1 + n_sub, 2 + n_sub
+                sub_base = 1
+                wa, wb = bc["_wa"], bc["_wb"]
+                fc.append("[0:v]split=2[bb][pp]")
+                fc.append(f"[bb][{t_i}:v]overlay=0:{bc['y']}[bt]")
+                if bc["kind"] == "cutout":
+                    # 换底：底色一层在最下面，大字压上去，人物再压上去。
+                    # 底色用镜头自己四角的中位色会更好看，但这里先用模板给的纯色——
+                    # 猜底色会把下一步的"底色该是什么"变成又一个隐参数。
+                    col = str(bc.get("bg") or "#241a13").lstrip("#")
+                    fc.append(f"color=c=0x{col}:s={W}x{H}:d={sd:.3f},format=yuv420p[cg]")
+                    fc.append(f"[cg][bt]overlay=0:0[bg1]")
+                else:
+                    fc.append("[bt]null[bg1]")
+                # alphamerge：第 0 路是画面，第 1 路是灰度遮罩 → 得到带 alpha 的人物。
+                # 遮罩要先单独 `format=gray` 出一条链——写成 `[pp][{m}:v]format=gray,alphamerge`
+                # 时 ffmpeg 会把两个输入都塞给 format 滤镜（"More input link labels than it has inputs"）。
+                # 遮罩直接当 alpha 用会留一圈半透明的羽化边：人压在明黄大字上时，
+                # 那圈边把背后的黄色透上来，看着像人物自己长了一圈白毛。
+                # 所以先把遮罩二值化（阈值 140，略高于中间值 = 顺手把边往里收一点），
+                # 换成硬边再合——1080p 下硬边看不出来，羽化边却一眼就看得见。
+                fc.append(f"[{m_i}:v]format=gray,lut=y='if(gt(val,140),255,0)'[mk]")
+                fc.append("[pp][mk]alphamerge[pers]")
+                fc.append(f"[bg1][pers]overlay=0:0:enable='between(t,{wa:.3f},{wb:.3f})'[bout]")
+                prev = "[bout]"
+                print(f"  抠像 镜头 {idx:03d}  {ss + wa:5.1f}–{ss + wb:5.1f}s  {bc['kind']}")
+            else:
+                print(f"  ！抠像失败，退化成普通大字：镜头 {idx:03d}", file=sys.stderr)
+
+        if mine:
+            for n, o in enumerate(mine):
+                wa = max(0.0, o["start"] - ss)
+                wb = min(sd, o["end"] - ss)
+                fc.append(f"{prev}[{sub_base + n}:v]overlay=0:{o['y']}:"
+                          f"enable='between(t,{wa:.3f},{wb:.3f})'[v{n}]")
+                prev = f"[v{n}]"
         fc.append(f"{prev}format=yuv420p[vo]")
         # -t 必须钉死成镜头时长：循环输入的帧会比画面多，不钉的话每个贴图层都长一点，
         # 二十个镜头累加下来成片比 EDL 多 12 秒，后面每个镜头的时间点全错位
@@ -737,9 +954,10 @@ def main() -> int:
             "-c:v", "libx264", "-crf", str(a.crf), "-preset", "veryfast",
             "-pix_fmt", "yuv420p", "-r", str(FPS), str(op)])
         parts.append(op)
-        print(f"  贴字 镜头 {idx:03d}  {ss:5.1f}s  层数 {len(mine)}")
+        if mine:
+            print(f"  贴字 镜头 {idx:03d}  {ss:5.1f}s  层数 {len(mine)}")
         cur = op
-        for o in [x for x in overlays if x.get("card")]:
+        for o in [x for x in overlays if x.get("card") and x.get("kind") not in ("behind", "cutout")]:
             wa = max(0.0, o["start"] - ss)
             wb = min(sd, o["end"] - ss)
             if wb <= wa + 0.05:
@@ -759,7 +977,7 @@ def main() -> int:
     video_ov = work / "video_ov.mp4"
     run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(ol),
          "-c", "copy", str(video_ov)])
-    run(["ffmpeg", "-v", "error", "-y", "-i", str(video_ov), "-i", str(norm),
+    run(["ffmpeg", "-v", "error", "-y", "-i", str(video_ov), "-i", str(final_audio),
          "-map", "0:v", "-map", "1:a", "-t", f"{total:.4f}",
          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", str(film)])
 
@@ -782,7 +1000,8 @@ def main() -> int:
         rep.append(f"| {r['n']} | {r['asset'].split('/')[-1]} | {r['in']:.2f} | {r['out']:.2f} | "
                    f"{r['dur']:.2f} | {r['start']:.2f} | {'HDR→SDR' if r['hdr'] else '—'} |")
     if cards:
-        rep += ["", "## 字卡", ""] + [f"- {c['start']:.2f}–{c['end']:.2f}s　{c['text']}" for c in cards]
+        rep += ["", "## 字卡", ""] + [
+        f"- {c['start']:.2f}–{c['end']:.2f}s　{c.get('text') or c.get('kind')}" for c in cards]
     if (card_info or {}).get("too_long"):
         rep += ["", "## 字卡过长（>24 字，自己断句，不缩字号）", ""] + \
                [f"- {t}" for t in card_info["too_long"]]

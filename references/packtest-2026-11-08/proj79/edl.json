@@ -61,10 +61,9 @@
    "role": "claim",
    "grade_at_cut": "backup",
    "card": {
-    "text": "两种说法",
-    "kind": "keyword",
-    "at": 0.5,
-    "dur": 1.4
+    "text": "不是非黑即白",
+    "kind": "behind",
+    "on": "非黑即白"
    }
   },
   {
@@ -81,10 +80,9 @@
    "role": "setup",
    "grade_at_cut": "backup",
    "card": {
-    "text": "都不是全对",
+    "text": "进口一定好？",
     "kind": "keyword",
-    "at": 0.5,
-    "dur": 1.4
+    "on": "一定好"
    }
   },
   {
@@ -99,7 +97,12 @@
    "chars": 20,
    "beat": 1,
    "role": "evidence",
-   "grade_at_cut": "backup"
+   "grade_at_cut": "backup",
+   "card": {
+    "text": "差不多就行",
+    "kind": "keyword",
+    "on": "差不多"
+   }
   },
   {
    "n": 4,
@@ -115,10 +118,9 @@
    "role": "turn",
    "grade_at_cut": "backup",
    "card": {
-    "text": "成本差在哪",
+    "text": "都有偏颇",
     "kind": "keyword",
-    "at": 0.5,
-    "dur": 1.4
+    "on": "偏颇"
    }
   },
   {
@@ -218,7 +220,15 @@
    "beat": 1,
    "role": "evidence",
    "grade_at_cut": "must-use",
-   "grade_confidence": 0.78
+   "grade_confidence": 0.78,
+   "card": {
+    "text": "",
+    "kind": "boroll",
+    "boroll_kind": "grid",
+    "spec": "boroll-grid.json",
+    "at": 1.8,
+    "dur": 3.4
+   }
   },
   {
    "n": 10,
@@ -234,10 +244,9 @@
    "role": "claim",
    "grade_at_cut": "backup",
    "card": {
-    "text": "我们怎么选",
-    "kind": "keyword",
-    "at": 0.5,
-    "dur": 1.4
+    "text": "成本贵在哪",
+    "kind": "behind",
+    "on": "成本比较高"
    }
   },
   {

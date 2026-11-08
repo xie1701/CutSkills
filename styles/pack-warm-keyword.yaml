@@ -45,14 +45,17 @@ subtitle:
 # 花字：本模板的签名。从字幕条抽出、放大、上抬到画面中部，黄色，随口播重音出现。
 emphasis:
   color: "#FFD400"            # 亮黄（比初版的 #F5D33A 更跳：并排看时初版发灰）
-  glyph_h_ratio: 0.070        # 相对画面高；约为字幕的 2.5 倍（参考片花字是字幕的 2–2.5 倍）
-  band_center_h: 0.50         # 实测花字落在 0.45–0.65H
+  glyph_h_ratio: 0.098        # 相对画面高。参考片那行大字实测 0.1006H（0.493–0.593）：
+                              # 初版取 0.070 是量到了另一帧的小花字
+  glyph_h_range: [0.088, 0.115]
+  # 一行放不下才折两行，且不缩字号（见 render_film.render_cards）
+  band_center_h: 0.52         # 实测花字落在 0.45–0.65H
   stroke:
     px_at_720h: 3.2
     color: "#000000"
   hold_s: [1.0, 1.5]
   entry: pop                  # 弹入 0.2–0.3s、带轻微过冲；离场直接消失
-  max_chars: 8
+  max_chars: 6
 
 palette:
   grade: warm_high_sat        # 暖黄褐 + 提饱和：实测饱和度 0.504
