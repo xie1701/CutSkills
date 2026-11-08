@@ -428,7 +428,24 @@ EDL 里每段的 `card` 决定往上贴什么。四种 `kind`，各管一件事�
 
 **整屏信息卡要铺底、字幕要让位**（卡片参数见 [references/boroll-specs.md](references/boroll-specs.md)）。 `spec` 里写 `backdrop: "#15100C"` 让 `gen_boroll.py` 铺满整幅；卡片窗口内的口播字幕整条不画——同一屏两套字，读的人当场就乱。
 
+**BGM 全程铺底**（`--bgm <文件>`）：先归一到 -24 LUFS 再混，人声处 sidechain 让路，混完整轨压一次
+（`acompressor ratio 3.5`）再归一到 -14 LUFS。三个数对着参考片量：底噪 -27.8 dB、动态差 14.0 dB、
+静音 0.2%。**没有 BGM 的片子，人声一停就是录音棚空场**——观众说不出哪不对，但会觉得"没做完"。
+
 **音效**（`gen_sfx.py` 合成 + `mix_sfx.py` 混，细节见 [references/sfx.md](references/sfx.md)）：只给**换介质**的切点和**大字/卡出场**，再按模板 `sfx_density_per_min` 截断。每刀都给是最典型的音效疲劳（参考片实测：95 个切点只有 13 个带瞬态，还低于随机基线）。混音用 numpy 直接相加，**不要用 ffmpeg amix**——amix 按输入数归一，人声会被压下去。
+
+### 按秒对照参考片：`compare_films.py`
+
+```bash
+python3 <SKILL_DIR>/scripts/compare_films.py --ref <参考片> --ours out/film.mp4 --out cmp/
+```
+
+`measure_pack.py` 是**静态对账**（字幕带在 0.69H 吗），它全绿的时候片子照样可以"不像"。
+差的那部分在**时间轴上**：什么时候亮、什么时候静、什么时候切。这个脚本把两条片子抽成 2fps 的
+曲线一起摆：亮度 / 饱和度 / 暖度 / 帧间运动 / 字幕覆盖 / 信息层覆盖 / 切点，外加同位置的配对帧。
+
+判读：**差 5% 以上才动手**，差 1% 别理。最容易漏的三项是亮度、底噪、动态差——
+它们都不在 8 个 token 里，只能这么量出来。
 
 ### 按包装模板量：`measure_pack.py`
 

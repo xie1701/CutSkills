@@ -177,6 +177,11 @@ def _emphasis(pack: dict, H: int, font_path: Path | None) -> dict | None:
         "stroke_px": stroke,
         "hold_s": em.get("hold_s") or [1.0, 1.5],
         "max_chars": int(em.get("max_chars") or 8),
+        # 渐变和分色是**排版参数**，和字号一样必须原样往下传。
+        # 少传一个键不会报错，只会安安静静地退回纯色——第一次就是这么错的：
+        # 模板里写了 gradient、渲染器读到了空值，出来一片纯黄，谁也没发现。
+        "gradient": em.get("gradient"),
+        "line_colors": em.get("line_colors"),
     }
 
 

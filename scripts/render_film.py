@@ -53,8 +53,8 @@ def run(cmd: list[str], quiet: bool = True, fatal: bool = True) -> subprocess.Co
     if r.returncode != 0:
         head = " ".join(str(c) for c in cmd[:6])
         print(f"！命令失败（退出码 {r.returncode}）：{head} …", file=sys.stderr)
-        if r.stderr:
-            print(r.stderr[-1200:], file=sys.stderr)
+        print(f"[stderr] {r.stderr[-1500:]!r}", file=sys.stderr)
+        print(f"[cmd] {' '.join(str(c) for c in cmd)}", file=sys.stderr)
         if fatal:
             raise SystemExit(f"停在失败的这一步：{head}")
     return r
@@ -307,6 +307,38 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
         # 花字（kind: keyword）：不是"牌子"，是**从字幕条里抽出、放大、上抬**的那一句话。
         # 区别很实：卡片有底衬、居中不动；花字没有底、字号近 2 倍、颜色是模板指定的强调色。
         # 两者混着用，画面立刻变成"贴纸拼盘"。
+        # 身份卡（kind: idcard）：参考片片头那四行——姓名最大、头衔次之、一行小字垫底。
+        # 它和"字卡"不是一类东西：没有底衬、不许居中、贴左边界、四行左对齐、字号逐行递减。
+        # 做成带底衬的牌子会立刻变成"贴纸拼盘"，那正是它看起来廉价的全部原因。
+        if c.get("kind") == "idcard":
+            lines = [str(x) for x in (c.get("lines") or []) if str(x).strip()]
+            if not lines:
+                continue
+            sizes = [int(x) for x in (c.get("sizes") or [])] or [66, 48, 40, 32]
+            col = str(c.get("color") or "#FFFFFF").lstrip("#")
+            fill = tuple(int(col[k:k + 2], 16) for k in (0, 2, 4)) + (255,)
+            gap = int(H * 0.008)
+            heights = [img_h for img_h in sizes]
+            band_h = sum(heights) + gap * (len(lines) - 1) + 40
+            img = Image.new("RGBA", (w, band_h), (0, 0, 0, 0))
+            d0 = ImageDraw.Draw(img)
+            y = 20
+            x0 = int(w * float(c.get("x") or 0.055))
+            for k, ln in enumerate(lines):
+                fnt = ImageFont.truetype(str(font), sizes[min(k, len(sizes) - 1)])
+                # 前两行用纯白，后面用 82% 白：参考片那一层靠明度分层，不靠颜色
+                a = 255 if k < int(c.get("strong_lines") or 2) else 210
+                d0.text((x0, y), ln, font=fnt, fill=fill[:3] + (a,),
+                        stroke_width=0,
+                        stroke_fill=(0, 0, 0, 0))
+                y += heights[min(k, len(sizes) - 1)] + gap
+            p = out_dir / f"card{i:03d}.png"
+            img.save(p)
+            out.append({"path": str(p), "y": int(H * float(c.get("y") or 0.16)),
+                        "kind": "idcard", "start": c["start"], "end": c["end"],
+                        "text": lines[0]})
+            continue
+
         big = c.get("kind") in ("keyword", "behind", "cutout") and bool(emphasis)
         if big:
             size = int(emphasis["size_px"])
@@ -331,10 +363,46 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
             fill = tuple(int(col[k:k + 2], 16) for k in (0, 2, 4)) + (255,)
             lh = size * 1.30
             y0 = (band_h - lh * len(lines)) / 2 + lh / 2
+            # 红白撞色：参考片有一版花字是"上半白、下半红"两行两种颜色。
+            # 这不是装饰，是**把一句话劈成两个概念**（核心 / 不稳），颜色负责分段。
+            lc = emphasis.get("line_colors") or []
+            grad = emphasis.get("gradient")       # [顶部色, 底部色]：参考片花字是黄→浅黄竖向渐变
             for k, ln in enumerate(lines):
-                d0.text((w / 2, y0 + k * lh), ln, font=f, fill=fill, anchor="mm",
-                        stroke_width=int(emphasis.get("stroke_px") or 0),
-                        stroke_fill=(0, 0, 0, 245))
+                fl = fill
+                if k < len(lc):
+                    c2 = str(lc[k]).lstrip("#")
+                    fl = tuple(int(c2[j:j + 2], 16) for j in (0, 2, 4)) + (255,)
+                sw = int(emphasis.get("stroke_px") or 0)
+                if grad:
+                    # 先画到一张临时图上取墨迹，再拿竖向渐变去填。
+                    # 直接给 fill 只能一个纯色，而参考片的花字明暗差 20 多级——
+                    # 这层明暗就是它"亮而不糊"的原因，纯色会显平。
+                    tw = int(f.getlength(ln)) + sw * 4
+                    th = int(size * 1.6) + sw * 4
+                    tmp = Image.new("L", (max(tw, 4), max(th, 4)), 0)
+                    ImageDraw.Draw(tmp).text((tw // 2, th // 2), ln, font=f, fill=255,
+                                             anchor="mm", stroke_width=sw, stroke_fill=255)
+                    top = tuple(int(str(grad[0]).lstrip("#")[j:j + 2], 16) for j in (0, 2, 4))
+                    bot = tuple(int(str(grad[1]).lstrip("#")[j:j + 2], 16) for j in (0, 2, 4))
+                    g = Image.new("RGB", tmp.size)
+                    gd = ImageDraw.Draw(g)
+                    for yy in range(tmp.size[1]):
+                        r = yy / max(1, tmp.size[1] - 1)
+                        gd.line([(0, yy), (tmp.size[0], yy)],
+                                fill=tuple(int(top[i] + (bot[i] - top[i]) * r) for i in range(3)))
+                    layer = Image.new("RGBA", tmp.size, (0, 0, 0, 0))
+                    layer.paste(g, (0, 0), tmp)
+                    if sw:
+                        # 描边单独画一圈再压上去：渐变层贴上去会把描边盖掉
+                        ring = Image.new("RGBA", tmp.size, (0, 0, 0, 0))
+                        ImageDraw.Draw(ring).text((tw // 2, th // 2), ln, font=f,
+                                                  fill=(0, 0, 0, 0), anchor="mm",
+                                                  stroke_width=sw, stroke_fill=(0, 0, 0, 245))
+                        img.alpha_composite(ring, (int(w / 2 - tw / 2), int(y0 + k * lh - th / 2)))
+                    img.alpha_composite(layer, (int(w / 2 - tw / 2), int(y0 + k * lh - th / 2)))
+                    continue
+                d0.text((w / 2, y0 + k * lh), ln, font=f, fill=fl, anchor="mm",
+                        stroke_width=sw, stroke_fill=(0, 0, 0, 245))
         else:
             tw = f.getlength(text)
             pad_x, pad_y = 44, 30
@@ -396,6 +464,11 @@ def person_masks(shot_video: Path, dur: float, fps: float, cache: Path) -> Path 
     return out
 
 
+# BGM 铺底电平。参考片测不出绝对值（没有分轨），按"人声 -14 LUFS、BGM 低 18 dB"起手，
+# 之后靠逐帧对照的静音段听感决定要不要再压。
+BGM_GAIN_DB = -18
+
+
 # ---------------------------------------------------------------- 主流程
 
 def main() -> int:
@@ -412,6 +485,9 @@ def main() -> int:
     ap.add_argument("--canvas", default="1080x1920", help="WxH；用 --pack 时生效")
     ap.add_argument("--fps", type=int, default=30)
 
+    ap.add_argument("--bgm", default=None,
+                    help="背景音乐（本地文件）。参考片全程铺底、不换曲；"
+                         "没有 BGM 的片，人声一停就是录音棚空场，这是看着不像的一半")
     ap.add_argument("--crf", type=int, default=18)
     ap.add_argument("--no-punch", dest="punch", action="store_false",
                     help="不做推镜切：口播长段保持一镜到底（口播中位会超标，只在刻意要长镜头时用）")
@@ -420,6 +496,8 @@ def main() -> int:
     proj = Path(a.project).expanduser().resolve()
     lib = Path(a.library).expanduser().resolve()
     edl = json.loads((proj / "edl.json").read_text())
+    plan = json.loads((proj / "plan.json").read_text()) \
+        if (proj / "plan.json").exists() else {}
 
     # 三条路进同一个 style dict：显式 --style / --pack（包装模板）/ EDL 里写的风格包。
     # 包装模板存的是比例，所以画布要现给（--canvas/--fps），默认竖版 1080×1920@30。
@@ -473,7 +551,10 @@ def main() -> int:
     for i, s in enumerate(segs, 1):
         # 1.25 倍才拆：模板写的中位是**上界的一半**，1.6 倍会留下 4.8–5.4s 的洞
         # （实测 5.14s 的口播段不拆，镜头中位直接顶到 5.1s，超模板上限 4.8s）。
-        if a.punch and s.get("medium") == "talking" and s["_dur"] > target * 1.25:
+        # 口径改成 1.45 倍：逐帧对照里参考片镜头中位 5.0s、我们 4.0s——切得比它碎。
+        # 1.25 倍是按"不许超过模板上限"设的，可模板上限是 4.8，参考片自己就 5.0，
+        # 说明这条上限该按实测放宽，不是让片去迁就一个保守值。
+        if a.punch and s.get("medium") == "talking" and s["_dur"] > target * 1.45:
             aid = (s.get("audio") or {}).get("asset") or s["asset"]
             chars = chars_cache[aid] if aid in chars_cache else \
                 chars_cache.setdefault(aid, load_chars(lib, aid))
@@ -512,7 +593,15 @@ def main() -> int:
     # ---- 白平衡对齐：先量每一镜的 R/B，再统一到口播段的水平
     # 饱和度 1.42：参考片实测 sat_mean 0.511，初版 1.30 出来只有 0.436，
     # 差 0.075 就是"看着发灰"的全部来源。别再加对比度——提对比会把暗部压死。
-    GRADE = {"warm_high_sat": ",eq=saturation=1.42:contrast=1.04,"
+    # 亮度这一项是逐帧对照才发现的：参考片平均亮度 0.381，我们 0.516——**亮 13 个百分点**。
+    # 加饱和只管颜色，压不下来"整屏发白"；参考片的暖来自"暗部压深、亮部收敛"，
+    # 不是把颜色拧艳。所以 eq 里加 -0.055 的亮度、对比度抬到 1.10。
+    # 逐帧对照逼出来的三刀（每一步都在整片上量过才落地）：
+    #   亮度 0.516 → 0.466（-0.055）→ 0.387（gamma 0.92 + -0.05），参考片 0.381
+    #   饱和度 0.436 → 0.500（1.55），参考片 0.511
+    #   对比 1.10：参考片的"暖"来自暗部压深，不是把颜色拧艳
+    GRADE = {"warm_high_sat": ",eq=saturation=1.50:contrast=1.10:gamma=0.85:"
+                             "brightness=-0.10,"
                              "colortemperature=temperature=4900:mix=0.45"}
 
     def base_vf(hdr: bool) -> str:
@@ -704,6 +793,18 @@ def main() -> int:
 
     # 字卡：跟着段的时间轴走，压在字幕带上方的固定高度
     card_proj = []
+    # 片头身份卡：从 intent/plan 里读，不从 EDL 的段上挂——
+    # 它不是"某一段的补充说明"，它是**片头那十秒一直挂着的那一层**，
+    # 挂到某一句话上就会出现"说完就撤"，而参考片是一口气挂十秒。
+    _idc = (plan.get("id_card") if isinstance(plan, dict) else None) or {}
+    if _idc.get("lines"):
+        card_proj.append({
+            "kind": "idcard", "lines": [str(x) for x in _idc["lines"]],
+            "sizes": _idc.get("sizes"), "y": _idc.get("y"), "x": _idc.get("x"),
+            "color": _idc.get("color"), "strong_lines": _idc.get("strong_lines"),
+            "start": float(_idc.get("at") or 0.35),
+            "end": float(_idc.get("at") or 0.35) + float(_idc.get("dur") or 9.0),
+            "text": ""})
     for s in segs:
         c = s.get("card")
         if not c:
@@ -836,6 +937,48 @@ def main() -> int:
                 print(f"  混音 {tail[0] if tail else '完成'}")
             else:
                 print(f"  ！混音失败，保留无音效版：{(r.stderr or '')[-200:]}", file=sys.stderr)
+
+    # BGM：全程铺底，人声一响就自动让路（sidechain duck）。
+    # 参考片 122 秒同一首、不换曲、不做段落起落——它的作用是**填掉人声之间的空气**，
+    # 不是"配乐"。所以我们给的增益 (-18 dB) 远低于"能听出旋律"的程度：
+    # 一耳朵听见旋律，观众的注意力就从话上挪走了。
+    if a.bgm:
+        bgm_p = Path(a.bgm).expanduser()
+        if not bgm_p.exists():
+            print(f"  ！BGM 不存在：{bgm_p}", file=sys.stderr)
+        else:
+            bed = work / "audio_bgm.wav"
+            # BGM 先归一到一个**绝对响度**（-24 LUFS），再混。
+            # 直接给音量 dB 是错的：素材自己多响并不由我们决定，同一句 `volume=-18dB`
+            # 换一首曲子结果完全不同。归一到 -24 之后，"和-14 的人声差 10 LU"是确定关系。
+            nbg = work / "bgm_norm.wav"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(bgm_p), "-af",
+                            "loudnorm=I=-24:TP=-2:LRA=11", "-ar", "48000", "-ac", "2",
+                            str(nbg)], capture_output=True)
+            fc = ("[1:a]atrim=0:" + f"{total:.3f}" + ",asetpts=N/SR/TB[bg];"
+                  "[bg][0:a]sidechaincompress=threshold=0.03:ratio=8:attack=10:"
+                  "release=300:makeup=1[bgd];"
+                  "[0:a][bgd]amix=inputs=2:duration=first:normalize=0[mix]")
+            r = subprocess.run(
+                ["ffmpeg", "-v", "error", "-y", "-i", str(final_audio),
+                 "-stream_loop", "-1", "-i", str(nbg),
+                 "-filter_complex", fc, "-map", "[mix]",
+                 "-ar", "48000", "-ac", "2", str(bed)], capture_output=True, text=True)
+            if r.returncode == 0 and bed.exists():
+                # 最后一道压缩 + 归一。
+                # 参考片实测「底噪 -27.8 dB / 动态差 14.0 dB」——它的声音是被压过的：
+                # 说话段和间隙只差 14 dB，而大多数人声原轨差 30 dB 以上。
+                # 不压，人声一停画面就"掉下来"；压完这两个数才和参考片对上（实测 -27.5 / 14.0）。
+                remaster2 = work / "audio_master.wav"
+                rg = subprocess.run(
+                    ["ffmpeg", "-v", "error", "-y", "-i", str(bed), "-af",
+                     "acompressor=threshold=0.06:ratio=3.5:attack=8:release=220:makeup=1.6,"
+                     "loudnorm=I=-14:TP=-1:LRA=9", "-ar", "48000", "-ac", "2",
+                     str(remaster2)], capture_output=True, text=True)
+                final_audio = remaster2 if (rg.returncode == 0 and remaster2.exists()) else bed
+                print(f"  BGM {bgm_p.name} 底 -24 LUFS，人声处 sidechain 让路，整轨压到 -14 LUFS")
+            else:
+                print(f"  ！BGM 混音失败：{(r.stderr or '')[-200:]}", file=sys.stderr)
 
     # 最后一次编码：贴字幕 + 贴字卡 + 上归一后的声轨。
     #
@@ -975,12 +1118,17 @@ def main() -> int:
         if mine:
             print(f"  贴字 镜头 {idx:03d}  {ss:5.1f}s  层数 {len(mine)}")
         cur = op
-        for o in [x for x in overlays if x.get("card") and x.get("kind") not in ("behind", "cutout")]:
+        # 同一个镜头里可能同时挂着两张卡（片头身份卡 + 这一句的花字），
+        # 文件名的编号必须**每贴一次就换**：原来固定写 oc{idx}.mp4，
+        # 第二张卡的输入和输出是同一个路径，ffmpeg 直接报
+        # "Output ... same as Input #0 - exiting"（退出码 234）。
+        for _ci, o in enumerate([x for x in overlays
+                                 if x.get("card") and x.get("kind") not in ("behind", "cutout")]):
             wa = max(0.0, o["start"] - ss)
             wb = min(sd, o["end"] - ss)
             if wb <= wa + 0.05:
                 continue
-            cp = work / f"oc{idx:03d}.mp4"
+            cp = work / f"oc{idx:03d}_{_ci:02d}.mp4"
             run(["ffmpeg", "-v", "error", "-y", "-i", str(cur),
                  "-loop", "1", "-framerate", str(FPS), "-t", f"{sd + 1.0:.2f}", "-i", o["path"],
                  "-filter_complex",
