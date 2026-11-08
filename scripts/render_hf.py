@@ -86,8 +86,17 @@ HDR_TRANSFERS = {"arib-std-b67", "smpte2084", "smpte428"}
 # 加这条 A 链 luma 0.374（参考片 0.381）。饱和不去对齐参考片 0.511——
 # 那个数是带大字和色卡的成片，跟纯画质不同口径。
 GRADE = {
-    "warm_high_sat": "eq=saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.10,"
-                     "colortemperature=temperature=4900:mix=0.45",
+    # 白平衡不在这里做——**每镜分开拉**，见 scripts/shot_match.py 与 `--shot-match`。
+    # 一开始这里还挂了 colortemperature + colorchannelmixer，把整片的 B÷R 对齐到 0.471；
+    # 结果口播段（室内暖光）被拉到 B÷R 0.353，施工段 0.62，一个平均值糊过去，
+    # 每换一镜色温跳一下。参考片是逐镜拉平的，所以这一步也得逐镜做。
+    # 2026-11-09 按 compare_tones.py 的数校准过（不按饱和度校准）：
+    #   目标 luma 0.381 / G÷R 0.750 / B÷R 0.471（参考片，逐秒抽帧算的）
+    #   实测 luma 0.372 / G÷R 0.756 / B÷R 0.478
+    # `colorchannelmixer` 那三个增益是这次加的主旋钮：原来只靠 colortemperature，
+    # 一暖就把 G÷R 也压下去（0.770 → 0.696），绿红平衡对不上。
+    # 改成压 B 通道（×0.785）、G 微调（×0.993）、R 微抬（×1.02），三个数同时落位。
+    "warm_high_sat": "eq=saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.086",
 }
 
 # HLG / PQ → 场景线性（npl=100 是把 100% 白当参考）→ hable 压到 SDR 亮度 → bt709。
@@ -564,6 +573,8 @@ def main():
                     help="抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；"
                          "browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要")
     ap.add_argument("--force-extract", action="store_true")
+    ap.add_argument("--shot-match", type=float, default=0.7, metavar="STRENGTH",
+                    help="逐镜把亮度/白平衡往参考片拉（0=不做，1=全拉）。默认 0.7")
     ap.add_argument("--extractor", choices=["auto", "own", "hf"], default="auto",
                     help="auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract")
     ap.add_argument("--no-cutout", action="store_true",
@@ -676,6 +687,21 @@ def main():
     (proj / "out" / "cards.json").write_text(json.dumps(
         {"cards": cards, "engine": "hyperframes"}, ensure_ascii=False, indent=1),
         encoding="utf-8")
+
+    # 1b) 逐镜校对亮度与白平衡（整片一个平均值不够——口播段和工地段差一倍）
+    if a.shot_match > 0 and videos:
+        stamp = hf / "clips" / f".shot-match-{a.shot_match:.2f}"
+        if not stamp.exists() or a.force_extract:
+            r = subprocess.run([sys.executable, str(Path(__file__).with_name("shot_match.py")),
+                                "--clips", str(hf / "clips"),
+                                "--strength", str(a.shot_match), "--apply"],
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                print(f"  ！逐镜校对失败（不影响出片，会把色温跳动留着）：\n{r.stderr[-500:]}",
+                      file=sys.stderr)
+            else:
+                print("  " + (r.stdout.strip().splitlines() or [""])[-1])
+                stamp.write_text("ok")
 
     # 2) 字体与运行时复制进项目（lint 要求 @font-face 指向真的文件）
     for k, f in fonts.items():

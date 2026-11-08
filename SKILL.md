@@ -338,6 +338,32 @@ ffmpeg 那层**没有布局引擎**。当天所有坑都是同一件事的变体
 
 比 ffmpeg 那条链慢约一个数量级。**日常迭代靠 `hyperframes preview` 在浏览器里看，不靠 render。**
 
+### 调色分两层：全局一刀 + 逐镜校正
+
+**第一层（全局）**：`styles/talking-head-v1.yaml` 的 `grade: warm_high_sat`，在切片时
+用 ffmpeg `eq` 烤进素材（`saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.086`）。
+只染画面，不染字——所以不走 CSS filter。
+
+**第二层（逐镜）**：`scripts/shot_match.py`，`render_hf.py --shot-match 0.7` 自动跑。
+每镜量 luma / G÷R / B÷R，算一组通道增益往参考片拉一部分（strength 0.7），
+增益夹在 [0.65, 1.35] 之间。
+
+为什么要第二层：**整片平均对上不等于看着对**。第一版整片 luma 0.377（参考 0.381）、
+G÷R 0.755（0.750）、B÷R 0.477（0.471）三个数全中，但逐段一看，口播段 luma 0.346 /
+B÷R 0.372（又暗又暖），施工段 0.487 / 0.621（又亮又冷）——每换一镜色温跳一下。
+参考片是逐镜拉平的，所以这一步必须逐镜做。
+
+**对比工具**：`scripts/compare_tones.py --a <我们的片> --b <参考片> --md <报告>`，
+输出 luma / G÷R / B÷R 三项，带 p10 / p90 分布，并直接给"要乘多少"。判据：
+luma ±0.02、G÷R ±0.03、B÷R ±0.03。第一次跑出来的完整对比（含逐镜表）：
+[references/tone-compare-2026-11-09.md](references/tone-compare-2026-11-09.md)。
+
+**饱和度不进判据**。参考片的 0.511（旧口径）/ 0.257（逐秒抽帧口径）都是带大字和
+色卡的整片均值，我们量的是画面，两个口径不同；按饱和调只会把画面拉成霓虹。
+
+调色只动两个旋钮，一次一个：**B÷R 差 → 通道增益（或 colorchannelmixer）**，
+**luma 差 → eq 的 gamma / brightness**。改完重跑 `compare_tones.py`，别靠眼睛记。
+
 ### 调色在切片阶段烤进素材，不走 CSS
 
 2026-11-09 改的。原来调色靠 `--grade` 传 CSS filter，问题是 **CSS 会把字幕和字卡一起染**，
