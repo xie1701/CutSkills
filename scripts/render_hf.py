@@ -93,6 +93,56 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False) -> dict:
     return {"path": dst, "dur": round(info["dur"], 3), "w": info["w"], "h": info["h"]}
 
 
+# ------------------------------------------------------------------ 抠像
+
+MASK_BIN = Path(__file__).resolve().parent / "native" / "person_mask"
+
+
+def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
+    """做一层"只有人、背景透明"的视频，用来把大字压到人后面。
+
+    为什么不用 `hyperframes remove-background`：它要下 u2net 的 onnx 权重，
+    这台机器下载报 HTTP 504（重试两次都是）。macOS 自带 Vision 的
+    人像分割不需要下载任何东西，而且我们早就有这条链（`person_mask.swift`）。
+    遮罩 → alphamerge → VP9(yuva420p) webm，WebM 的 alpha_mode 标记就位，
+    浏览器能直接当带透明通道的 <video> 播。
+    """
+    if not MASK_BIN.exists():
+        print("  ！缺 scripts/native/person_mask（swiftc -O person_mask.swift -o person_mask），"
+              "大字只能压在人前面", file=sys.stderr)
+        return None
+    dst = clip.with_name(clip.stem + "-fg.webm")
+    if dst.exists() and dst.stat().st_mtime > clip.stat().st_mtime and dst.stat().st_size > 4096:
+        return dst
+    mdir = proj / "hf" / "work" / "mask" / clip.stem
+    r = subprocess.run([str(MASK_BIN), str(clip), "0", f"{dur}", str(mdir), str(fps)],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not any(mdir.glob("f*.png")):
+        print(f"  ！抠像失败：{clip.name}\n{(r.stderr or '')[-300:]}", file=sys.stderr)
+        return None
+    # 遮罩序列的长度跟着片段走，短一帧就补不了——按实际帧数重取
+    n = len(list(mdir.glob("f*.png")))
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(clip), "-framerate", str(fps),
+         "-i", str(mdir / "f%04d.png"),
+         "-filter_complex",
+         # 遮罩先缩 1px（erosion）：边界像素的颜色是原背景，不缩会在人身边缘
+         # 留一圈发虚的色边——底图是同一帧，缩 1px 看不出来，色边却没了。
+         # 二值化 + 缩 2px：软遮罩在 4:2:0 的 VP9 里会在人身边缘糊出一圈光晕，
+         # 硬边反而干净——底图是同一帧，边界往里收 2px 看不出来，光晕却没了。
+         f"[1:v]format=gray,scale={1080}:{1920},lutyuv=y='if(gt(val,150),255,0)',"
+         "erosion,erosion[tmp];[tmp]erosion,erosion[mk];"
+         "[0:v][mk]alphamerge,format=yuva420p[o]",
+         "-map", "[o]", "-frames:v", str(n),
+         "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "18",
+         "-auto-alt-ref", "0", "-an", str(dst)],
+        capture_output=True, text=True)
+    if r.returncode != 0 or not dst.exists():
+        print(f"  ！alpha 编码失败：{clip.name}\n{(r.stderr or '')[-300:]}", file=sys.stderr)
+        return None
+    return dst
+
+
 # ------------------------------------------------------------------ 卡片
 
 def card_windows(segs, lib, chars_cache, style):
@@ -176,6 +226,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 {videos}
     <div id="grade"></div>
 {cards}
+{fg}
     <div id="caplayer">
 {caps}
     </div>
@@ -220,7 +271,8 @@ def esc(t: str) -> str:
     return _html.escape(str(t), quote=False)
 
 
-def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade):
+def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
+               fg_by_seg=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
     cap_px = int(sub.get("size_px") or 72)
@@ -250,6 +302,11 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="0" '
         f'playsinline data-has-audio="true"></video>'
         for i, v in enumerate(videos, 1))
+    fg_html = "\n".join(
+        f'    <video id="fg{i}" class="clip" src="{fg_by_seg[i]}" data-start="{v["start"]}" '
+        f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="1" '
+        f'playsinline muted></video>'
+        for i, v in enumerate(videos, 1) if fg_by_seg and i in fg_by_seg)
     c_html = "\n".join(
         f'      <div id="cap-{i:03d}" class="clip cap" data-start="{c["start"]}" '
         f'data-duration="{round(c["end"] - c["start"], 3)}"><span>{esc(c["text"])}</span></div>'
@@ -285,7 +342,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                   tuple((emph.get("gradient") or ["#FFE53B", "#FFB000"])[:2])
                   if emph.get("gradient") else ""),
         idc_x=idc_x, idc_y=idc_y,
-        videos=v_html, caps=c_html, cards="\n".join(card_html),
+        videos=v_html, caps=c_html, cards="\n".join(card_html), fg=fg_html,
         cap_entry=entry, cap_tween=tween)
 
 
@@ -343,6 +400,8 @@ def main():
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
     ap.add_argument("--no-loudnorm", action="store_true")
     ap.add_argument("--force-extract", action="store_true")
+    ap.add_argument("--no-cutout", action="store_true",
+                    help="不做人物抠像层（大字会压在人前面）")
     a = ap.parse_args()
 
     proj = Path(a.project).expanduser().resolve()
@@ -414,6 +473,21 @@ def main():
 
     cards = card_windows(active, lib, chars_cache, style)
 
+    # 大字放人物背后：给这些段做一层带 alpha 的人像，叠在卡上面、字幕下面。
+    # 层级：底(全画幅) → 卡 → 人像(透明背景) → 字幕。
+    fg_by_seg = {}
+    if not a.no_cutout:
+        want = {int(s_["n"]): s_ for s_ in active
+                if str((s_.get("card") or {}).get("kind") or "") in ("behind", "cutout")}
+        for n_, s_ in want.items():
+            cl = next((v for i, v in enumerate(videos, 1) if i == n_), None)
+            if not cl:
+                continue
+            fgp = make_fg(proj, proj / "hf" / cl["src"], cl["dur"], FPS)
+            if fgp:
+                fg_by_seg[n_] = f"clips/{fgp.name}"
+                print(f"  抠像 段 {n_}（{fgp.stat().st_size / 1e6:.1f} MB）")
+
     # 字幕轨落盘：verify_film.py 读的是 out/subs.json，两条链路必须吐同一个东西，
     # 否则 D 段会拿 ffmpeg 那版留下的旧字幕去算密度（实测 136 条/分钟）。
     (proj / "out").mkdir(parents=True, exist_ok=True)
@@ -450,7 +524,7 @@ def main():
     # 3) 写 HTML
     html_txt = build_html(slug=edl.get("slug") or proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
-                          style=style, fonts=fonts, grade=a.grade)
+                          style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg)
     (hf / "index.html").write_text(html_txt)
     (hf / "meta.json").write_text(json.dumps(
         {"from_edl": "edl.json", "style": name, "segments": len(videos),
