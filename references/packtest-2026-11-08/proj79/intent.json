@@ -1,0 +1,26 @@
+{
+ "raw": "用熊工讲进口和国产的原声，配施工现场的画面，做一条70秒左右的竖版短片：把'进口一定好'和'差不多就行'这两种说法都摆出来，再讲清楚我们怎么选",
+ "audience": "正在比价艺术涂料、被'进口一定好'和'都差不多'两种说法夹着的业主与设计师",
+ "promise": "看完会承认两边都有偏差，并愿意用'你手上做过多少落地案例、预算怎么对'来问供应商，而不是只问是不是进口",
+ "duration_s": 71,
+ "aspect": "9:16",
+ "avoid": [],
+ "cut_source": "speech",
+ "visual_selector": "single_cam_talking",
+ "style_pack": "talking-head-v1",
+ "created": "2026-11-06T18:24:42",
+ "intake": {
+  "mode": "thin",
+  "checked_at": "2026-11-07T11:42:39",
+  "signals": {
+   "原话够读": true,
+   "原话里有剪辑动作": true,
+   "原话里带目标": true,
+   "原话里点名观众": false,
+   "用户给了稿": false,
+   "用户给了参考片/方案": false,
+   "库里有背景语料": true,
+   "索引可用": true
+  }
+ }
+}

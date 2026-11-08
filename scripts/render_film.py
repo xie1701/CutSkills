@@ -284,7 +284,8 @@ def render_sub_pngs(cues: list[dict], font: Path, size: int, w: int, band: tuple
 
 
 def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
-                 out_dir: Path) -> tuple[list[dict], dict]:
+                 out_dir: Path, emphasis: dict | None = None,
+                 H: int = 1920) -> tuple[list[dict], dict]:
     """把 EDL 里的 `card` 画成透明 PNG：一句话、黑底圆角、压在字幕上方。
 
     字卡承载的是**口播里没有的事实**（数字、对比、专名）。不能拿它当字幕用——
@@ -295,28 +296,42 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
 
     if not projects:
         return [], {}
-    size = 58
-    f = ImageFont.truetype(str(font), size)
-    band_h = 220
-    y = 900                                   # 卡片中线：字幕带（1294）上方，避开平台底栏
     out_dir.mkdir(parents=True, exist_ok=True)
     out, long_texts = [], []
     for i, c in enumerate(projects):
         text = c["text"]
+        # 花字（kind: keyword）：不是"牌子"，是**从字幕条里抽出、放大、上抬**的那一句话。
+        # 区别很实：卡片有底衬、居中不动；花字没有底、字号近 2 倍、颜色是模板指定的强调色。
+        # 两者混着用，画面立刻变成"贴纸拼盘"。
+        big = c.get("kind") == "keyword" and bool(emphasis)
+        if big:
+            size = int(emphasis["size_px"])
+            band_h = int(size * 2.0)
+            y = int(emphasis["center_y_px"]) - band_h // 2
+        else:
+            size, band_h, y = 58, 220, 900    # 卡片中线：字幕带上方，避开平台底栏
+        f = ImageFont.truetype(str(font), size)
         if len(text) > 24:
             long_texts.append(text)
-        tw = f.getlength(text)
-        pad_x, pad_y = 44, 30
-        bw = int(min(w - 40, tw + pad_x * 2))
         img = Image.new("RGBA", (w, band_h), (0, 0, 0, 0))
         d0 = ImageDraw.Draw(img)
-        x0, y0 = (w - bw) // 2, (band_h - (size + pad_y * 2)) // 2
-        d0.rounded_rectangle([x0, y0, x0 + bw, y0 + size + pad_y * 2], radius=22,
-                             fill=(0, 0, 0, 185), outline=(255, 255, 255, 60), width=2)
-        d0.text((w / 2, band_h / 2), text, font=f, fill=(255, 255, 255, 255), anchor="mm")
+        if big:
+            col = str(emphasis.get("color") or "#F5D33A").lstrip("#")
+            fill = tuple(int(col[k:k + 2], 16) for k in (0, 2, 4)) + (255,)
+            d0.text((w / 2, band_h / 2), text, font=f, fill=fill, anchor="mm",
+                    stroke_width=int(emphasis.get("stroke_px") or 0),
+                    stroke_fill=(0, 0, 0, 245))
+        else:
+            tw = f.getlength(text)
+            pad_x, pad_y = 44, 30
+            bw = int(min(w - 40, tw + pad_x * 2))
+            x0, y0 = (w - bw) // 2, (band_h - (size + pad_y * 2)) // 2
+            d0.rounded_rectangle([x0, y0, x0 + bw, y0 + size + pad_y * 2], radius=22,
+                                 fill=(0, 0, 0, 185), outline=(255, 255, 255, 60), width=2)
+            d0.text((w / 2, band_h / 2), text, font=f, fill=(255, 255, 255, 255), anchor="mm")
         p = out_dir / f"card{i:03d}.png"
         img.save(p)
-        out.append({"path": str(p), "y": y - band_h // 2,
+        out.append({"path": str(p), "y": y, "kind": c.get("kind") or "card",
                     "start": c["start"], "end": c["end"], "text": text})
     return out, {"too_long": long_texts}
 
@@ -435,6 +450,9 @@ def main() -> int:
     total = t
 
     # ---- 白平衡对齐：先量每一镜的 R/B，再统一到口播段的水平
+    GRADE = {"warm_high_sat": ",eq=saturation=1.30:contrast=1.04,"
+                             "colortemperature=temperature=4900:mix=0.45"}
+
     def base_vf(hdr: bool) -> str:
         v = (f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
              f"crop={W}:{H},setsar=1")
@@ -442,6 +460,7 @@ def main() -> int:
             v += (",colorspace=all=bt709:iall=bt2020:fast=1,"
                   "eq=contrast=1.14:gamma=1.05:saturation=1.08,"
                   "colortemperature=temperature=5200:mix=0.7")
+        v += GRADE.get(str(style.get("grade") or ""), "")
         return v
 
     ratios: dict[int, float] = {}
@@ -481,6 +500,8 @@ def main() -> int:
             vf += (",colorspace=all=bt709:iall=bt2020:fast=1,"
                    "eq=contrast=1.14:gamma=1.05:saturation=1.08,"
                    "colortemperature=temperature=5200:mix=0.7")
+        # 模板的调色在 HDR 转换之后、白平衡增益之前：它是"风格"，不是"校正"
+        vf += GRADE.get(str(style.get("grade") or ""), "")
         if abs(sh["gain"] - 1.0) > 0.005:
             vf += f",colorchannelmixer=rr={sh['gain']:.3f}:bb={1 / sh['gain']:.3f}"
         vf += f",fps={FPS},format=yuv420p"
@@ -629,9 +650,15 @@ def main() -> int:
         d = max(1.2, min(d, s["_dur_q"] - 0.2))
         at = c.get("at")
         start = round(s["_start"] + (float(at) if isinstance(at, (int, float)) else 0.25), 3)
+        kind = str(c.get("kind") or "card")
+        if kind == "keyword" and style.get("emphasis"):
+            hold = style["emphasis"]["hold_s"]
+            d = max(float(hold[0]), min(d, float(hold[1])))
+            start = round(s["_start"] + (float(at) if isinstance(at, (int, float)) else 0.6), 3)
         card_proj.append({"text": str(c["text"]), "start": start,
-                          "end": round(start + d, 3)})
-    cards, card_info = render_cards(segs, card_proj, font, W, work / "cards") if (font and card_proj) else ([], {})
+                          "end": round(start + d, 3), "kind": kind})
+    cards, card_info = render_cards(segs, card_proj, font, W, work / "cards",
+                                    style.get("emphasis"), H) if (font and card_proj) else ([], {})
 
     # 最后一次编码：贴字幕 + 贴字卡 + 上归一后的声轨。
     #

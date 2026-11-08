@@ -152,10 +152,31 @@ def to_style(pack: dict, W: int, H: int, FPS: int) -> dict:
             "shadow": sub.get("shadow") is not None and _stroke_px(sub.get("stroke"), H) == 0,
             "variant": "yield_to_footage" if variant else None,
         },
+        # 花字层：从字幕条抽出、放大、上抬到画面中部的那一层。
+        # 这是「暖知识口播」的签名，不是可选装饰——所以跟着模板走，不跟字幕走。
+        "emphasis": _emphasis(pack, H, font_path),
+        "grade": (pack.get("palette") or {}).get("grade"),
         "shots": {"talking_median_s": med_s},
         "sfx": {"density_per_min": tempo.get("sfx_density_per_min") or [0, 8]},
         "audio": {"loudness_lufs": -14, "true_peak_dbtp": -1, "cut_fade_ms": 30},
         "card": {"bottom_edge_max_px": int(round(0.90 * H))},
+    }
+
+
+def _emphasis(pack: dict, H: int, font_path: Path | None) -> dict | None:
+    em = pack.get("emphasis")
+    if not em:
+        return None
+    glyph = float(em.get("glyph_h_ratio") or 0.06)
+    stroke = _stroke_px(em.get("stroke"), H)
+    return {
+        "color": str(em.get("color") or "#F5D33A"),
+        "glyph_h_ratio": round(glyph, 4),
+        "size_px": size_for_glyph(font_path, round(glyph * H)) if font_path else int(glyph * H),
+        "center_y_px": int(round(float(em.get("band_center_h") or 0.5) * H)),
+        "stroke_px": stroke,
+        "hold_s": em.get("hold_s") or [1.0, 1.5],
+        "max_chars": int(em.get("max_chars") or 8),
     }
 
 
