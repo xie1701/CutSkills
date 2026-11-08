@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh" data-resolution="portrait">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1080, height=1920" />
+<title>qizao-ground-01</title>
+<!-- 由 scripts/render_hf.py 从 edl.json 生成；改剪辑去改 EDL，别手改这个文件 -->
+<style>
+@font-face { font-family: "SC-Sub"; src: url("assets/fonts/NotoSansSC-SemiBold.ttf"); font-weight: 600; }
+@font-face { font-family: "SC-Big"; src: url("assets/fonts/NotoSansSC-Black.ttf"); font-weight: 900; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
+#root { position:relative; width:100%; height:100%; }
+.clip { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+#grade { position:absolute; inset:0; background:transparent; }
+.cap { position:absolute; left:0; right:0; top:67.4%; display:flex; justify-content:center;
+        padding:0 140px; }
+.cap span { font-family:"SC-Sub", sans-serif; font-weight:600; font-size:80px;
+  color:#FFFFFF; letter-spacing:0.01em; line-height:1.28; text-align:center;
+  text-shadow:0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9);  }
+.kw { position:absolute; left:0; right:0; top:44.0%; display:flex; justify-content:center;
+       padding:0 140px; }
+.kw span { font-family:"SC-Big", sans-serif; font-weight:900; font-size:163px;
+  line-height:1.06; text-align:center; color:#F6EB34;
+  text-shadow:0 6px 22px rgba(0,0,0,0.6);  }
+.idcard { position:absolute; left:5.5%; top:15.5%; text-align:left; }
+.idcard span { display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0"
+       data-width="1080" data-height="1920" data-fps="30" data-duration="14.466">
+    <video id="v1" class="clip" src="clips/_书架口播_备用_熊工口播3_297p30-304p02.mp4" data-start="0.0" data-duration="6.733" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v2" class="clip" src="clips/_书架口播_备用_熊工口播3_231p54-234p36.mp4" data-start="6.733" data-duration="2.833" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v3" class="clip" src="clips/_书架口播_备用_熊工口播3_279p18-284p06.mp4" data-start="9.566" data-duration="4.9" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <div id="grade"></div>
+    <div id="idc" class="clip idcard" data-start="0.5" data-duration="8.5">
+      <span style="font-size:64px">熊工</span>
+      <span style="font-size:44px">柒造 · 地面工程</span>
+      <span style="font-size:36px">进口和国产，到底差在哪</span>
+      <span style="font-size:30px">工地现场口述</span>
+    </div>
+    <div id="kw-02" class="clip kw" data-start="3.9" data-duration="1.33"><span>不是非黑即白</span></div>
+    <div id="kw-03" class="clip kw" data-start="7.213" data-duration="1.5"><span>进口一定好？</span></div>
+    <div id="kw-04" class="clip kw" data-start="10.406" data-duration="1.0"><span>差不多就行</span></div>
+    <div id="caplayer">
+      <div id="cap-001" class="clip cap" data-start="0.06" data-duration="2.94"><span>事情不是这么简单的</span></div>
+      <div id="cap-002" class="clip cap" data-start="3.0" data-duration="2.76"><span>去非黑即白，</span></div>
+      <div id="cap-003" class="clip cap" data-start="5.76" data-duration="0.96"><span>我是这样看的。</span></div>
+      <div id="cap-004" class="clip cap" data-start="6.853" data-duration="2.7"><span>进口的一定好就对吧</span></div>
+      <div id="cap-005" class="clip cap" data-start="9.566" data-duration="2.16"><span>他就觉得差不多，</span></div>
+      <div id="cap-006" class="clip cap" data-start="11.726" data-duration="1.38"><span>或者说觉得国产的也</span></div>
+      <div id="cap-007" class="clip cap" data-start="13.106" data-duration="1.36"><span>不错。</span></div>
+    </div>
+  </div>
+<script src="assets/gsap.min.js"></script>
+<script>
+const tl = gsap.timeline({ paused: true });
+// 字幕：hard_cut
+document.querySelectorAll(".cap").forEach((c) => {
+  const t = parseFloat(c.dataset.start);
+  const h = c.querySelector("span");
+  tl.set(h, { y: 0, opacity: 1 }, t);
+});
+// 大字：先弹进来，停住，再退
+document.querySelectorAll(".kw").forEach((c) => {
+  const t = parseFloat(c.dataset.start);
+  const d = parseFloat(c.dataset.duration);
+  tl.fromTo(c.querySelector("span"),
+    { scale: 0.74, opacity: 0, rotate: -2.4 },
+    { scale: 1, opacity: 1, rotate: 0, duration: 0.34, ease: "back.out(2.2)" }, t);
+  tl.to(c.querySelector("span"), { opacity: 0, duration: 0.16, ease: "power1.in" },
+        t + Math.max(0, d - 0.16));
+});
+document.querySelectorAll(".idcard > span").forEach((el, i) => {
+  tl.fromTo(el, { x: -18, opacity: 0 },
+    { x: 0, opacity: 1, duration: 0.42, ease: "power3.out" }, 0.42 + i * 0.08);
+});
+window.__timelines["main"] = tl;
+tl.seek(0);
+</script>
+</body>
+</html>

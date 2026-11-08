@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 audit.md
+
+# C 段 HyperFrames 链路的中间物：切好的片段和临时渲（可重建，不进库）
+**/hf/clips/
+**/out/_hf_raw.mp4
+**/hf/assets/fonts/

@@ -61,6 +61,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
     ap.add_argument("--style", default=None)
+    ap.add_argument("--film", default=None,
+                    help="成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4）")
     a = ap.parse_args()
     proj = Path(a.project).expanduser().resolve()
     edl = json.loads((proj / "edl.json").read_text())
@@ -89,7 +91,13 @@ def main() -> int:
         # 不然 30fps 的成片会被 24 判红——这不是片子的问题，是我们把选择权丢了。
         if isinstance(_f, (list, tuple)):
             style.setdefault("canvas", {})["fps"] = list(_f)
-    film = proj / "out" / "film.mp4"
+    film = (proj / a.film) if (a.film and not Path(a.film).is_absolute()) else (
+        Path(a.film).expanduser().resolve() if a.film else proj / "out" / "film.mp4")
+    if not a.film:
+        cands = [x for x in (proj / "out" / "film.mp4", proj / "out" / "film-hf.mp4")
+                 if x.exists()]
+        if cands:
+            film = max(cands, key=lambda x: x.stat().st_mtime)
     if not film.exists():
         print(f"没有成片：{film}（先跑 render_film.py）", file=sys.stderr)
         return 2
@@ -172,13 +180,18 @@ def main() -> int:
     # 2026-11-07 踩过：字幕/字卡的 JSON 都在，滤镜链也在命令里，但一张静止 PNG 的
     # enable 窗口开在 72 秒，overlay 一个像素都没画上去（要 -loop 1 才行）。
     # 只读 JSON 的验收会把这种事全判成绿灯。
-    def frame_at(t: float, tag: str) -> "object":
+    def frame_at(t: float, tag: str, mode: str = "L") -> "object":
+        """取一帧。默认给灰度（判深浅），判颜色时要显式要 RGB。
+
+        2026-11-08 踩过：这里一律转 L，于是「按颜色查大字在不在」永远查到 0%——
+        灰度图转 RGB 出来是 (v,v,v)，任何彩色都比不上，红得很自信。
+        """
         from PIL import Image
-        out = proj / "work" / f"_verify_{tag}.jpg"
+        out = proj / "work" / f"_verify_{tag}{'' if mode == 'L' else '-' + mode}.jpg"
         out.parent.mkdir(parents=True, exist_ok=True)
         run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", str(film),
              "-frames:v", "1", str(out)])
-        return Image.open(out).convert("L") if out.exists() else None
+        return Image.open(out).convert(mode) if out.exists() else None
 
     from PIL import Image  # noqa: F401
 
@@ -204,21 +217,81 @@ def main() -> int:
                 "" if lo > 0.008 else "subs.json 有字幕，但画面上看不到——滤镜没生效")
 
     fin = json.loads((proj / "edl.json").read_text())
+    cards_meta = {}
+    if (proj / "out" / "cards.json").exists():
+        try:
+            for c in json.loads((proj / "out" / "cards.json").read_text()).get("cards") or []:
+                cards_meta.setdefault(str(c.get("kind")), []).append(c)
+        except json.JSONDecodeError:
+            pass
+    kw_hex = str((style.get("emphasis") or {}).get("keyword_color") or "#FFD400")
+
+    def color_share(im, hexs, box, tol=64):
+        """一块区域里接近某个颜色的像素占比。
+
+        为什么不再用「深色占比」：那判据只对 ffmpeg 那条链的深底衬卡成立。
+        HyperFrames 链的大字是**亮黄字压画面**，深色占比天然为 0，
+        于是"卡明明在画面上"也会报红。卡是我们自己设计的，颜色是已知的，
+        就按颜色查——这比"深不深"诚实地多。
+        """
+        r0, g0, b0 = (int(hexs.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        crop = im.crop(box).convert("RGB")
+        px = list(crop.getdata())
+        n = sum(1 for r, g, b in px
+                if abs(r - r0) <= tol and abs(g - g0) <= tol and abs(b - b0) <= tol)
+        return n / max(1, len(px))
+
+    if cards_meta:
+        for c in [x for v in cards_meta.values() for x in v]:
+            a_, b_ = float(c["start"]), float(c["end"])
+            if a_ >= dur:
+                continue
+            mid = min(dur - 0.05, (a_ + b_) / 2)
+            im = frame_at(mid, "cardrgb", "RGB")
+            if im is None:
+                continue
+            kind = str(c.get("kind") or "card")
+            if kind in ("keyword", "behind", "cutout"):
+                share = color_share(im, kw_hex, (0, int(H * 0.28), W, int(H * 0.76)))
+                add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
+                    "green" if share > 0.004 else "red",
+                    "" if share > 0.004 else
+                    f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
+            elif kind == "idcard":
+                whites = color_share(im, "#FFFFFF", (0, 0, W, int(H * 0.42)), tol=40)
+                add("身份卡烧进画面", f"{mid:.1f}s 处白字占比 {whites * 100:.2f}%",
+                    "green" if whites > 0.002 else "red", "")
+            else:
+                px = list(im.crop((0, 760, W, 1040)).getdata())
+                dark = sum(1 for v_ in px if v_ < 80) / max(1, len(px))
+                add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
+                    "green" if dark > 0.12 else "red", "")
+        cards_meta = {"_done": []}          # 下面按 EDL 的那段不再重复判
+
     t0 = 0.0
     for s in fin.get("segments") or []:
         d = round(float(s["out"]) - float(s["in"]), 3)
         card = s.get("card")
-        if card:
+        if card and "_done" not in cards_meta:
             cd = float(card.get("dur") or max(1.2, d - 0.6))
             at = float(card["at"]) if isinstance(card.get("at"), (int, float)) else 0.25
             mid = t0 + at + max(0.3, cd / 2)
             im = frame_at(mid, "card")
             if im is not None:
-                px = list(im.crop((0, 760, W, 1040)).getdata())
-                dark = sum(1 for v in px if v < 80) / max(1, len(px))
-                add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
-                    "green" if dark > 0.12 else "red",
-                    "" if dark > 0.12 else f"EDL 里有字卡「{card.get('text')}」，画面上没有")
+                kind = str(card.get("kind") or "card")
+                if kind in ("keyword", "behind", "cutout"):
+                    share = color_share(im, kw_hex,
+                                        (0, int(H * 0.30), W, int(H * 0.74)))
+                    add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
+                        "green" if share > 0.004 else "red",
+                        "" if share > 0.004 else
+                        f"EDL 里有大字「{card.get('text')}」，画面 {kw_hex} 色几乎为零")
+                else:
+                    px = list(im.crop((0, 760, W, 1040)).getdata())
+                    dark = sum(1 for v in px if v < 80) / max(1, len(px))
+                    add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
+                        "green" if dark > 0.12 else "red",
+                        "" if dark > 0.12 else f"EDL 里有字卡「{card.get('text')}」，画面上没有")
         t0 += d
 
     # 响度
@@ -331,7 +404,7 @@ def main() -> int:
     yellow = [r for r in rows if r[2] == "yellow"]
     icon = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
     lines = [f"# 验收报告 · {proj.name}", "",
-             f"- 成片：`out/film.mp4` · {dur:.2f}s · {W}×{H} @ {fps_v:.2f}fps · "
+             f"- 成片：`out/{film.name}` · {dur:.2f}s · {W}×{H} @ {fps_v:.2f}fps · "
              f"{int(info.get('format', {}).get('size') or 0)/1e6:.1f} MB",
              f"- 风格包：`{style['name']}`",
              f"- 结果：🟢 {len(rows)-len(red)-len(yellow)} · 🟡 {len(yellow)} · 🔴 {len(red)}", "",

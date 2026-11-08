@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "historyId": "61d76a27-915b-4125-8d84-e3ffeea07427",
+  "currentRevision": null,
+  "pendingChanges": false,
+  "files": {
+    "assets/gsap.min.js": {
+      "hash": "c3a03a345e45bc954cd48c43f11572891f5dca7a5d99348d5bc14753a728618c",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/c3/c3a03a345e45bc954cd48c43f11572891f5dca7a5d99348d5bc14753a728618c"
+    },
+    "index.html": {
+      "hash": "ea36e35432d8f4d9d8c39d92d63a98c3412eb23709d0b0da9f1d015fdafcadb5",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/ea/ea36e35432d8f4d9d8c39d92d63a98c3412eb23709d0b0da9f1d015fdafcadb5"
+    },
+    "meta.json": {
+      "hash": "e710645c8960ec916a20594027dcd1c16619c416649c68a9ad6bb0b1167f5034",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/e7/e710645c8960ec916a20594027dcd1c16619c416649c68a9ad6bb0b1167f5034"
+    },
+    "assets/fonts/NotoSansSC-Black.ttf": {
+      "hash": "f71520c6a772127286a06c3ce16336230119e6b7b9dba6fcee3afe71d52ffde9",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/f7/f71520c6a772127286a06c3ce16336230119e6b7b9dba6fcee3afe71d52ffde9"
+    },
+    "assets/fonts/NotoSansSC-SemiBold.ttf": {
+      "hash": "b212e16c68c6fb464701199f3ecc20f18756f07cef5961b2f157aea80829a344",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/b2/b212e16c68c6fb464701199f3ecc20f18756f07cef5961b2f157aea80829a344"
+    },
+    "clips/_书架口播_备用_熊工口播3_231p54-234p36.mp4": {
+      "hash": "d00b1f3f3cb6b9f8f817dbfb66033256252169e5d69e3fd73136d47eb205b10b",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/d0/d00b1f3f3cb6b9f8f817dbfb66033256252169e5d69e3fd73136d47eb205b10b"
+    },
+    "clips/_书架口播_备用_熊工口播3_279p18-284p06.mp4": {
+      "hash": "d1293b56d5513be7a504b0633c928d80c50f100fb3c195536a6108ff578883d6",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/d1/d1293b56d5513be7a504b0633c928d80c50f100fb3c195536a6108ff578883d6"
+    },
+    "clips/_书架口播_备用_熊工口播3_297p30-304p02.mp4": {
+      "hash": "3191d3bbabfd934476338bc774a56186bc4935282adf0545acd813848714bb00",
+      "content": "/Users/jerry/.cache/hyperframes/history/61d76a27-915b-4125-8d84-e3ffeea07427/blobs/31/3191d3bbabfd934476338bc774a56186bc4935282adf0545acd813848714bb00"
+    }
+  },
+  "revisions": {},
+  "checks": {
+    "latest": null,
+    "revisions": {},
+    "unversioned": []
+  },
+  "snapshots": {
+    "latest": null,
+    "revisions": {},
+    "unversioned": []
+  },
+  "renders": {
+    "latest": {
+      "id": "735ad996-642c-4b9d-bc3d-8f350f0b56d7",
+      "completedAt": 1794127106654,
+      "output": "/Users/jerry/Downloads/AIworks/CutSkills/references/packtest-2026-11-08/proj79/out/_hf_raw.mp4",
+      "status": "completed",
+      "revision": null
+    },
+    "retainedRevisions": []
+  },
+  "pendingArtifactCleanup": []
+}

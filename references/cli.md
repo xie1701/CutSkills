@@ -251,6 +251,7 @@
 |---|---|
 | `--project` | **必填** |
 | `--style` | — |
+| `--film` | 成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4） |
 
 ### `blind_test.py`
 *CutSkills · 盲测：把成片稿交给一个不知道内情的读者，看他读出来的是什么。*
@@ -397,6 +398,22 @@
 |---|---|
 | `--dir` | **必填** |
 | `--only` | — |
+
+### `render_hf.py`
+*C 段主链路：edl.json → HyperFrames 合成（HTML）→ mp4。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--style` | — |
+| `--segments` | 只渲前 N 段（0=全部）（默认 0） |
+| `--quality` | （默认 'looks'） |
+| `--workers` | （默认 '4'） |
+| `--grade` | CSS filter，例：saturate(1.5) contrast(1.1) |
+| `--no-render` | 只生成 HTML 并 lint |
+| `--no-loudnorm` | 开关 |
+| `--force-extract` | 开关 |
 
 ### `selftest.py`
 *端到端自测：从零造一个小素材库，把 A→B→C→D 整条链跑一遍。*

@@ -290,11 +290,71 @@ python3 <SKILL_DIR>/scripts/ab_open.py --project <项目目录>
 
 ## 阶段 C · 成片
 
+**主链路是 HTML 渲染（HyperFrames），不是 ffmpeg 合成。**
+
 ```bash
-python3 <SKILL_DIR>/scripts/render_film.py --project <项目目录> --library "<素材库>"
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目目录> --library "<素材库>"
 ```
 
-EDL 进，`out/film.mp4` 出。只做四件能在成片上验的事：**画幅统一、声音对齐、字幕贴准、响度达标**。
+EDL 进，`hf/index.html` 出，渲成 `out/film-hf.mp4`。三件事：
+**切段（ffmpeg 干）→ 排版与动效（浏览器干）→ 响度（ffmpeg 干）**。
+
+```bash
+# 先只出 HTML 并 lint，不渲（最快的一步，1 秒）
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --segments 3 --no-render
+
+# 出一版粗的看节奏（draft 比 looks 快一倍）
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --quality draft
+
+# 只渲前 N 段（换素材/调字幕时的常规动作）
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --segments 3
+```
+
+为什么要换成 HTML（2026-11-08 决定，实测记录在
+[references/hf-probe-2026-11-08/README.md](references/hf-probe-2026-11-08/README.md)）：
+ffmpeg 那层**没有布局引擎**。当天所有坑都是同一件事的变体——用 PIL 量墨迹高反算字号、
+没编 libass 只能画 PNG 再 overlay、静止图要 `-loop 1`、叠加不钉 `-t` 会漂 12 秒、
+渐变参数穿三层函数丢了一句错都不报。HTML 里这些是 CSS 和 GSAP 曲线。
+
+**分工不许越界**：
+
+| 谁干 | 干什么 | 为什么不能交给对方 |
+|---|---|---|
+| `render_hf.py` | 从 EDL 生成 `hf/index.html`、切段缓存、调 `hyperframes render`、落 `out/subs.json` 与 `out/cards.json` | 它是唯一知道"哪一段配哪句话、卡什么时候出"的一层 |
+| `hyperframes measure extract` | 切段与标准化（HDR→709、旋转、统一尺寸） | 旋转过的 HEVC 竖屏这里自动出 1080×1920，不用自己算 display matrix |
+| `render_film.build_cues` | 字幕切条与逐字对齐（导入，不重写） | 那段逻辑是踩出来的：按**字**裁段窗口、逐字对**字**、换气收口、纯标点不成条 |
+| 浏览器 | 排版、字体、动效、图层顺序 | 这是换引擎的全部理由 |
+
+### 计时（真跑出来的，别按感觉估）
+
+| 动作 | 耗时 |
+|---|---|
+| 只生成 HTML + lint | ~1 秒 |
+| 切一段 6.7s 素材（第一次） | ~38 秒；**之后走缓存** |
+| 渲 14.5 秒片（`looks`, 4 workers） | 35–105 秒（机器负载决定） |
+| 外推 79 秒片（`looks`） | ≈3–7 分钟 |
+
+比 ffmpeg 那条链慢约一个数量级。**日常迭代靠 `hyperframes preview` 在浏览器里看，不靠 render。**
+
+### 亮度和调色不在模板里
+
+`talking-head-v1.yaml` 没有调色字段，所以 HTML 链路默认**不调色**——直出素材原色。
+要调就传 CSS：
+
+```bash
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --grade "saturate(1.5) contrast(1.1) brightness(0.95)"
+```
+
+这一条必须明说，因为**量出来的数和 ffmpeg 版对不上时，第一嫌疑就是这里**：
+没传 `--grade` 时实测 luma 119.5 / 饱和 0.334，ffmpeg 版是 91.4 / 0.587——
+差的是调色，不是引擎好坏。（当时视觉模型说"HyperFrames 色彩更通透"，量完发现是反的。）
+
+---
+
+## 阶段 C · 旧链路（ffmpeg 合成，保留）
+
+`render_film.py` 还在，能用，但不再是主路径。留着它的理由有两个：一是不依赖 Chrome 和网络，
+二是今天换引擎这件事可能还要退回来。它的产物是 `out/film.mp4`。
 
 ### ⛔ 包装模板层已雪藏（2026-11-08）
 

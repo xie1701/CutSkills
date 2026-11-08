@@ -1,0 +1,35 @@
+{
+ "cards": [
+  {
+   "kind": "idcard",
+   "text": "",
+   "lines": [
+    "熊工",
+    "柒造 · 地面工程",
+    "进口和国产，到底差在哪",
+    "工地现场口述"
+   ],
+   "start": 0.5,
+   "end": 9.0
+  },
+  {
+   "kind": "behind",
+   "text": "不是非黑即白",
+   "start": 3.9,
+   "end": 5.23
+  },
+  {
+   "kind": "keyword",
+   "text": "进口一定好？",
+   "start": 7.213,
+   "end": 8.713
+  },
+  {
+   "kind": "keyword",
+   "text": "差不多就行",
+   "start": 10.406,
+   "end": 11.406
+  }
+ ],
+ "engine": "hyperframes"
+}
