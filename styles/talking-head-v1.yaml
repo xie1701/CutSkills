@@ -13,7 +13,10 @@ canvas:
   fps: 30
 
 subtitle:
-  font: AlimamaShuHeiTi-Bold        # 阿里妈妈数黑，免费商用；必须给真字体文件，不能 local()
+  font: NotoSansSC-SemiBold         # 思源黑体 SemiBold。这行原来是 AlimamaShuHeiTi-Bold：
+                                    # 标题美术字做字幕，小字号笔画带装饰就是脏点
+                                    # （2026-11-08 Jerry 的原话是「字体不堪入目」）。
+                                    # 必须给真字体文件，不能 local()
   size_px: 80                       # 72–84
   weight: ExtraBold
   color: "#FFFFFF"
@@ -27,6 +30,7 @@ subtitle:
   entry: hard_cut                   # 硬切，不做入场动画
 
 emphasis:
+  font: NotoSansSC-Black            # 花字单独一层字体：放大到 10–16%H 才撑得住分量
   grammars: [big_keyword, strikethrough, quote]   # 只有三种
   keyword_color: "#F6EB34"          # 并列选项、转折词
   negation_color: "#C1121F"         # 否定结论

@@ -19,18 +19,67 @@
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import yaml
 
 STYLES = Path(__file__).resolve().parent.parent / "styles"
 
-# 字体族 → 本机字体名（render_film.find_font 按名字子串匹配）
+# 字体族 → 字体名。**按层分配，不是整片一个字体。**
+#
+# 这里曾经只有一行 `sans: AlimamaShuHeiTi-Bold`，于是字幕、花字、字卡、身份卡
+# 全部用一个标题美术字——四层的字号差三倍，同一个字形在小字上就是"廉价"。
+# 现在每一层各自声明，模板里写 `fonts: {subtitle: ..., emphasis: ...}` 覆盖，
+# 不写就落到这里的默认：字幕用真正的正文黑体，只有花字才允许上重字。
 FONT_CLASS = {
-    "sans_heavy": "AlimamaShuHeiTi-Bold",     # 阿里妈妈数黑，免费商用
-    "sans": "AlimamaShuHeiTi-Bold",
-    "serif": "SourceHanSerifCN",              # 宋体；B 族签名
+    "sans": "思源黑体 SemiBold",        # 正文/字幕：思源黑体 SemiBold，屏幕上的工业标准
+    "sans_body": "思源黑体 Medium",
+    "sans_bold": "思源黑体 Bold",
+    "sans_heavy": "思源黑体 Bold",       # 旧模板的写法，落 Bold（字幕也撑得住）
+    "sans_display": "思源黑体 Black",     # 花字/大字专用：只有放大到 9.5%H 才撑得住
+    "display": "阿里妈妈数黑体 Bold",      # 标题美术字，笔画带装饰，**不许做字幕**
+    "serif": "思源宋体 Bold",            # B 族签名
 }
+
+# 字体名 → 真文件（含 ttc 里的 face 序号）。
+# 为什么要写死这张表：PIL 的 `truetype(path)` 拿到的是 ttc 的**第 0 个** face，
+# 苹方的第 0 个是 PingFang HK Regular——不是你要的那个。不写序号会静默拿错字重。
+FONT_LIB: dict[str, tuple[str, int]] = {
+    "思源黑体 Medium": ("~/Library/Fonts/NotoSansSC-Medium.ttf", 0),
+    "思源黑体 SemiBold": ("~/Library/Fonts/NotoSansSC-SemiBold.ttf", 0),
+    "思源黑体 Bold": ("~/Library/Fonts/NotoSansSC-Bold.ttf", 0),
+    "思源黑体 Black": ("~/Library/Fonts/NotoSansSC-Black.ttf", 0),
+    "思源黑体 ExtraBold": ("~/Library/Fonts/NotoSansSC-ExtraBold.ttf", 0),
+    "思源宋体 Bold": ("~/Library/Fonts/NotoSerifSC-Bold.ttf", 0),
+    "苹方 SC Regular": ("/System/Library/AssetsV2/com_apple_MobileAsset_Font8/"
+                       "86ba2c91f017a3749571a82f2c6d890ac7ffb2fb.asset/AssetData/PingFang.ttc", 3),
+    "苹方 SC Medium": ("/System/Library/AssetsV2/com_apple_MobileAsset_Font8/"
+                      "86ba2c91f017a3749571a82f2c6d890ac7ffb2fb.asset/AssetData/PingFang.ttc", 7),
+    "苹方 SC Semibold": ("/System/Library/AssetsV2/com_apple_MobileAsset_Font8/"
+                        "86ba2c91f017a3749571a82f2c6d890ac7ffb2fb.asset/AssetData/PingFang.ttc", 11),
+    "方正兰亭中黑": ("~/Library/Fonts/方正兰亭中黑_GBK.TTF", 0),
+    "方正兰亭大黑": ("~/Library/Fonts/方正兰亭大黑_GBK.TTF", 0),
+    "阿里妈妈数黑体 Bold": ("~/Library/Fonts/AlimamaShuHeiTi-Bold.otf", 0),
+    "中易黑体": ("~/Library/Fonts/simhei.ttf", 0),
+    "微软雅黑 Bold": ("~/Library/Fonts/Microsoft Yahei Bold.ttf", 0),
+}
+
+
+def _font_ref(name: str) -> dict:
+    spec = resolve_font(name)
+    return {"font_path": str(spec[0]) if spec else None, "font_index": spec[1] if spec else 0}
+
+
+def resolve_font(name: str) -> tuple[Path, int] | None:
+    """字体名 → (文件, ttc face 序号)。找不到就返回 None，绝不静默换字体。"""
+    spec = FONT_LIB.get(name)
+    if spec:
+        p = Path(spec[0]).expanduser()
+        if p.is_file():
+            return p, spec[1]
+    p = find_font_file(name)
+    return (p, 0) if p else None
 
 # 壳体的色板（取自参考片实测值，见 references/packaging-families.md）
 AMBER = (232, 196, 67, 255)        # #E8C443 当前章节高亮
@@ -66,15 +115,17 @@ def find_font_file(name: str) -> Path | None:
     return None
 
 
-def size_for_glyph(font_path: Path, target_px: float) -> int:
+def size_for_glyph(font_path: Path, target_px: float, index: int = 0) -> int:
     """反算字号：让一个汉字的**实际墨迹高度**等于 target_px。
 
     `getbbox("国")` 给的是墨迹框，不是 em 框——这正是 pack 里那句话的意思。
+    不同字体的墨迹高度差 25% 以上（思源黑体 0.88 em，阿里妈妈数黑 0.75 em），
+    所以换字体必须重算字号，不能沿用上一版的 size_px。
     """
     from PIL import ImageFont
 
     probe = 100
-    f = ImageFont.truetype(str(font_path), probe)
+    f = ImageFont.truetype(str(font_path), probe, index=index)
     b = f.getbbox("国")
     ink = b[3] - b[1]
     if ink <= 0:
@@ -116,9 +167,10 @@ def to_style(pack: dict, W: int, H: int, FPS: int) -> dict:
     else:
         soft = hard = int(chars)
 
-    font_name = FONT_CLASS.get(str(sub.get("font_class") or "sans_heavy"), FONT_CLASS["sans_heavy"])
-    font_path = find_font_file(font_name)
-    size_px = size_for_glyph(font_path, round(glyph * H)) if font_path else int(glyph * H)
+    font_name = str(sub.get("font") or FONT_CLASS.get(str(sub.get("font_class") or "sans"), FONT_CLASS["sans"]))
+    spec = resolve_font(font_name)
+    font_path, font_index = spec if spec else (None, 0)
+    size_px = size_for_glyph(font_path, round(glyph * H), font_index) if font_path else int(glyph * H)
 
     tempo = pack.get("tempo") or {}
     med = tempo.get("shot_median_s") or [2.0, 4.8]
@@ -134,6 +186,8 @@ def to_style(pack: dict, W: int, H: int, FPS: int) -> dict:
         "canvas": {"width": W, "height": H, "fps": FPS},
         "subtitle": {
             "font": font_name,
+            "font_path": str(font_path) if font_path else None,
+            "font_index": font_index,
             "size_px": size_px,
             "weight": str(sub.get("weight") or "bold"),
             "color": str(sub.get("color") or "#FFFFFF"),
@@ -154,25 +208,42 @@ def to_style(pack: dict, W: int, H: int, FPS: int) -> dict:
         },
         # 花字层：从字幕条抽出、放大、上抬到画面中部的那一层。
         # 这是「暖知识口播」的签名，不是可选装饰——所以跟着模板走，不跟字幕走。
-        "emphasis": _emphasis(pack, H, font_path),
+        "emphasis": _emphasis(pack, H, font_path, font_index),
         "grade": (pack.get("palette") or {}).get("grade"),
         "shots": {"talking_median_s": med_s},
         "sfx": {"density_per_min": tempo.get("sfx_density_per_min") or [0, 8]},
         "audio": {"loudness_lufs": -14, "true_peak_dbtp": -1, "cut_fade_ms": 30},
-        "card": {"bottom_edge_max_px": int(round(0.90 * H))},
+        # 卡面（字卡 / 身份卡 / B-roll 结构图）单独一层字体：
+        # 它承载的是"要读的结构"（列名、数字、脚注），字号从 207px 一路到 24px，
+        # 和字幕不是一个用途，也就不能共用一个字重。
+        "card": {
+            "bottom_edge_max_px": int(round(0.90 * H)),
+            "font": str((pack.get("fonts") or {}).get("card") or "思源黑体 Bold"),
+            **_font_ref(str((pack.get("fonts") or {}).get("card") or "思源黑体 Bold")),
+        },
     }
 
 
-def _emphasis(pack: dict, H: int, font_path: Path | None) -> dict | None:
+def _emphasis(pack: dict, H: int, font_path: Path | None, font_index: int = 0) -> dict | None:
     em = pack.get("emphasis")
     if not em:
         return None
+    # 花字可以单独指定字体：它放大到 9.5%H，用和正文同一个字就会显得笔画太细。
+    em_font = em.get("font")
+    if em_font:
+        spec = resolve_font(str(em_font))
+        if spec:
+            font_path, font_index = spec
+            print(f"  花字字体：{em_font}（{font_path.name}#{font_index}）", file=sys.stderr)
     glyph = float(em.get("glyph_h_ratio") or 0.06)
     stroke = _stroke_px(em.get("stroke"), H)
     return {
+        "font": str(em_font or pack.get("subtitle", {}).get("font") or ""),
+        "font_path": str(font_path) if font_path else None,
+        "font_index": font_index,
         "color": str(em.get("color") or "#F5D33A"),
         "glyph_h_ratio": round(glyph, 4),
-        "size_px": size_for_glyph(font_path, round(glyph * H)) if font_path else int(glyph * H),
+        "size_px": size_for_glyph(font_path, round(glyph * H), font_index) if font_path else int(glyph * H),
         "center_y_px": int(round(float(em.get("band_center_h") or 0.5) * H)),
         "stroke_px": stroke,
         "hold_s": em.get("hold_s") or [1.0, 1.5],

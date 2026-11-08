@@ -251,12 +251,19 @@ def build_cues(segments: list[dict], index_by_id: dict, chars_cache: dict,
     return out
 
 
+def ttf(font: Path, size: int, index: int = 0):
+    """开字体。`index` 是 ttc 里的 face 序号——苹方第 0 个 face 是 HK Regular，
+    不传序号就静默拿到错字重，画出来"说不清哪里不对"。"""
+    from PIL import ImageFont
+    return ImageFont.truetype(str(font), size, index=index)
+
+
 def render_sub_pngs(cues: list[dict], font: Path, size: int, w: int, band: tuple[int, int],
                     out_dir: Path, stroke: int = 5, shadow: bool = True,
-                    fill: tuple = (255, 255, 255, 255)) -> tuple[list[Path], dict]:
+                    fill: tuple = (255, 255, 255, 255), font_index: int = 0) -> tuple[list[Path], dict]:
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-    f = ImageFont.truetype(str(font), size)
+    f = ttf(font, size, font_index)
     y0, y1 = band
     bw, bh = w, y1 - y0
     paths: list[Path] = []
@@ -285,7 +292,7 @@ def render_sub_pngs(cues: list[dict], font: Path, size: int, w: int, band: tuple
 
 def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
                  out_dir: Path, emphasis: dict | None = None,
-                 H: int = 1920) -> tuple[list[dict], dict]:
+                 H: int = 1920, card_font: Path | None = None) -> tuple[list[dict], dict]:
     """把 EDL 里的 `card` 画成透明 PNG：一句话、黑底圆角、压在字幕上方。
 
     字卡承载的是**口播里没有的事实**（数字、对比、专名）。不能拿它当字幕用——
@@ -325,7 +332,9 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
             y = 20
             x0 = int(w * float(c.get("x") or 0.055))
             for k, ln in enumerate(lines):
-                fnt = ImageFont.truetype(str(font), sizes[min(k, len(sizes) - 1)])
+                # 身份卡走**卡面字体**：四行从 66px 掉到 32px，小字那一行最吃字体分量。
+                # 落到字幕字上会糊；落到标题美术字上会脏——这两条都吃过。
+                fnt = ImageFont.truetype(str(card_font or font), sizes[min(k, len(sizes) - 1)])
                 # 前两行用纯白，后面用 82% 白：参考片那一层靠明度分层，不靠颜色
                 a = 255 if k < int(c.get("strong_lines") or 2) else 210
                 d0.text((x0, y), ln, font=fnt, fill=fill[:3] + (a,),
@@ -342,7 +351,8 @@ def render_cards(segs: list[dict], projects: list[dict], font: Path, w: int,
         big = c.get("kind") in ("keyword", "behind", "cutout") and bool(emphasis)
         if big:
             size = int(emphasis["size_px"])
-            f = ImageFont.truetype(str(font), size)
+            em_font = Path(emphasis["font_path"]) if emphasis.get("font_path") else font
+            f = ttf(em_font, size, int(emphasis.get("font_index") or 0))
             # 花字默认**一行**；只有一行在 9:16 里放不下时才折两行，而且不缩字号。
             # 缩字号会把"大字"塌成一条又长又细的横幅——那正是它不像大字的全部原因。
             lines = [text]
@@ -751,7 +761,11 @@ def main() -> int:
 
     # 字幕
     sub = style["subtitle"]
-    font = find_font(sub["font"])
+    font_index = int(sub.get("font_index") or 0)
+    font = Path(sub["font_path"]) if sub.get("font_path") else find_font(sub["font"])
+    if font:
+        print(f"  字幕字体：{sub.get('font') or font.name}"
+              f"（{font.name}#{font_index}）", file=sys.stderr)
     if not font:
         print("找不到样式包要求的字体，字幕不做", file=sys.stderr)
         cues = []
@@ -775,7 +789,7 @@ def main() -> int:
                                      # stroke_px（A 族 7、B 族 0——宋体一律投影）
                                      stroke=int(sub.get("stroke_px", 5)),
                                      shadow=bool(sub.get("shadow")),
-                                     fill=fill)
+                                     fill=fill, font_index=font_index)
         hold = sub.get("hold_min_s", 0.75)
         for c in cues:
             if c["end"] - c["start"] < hold:
@@ -858,18 +872,23 @@ def main() -> int:
         png = work / "boroll" / f"{spec.stem}-{W}x{H}.png"
         png.parent.mkdir(parents=True, exist_ok=True)
         if not png.exists():
-            r = subprocess.run([sys.executable, str(bor_gen), "--kind",
-                                str(c.get("boroll_kind") or "grid"), "--spec", str(spec),
-                                "--out", str(png), "--canvas", f"{W}x{H}"],
-                               capture_output=True, text=True)
+            _cardfont = (style.get("card") or {}).get("font_path") or None
+            _cmd = [sys.executable, str(bor_gen), "--kind",
+                    str(c.get("boroll_kind") or "grid"), "--spec", str(spec),
+                    "--out", str(png), "--canvas", f"{W}x{H}"]
+            if _cardfont:
+                _cmd += ["--font", str(_cardfont)]
+            r = subprocess.run(_cmd, capture_output=True, text=True)
             if r.returncode != 0 or not png.exists():
                 print(f"  ！B-roll 生成失败：{(r.stdout + r.stderr)[-300:]}", file=sys.stderr)
                 continue
         c["path"] = str(png)
         c["start"], c["end"] = c["start"], c["start"] + max(3.0, min(5.0, c["end"] - c["start"]))
     card_proj = [c for c in card_proj if c.get("kind") != "boroll" or c.get("path")]
+    _cf = (style.get("card") or {}).get("font_path")
     cards, card_info = render_cards(segs, card_proj, font, W, work / "cards",
-                                    style.get("emphasis"), H) if (font and card_proj) else ([], {})
+                                    style.get("emphasis"), H,
+                                    Path(_cf) if _cf else None) if (font and card_proj) else ([], {})
 
     # 音效：按模板的 sfx 带上限来选点，不是每刀都给。
     # 参考片的教训（family doc 第三条铁律）：音效密度和切点密度必须解耦——

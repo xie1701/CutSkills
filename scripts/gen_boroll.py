@@ -32,7 +32,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-FONT_DEFAULT = Path("~/Library/Fonts/AlimamaShuHeiTi-Bold.otf").expanduser()
+# 默认字：卡面上是**要读的结构**（列名、数字、脚注），不是标题。
+# 换掉阿里妈妈数黑体的理由和字幕一样——它的小字笔画带装饰，投影到 1080 宽就成脏点。
+FONT_DEFAULT = Path("~/Library/Fonts/NotoSansSC-Bold.ttf").expanduser()
 W_DEFAULT, H_DEFAULT = 1080, 1920
 
 # 参考片实测的五列配色（「一堂基本功清单」抽帧取样，红/黄/绿/浅蓝/深蓝）。

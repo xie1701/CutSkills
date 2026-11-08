@@ -107,6 +107,30 @@ def main() -> int:
     def add(name: str, value: str, level: str, note: str = ""):
         rows.append((name, value, level, note))
 
+    # 字体：分了几层、每一层是谁。
+    # 这一条为什么要在验收里：位置和字高都能量，**字形味道量不出来**，
+    # 于是"整片四个层共用一个标题美术字"可以一路绿灯到人眼前——
+    # 2026-11-08 Jerry 就是在那一步停下来的（"字体简直不堪入目"）。
+    # 能机器判的只有两条：① 字幕不许用标题美术字；② 字幕和花字不许同一个字体。
+    _sub = style.get("subtitle") or {}
+    _em = style.get("emphasis") or {}
+    DISPLAY_ONLY = {"阿里妈妈数黑体 Bold", "阿里妈妈数黑体", "AlimamaShuHeiTi-Bold",
+                    "方正兰亭大黑"}
+    _subf = str(_sub.get("font") or "")
+    _emf = str(_em.get("font") or _subf) if _em else ""
+    _probs = []
+    if _subf in DISPLAY_ONLY:
+        _probs.append("字幕用了标题美术字（大字号有魂，小字号是脏点）")
+    if _em and _emf and _emf == _subf:
+        _probs.append("字幕与花字同一字体（四层共用一个是这次翻车的根因）")
+    # 老样式包（talking-head-v1）的 emphasis 是一组语法配置，没有 font 字段。
+    # 这种「没声明」不能判红——它可能渲染时就用了别的字重；但也不能判绿，
+    # 因为没声明就意味着"落到字幕字体"是默认行为，而默认就是错的。
+    _undeclared = bool(_em) and not _em.get("font") and not _probs
+    add("字体分层", f"字幕 {_subf or '—'} · 花字 {_emf or '—'}",
+        "red" if _probs else ("yellow" if _undeclared else "green"),
+        "；".join(_probs) or ("花字字体未声明，默认会落到字幕字体——写一行 emphasis.font" if _undeclared else ""))
+
     # 画幅 / 帧率
     canvas = style["canvas"]
     if canvas.get("width"):

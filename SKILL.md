@@ -386,6 +386,11 @@ python3 <SKILL_DIR>/scripts/verify_film.py --project <项目目录> [--style <st
 
 在**成片**上量，不在 EDL 上量。红黄绿一页，红=必须改。
 
+其中「字体分层」只挡得住结构错（字幕用了标题美术字、字幕和花字同一个字体），
+**挡不住"这个字体丑"**——丑只能人看。新模板上线前拿 `scripts/font_sheet.py` 把候选排成
+一张对照卡过一眼；想从参考片反推字体用 `scripts/match_font.py`（IoU 模板匹配，判到字体族，
+源片字高不足 30px 时认不出是常态，脚本会直接说"别硬认"）。
+
 **但「在成片上量」不等于「读 JSON」。** 字幕和字卡要抽帧看像素：`subs.json` 里有 42 条字幕、渲染命令里也有 42 个 overlay，成片上照样可以一个字都没有（见 C 段那个 `-loop 1` 的坑）。所以 verify 会抽 3 条字幕的中点看字幕带的白像素占比、抽字卡窗口的中点看深色占比，低于阈值直接判红——**读 JSON 的验收会把这种事全判成绿灯。**
 
 | 指标 | 判据 | 为什么 |
@@ -427,6 +432,11 @@ EDL 里每段的 `card` 决定往上贴什么。四种 `kind`，各管一件事�
 - 遮罩要**二值化**再用（`lut=y='if(gt(val,140),255,0)'`）。软边羽化压在亮字上会透出一圈黄，看着像人物长白毛。
 
 **整屏信息卡要铺底、字幕要让位**（卡片参数见 [references/boroll-specs.md](references/boroll-specs.md)）。 `spec` 里写 `backdrop: "#15100C"` 让 `gen_boroll.py` 铺满整幅；卡片窗口内的口播字幕整条不画——同一屏两套字，读的人当场就乱。
+
+**字体四层各自指定**（细节见 [references/typography.md](references/typography.md)）：模板里 `subtitle.font` / `emphasis.font` /
+`fonts.card` 三个字段，不写就落到默认（SemiBold / Black / Bold）。换字体**必须重算字号**——
+`size_for_glyph()` 量的是真字形墨迹高，思源黑体 0.88em、阿里妈妈数黑 0.75em，沿用旧 `size_px` 会小一圈。
+ttc 要写 face 序号，苹方第 0 个是 HK Regular，不是你要的那个。
 
 **BGM 全程铺底**（`--bgm <文件>`）：先归一到 -24 LUFS 再混，人声处 sidechain 让路，混完整轨压一次
 （`acompressor ratio 3.5`）再归一到 -14 LUFS。三个数对着参考片量：底噪 -27.8 dB、动态差 14.0 dB、
@@ -475,6 +485,7 @@ python3 <SKILL_DIR>/scripts/measure_pack.py --video out/film.mp4 \
 6. **字幕用输出时间轴偏移**：`output_time = word.start - seg_in + seg_offset`，否则拼接后全错位。
 7. **转写按文件指纹缓存**，不要重复转写。
 8. **词级时间戳必须与画面同源**，不许拿转写的相对时间去对画面的绝对时间。
+9. **字体按层分配，四层不许共用一个。** 字幕走正文黑体（思源黑体 SemiBold），花字才允许上重字（思源黑体 Black），卡面走 Bold。标题美术字（阿里妈妈数黑、方正兰亭大黑）**小字号上会变成脏点**——2026-11-08 整片四层共用阿里妈妈数黑，位置字高四项全绿，Jerry 一眼看出"不堪入目"。细节见 [references/typography.md](references/typography.md)。
 
 ## 已知的坑（都是真踩过的）
 
