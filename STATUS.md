@@ -204,7 +204,22 @@ C 让每周出的片越拍越有料。B 放到这两件之后，因为访谈的�
    哪一段捕获没推进 GSAP，那一层就永远停在不可见。加上之后，动效失败最多是不动，
    不会黑掉。（这条不是本次病根，但它是同一类"失败即隐身"的设计，留着。）
 
-**还没解决的**：颜色偏。成片亮度 0.52 / 饱和 0.155，参考片 0.381 / 0.511。
-根因在 `hyperframes measure extract` 把 HLG 直接压成 SDR，高光被削平、彩度掉一半以上；
-在成片上再拉饱和，到 0.35 就顶住了（像素已经没了）。要从**切片那一步**解决：
-本机 ffmpeg 没有 zscale，得自己写 HLG→709 的曲线，或者改切片参数保留高光余量。
+**颜色**（2026-11-09 已修）：两个原因，不是一个。
+
+1. **切片那一步压坏了 HDR。** 14 段里有 9 段是 HLG（arib-std-b67）。
+   `hyperframes measure extract` 把它们直接压成 bt709，彩度掉一半：
+   HDR 段实测饱和 **0.082 → 0.154**（同一帧，加了 zscale+tonemap 之后）。
+2. **整片没有调色。** 无调色纯画质 luma 0.547，参考片 0.381。
+
+已编一支带 zscale 的 ffmpeg（`~/.cutskills/opt/ffmpeg-zimg`，装法见
+[a](references/ffmpeg-zimg.md)），切片改由 `render_hf.extract_own()` 自己做：
+先在原分辨率缩到画布再裁（裁剪边本来在浏览器里也看不见，顺带把 4K 上的
+zscale 从 60 秒压到十几秒），HDR 走
+`zscale=t=linear:npl=100 → tonemap=hable:desat=0 → t=bt709`，最后烤上
+`eq=saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.10` +
+`colortemperature=4900:mix=0.45`（跟 `render_film` 的 GRADE 同一条链）。
+14 段重切 **98 秒**，成片 luma **0.374**（参考片 0.381）。
+
+注意：**饱和不要拿 0.511 当目标**。参考片那个数是带大字和色卡的整片，
+我们的 14 段粗剪只有画面（0.13 起步）。两个口径不同，硬拉只会把画面拉成霓虹。
+调色在**切片阶段烤进素材**，不走 CSS filter——CSS 会把字幕和字卡一起染。

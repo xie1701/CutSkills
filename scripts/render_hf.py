@@ -66,11 +66,112 @@ def probe(path: Path) -> dict:
             "w": int(st.get("width") or 0), "h": int(st.get("height") or 0)}
 
 
-def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False) -> dict:
+# ------------------------------------------------ 切片（zscale / 自己转 HDR→SDR）
+#
+# 为什么不用 `hyperframes measure extract`（2026-11-09）：它把 HLG / 杜比视界
+# （bt2020）直接压成 bt709，压的时候高光被削平、彩度掉一半以上。实测同一段素材：
+#   measure extract → luma 0.52 / 饱和 0.166（参考片 0.381 / 0.511）
+# 而且它压完是 SDR，浏览器那边才不用走 capture_hdr_layered（那条路在本机没有
+# zscale 时会把整片文字层丢掉，见 STATUS.md 三条硬规矩第 1 条）。
+#
+# 所以切片这一步自己来：先 zscale 转线性 + hable 色调映射，再回 bt709。
+# 前提是有一支带 libzimg 的 ffmpeg——本机 brew 的 ffmpeg 没有，
+# 自己编了一支装在 ~/.cutskills/opt/ffmpeg-zimg，由 runtime.sh 优先放进 PATH。
+
+HDR_TRANSFERS = {"arib-std-b67", "smpte2084", "smpte428"}
+
+# 调色。跟 render_film.py 的 GRADE 是同一条链——**在切片阶段烤进素材**，
+# 不进浏览器：CSS filter 会连字幕和字卡一起染，而调色只该作用在画面上。
+# 实测（14 段粗剪，未加字）：无调色 luma 0.547 / 饱和 0.130；
+# 加这条 A 链 luma 0.374（参考片 0.381）。饱和不去对齐参考片 0.511——
+# 那个数是带大字和色卡的成片，跟纯画质不同口径。
+GRADE = {
+    "warm_high_sat": "eq=saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.10,"
+                     "colortemperature=temperature=4900:mix=0.45",
+}
+
+# HLG / PQ → 场景线性（npl=100 是把 100% 白当参考）→ hable 压到 SDR 亮度 → bt709。
+# desat=0：保留饱和度。默认 desat=2 会把高光洗白，那正是我们要避免的。
+TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,"
+           "zscale=p=bt709,tonemap=hable:desat=0,"
+           "zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+
+
+def ffmpeg_bin() -> str:
+    """优先 CUTSKILLS_FFMPEG，其次运行时目录里自编的那支，最后 PATH 上的。"""
+    env = os.environ.get("CUTSKILLS_FFMPEG")
+    if env and Path(env).exists():
+        return env
+    own = Path.home() / ".cutskills/opt/ffmpeg-zimg/bin/ffmpeg"
+    if own.exists():
+        return str(own)
+    return shutil.which("ffmpeg") or "ffmpeg"
+
+
+_ZSCALE: dict[str, bool] = {}
+
+
+def has_zscale(bin_: str | None = None) -> bool:
+    b = bin_ or ffmpeg_bin()
+    if b not in _ZSCALE:
+        r = subprocess.run([b, "-hide_banner", "-filters"], capture_output=True, text=True)
+        _ZSCALE[b] = " zscale " in (r.stdout or "")
+    return _ZSCALE[b]
+
+
+def probe_color(path: Path) -> dict:
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                        "-show_entries", "stream=color_transfer,color_primaries,pix_fmt",
+                        "-of", "json", str(path)], capture_output=True, text=True)
+    st = ((json.loads(r.stdout or "{}").get("streams") or [{}])[0]) or {}
+    return {"transfer": st.get("color_transfer") or "",
+            "primaries": st.get("color_primaries") or "",
+            "pix_fmt": st.get("pix_fmt") or ""}
+
+
+def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
+                crf: int = 16, W: int = 1080, H: int = 1920,
+                grade: str = "") -> None:
+    """自己切一段：HDR 走 zscale 色调映射，旋转由 ffmpeg 自动应用。
+
+    `-ss` 放在 `-i` 前面（快，从关键帧起解到位置再丢），`-t` 给时长。
+    宽高保持原样——竖屏 4K 进 1080×1920 的缩放交给浏览器/CSS，不做两次重采样。
+    """
+    col = probe_color(src)
+    hdr = col["transfer"] in HDR_TRANSFERS
+    if hdr and not has_zscale():
+        raise SystemExit(
+            "素材是 HDR，但这支 ffmpeg 没有 zscale，压出来的片子会偏亮偏灰。\n"
+            "装法见 references/ffmpeg-zimg.md，或加 --extractor hf 退回旧路径。")
+    # 先在原分辨率上缩放到画布大小再裁（`object-fit: cover` 的等价操作），
+    # 顺序很重要：zscale 在 4K 上跑一段要 60 秒，缩到 1080×1920 之后是十几秒，
+    # 而且裁掉的边本来就是浏览器里看不见的。
+    vf = [f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos",
+          f"crop={W}:{H}"]
+    vf.append(TONEMAP if hdr else "format=yuv420p")
+    if grade:
+        vf.append(grade)
+    vf.append(f"fps={fps}")
+    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{t0:.3f}", "-i", str(src),
+           "-t", f"{t1 - t0:.3f}", "-vf", ",".join(vf),
+           "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+           "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
+           "-color_trc", "bt709", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+           "-movflags", "+faststart", str(dst)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not dst.exists():
+        raise SystemExit(f"切片失败：{src.name} {t0}-{t1}\n{(r.stderr or '')[-900:]}")
+
+
+def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
+             extractor: str = "auto", W: int = 1080, H: int = 1920,
+             FPS: int = 30, grade: str = "") -> dict:
     """把一段切出来。**缓存**：同一段再渲不再切（切一段 6.7s 素材要约 38 秒）。
 
     切好的片段是"已经标准化的素材"——旋转过的 HEVC 竖屏、杜比视界，到这一步
     都是统一尺寸的 H.264，浏览器只管播。
+
+    extractor：`auto`（有 zscale 就自己切）/ `own` / `hf`（退回 measure extract）。
     """
     clips = proj / "hf" / "clips"
     clips.mkdir(parents=True, exist_ok=True)
@@ -82,13 +183,18 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False) -> dict:
         src = lib / aid
         if not src.exists():
             raise SystemExit(f"素材不存在：{src}")
-        r = subprocess.run(
-            [*HF.split(), "measure", "extract", str(src),
-             "--from", str(seg["in"]), "--to", str(seg["out"]),
-             "--audio", "--out", str(dst)],
-            capture_output=True, text=True)
-        if r.returncode != 0 or not dst.exists():
-            raise SystemExit(f"切段失败：{aid} {seg['in']}-{seg['out']}\n{r.stderr[-800:]}")
+        use_own = extractor == "own" or (extractor == "auto" and has_zscale())
+        if use_own:
+            extract_own(src, float(seg["in"]), float(seg["out"]), dst,
+                        W=int(W), H=int(H), fps=int(FPS), grade=grade or "")
+        else:
+            r = subprocess.run(
+                [*HF.split(), "measure", "extract", str(src),
+                 "--from", str(seg["in"]), "--to", str(seg["out"]),
+                 "--audio", "--out", str(dst)],
+                capture_output=True, text=True)
+            if r.returncode != 0 or not dst.exists():
+                raise SystemExit(f"切段失败：{aid} {seg['in']}-{seg['out']}\n{r.stderr[-800:]}")
     info = probe(dst)
     return {"path": dst, "dur": round(info["dur"], 3), "w": info["w"], "h": info["h"]}
 
@@ -458,6 +564,8 @@ def main():
                     help="抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；"
                          "browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要")
     ap.add_argument("--force-extract", action="store_true")
+    ap.add_argument("--extractor", choices=["auto", "own", "hf"], default="auto",
+                    help="auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract")
     ap.add_argument("--no-cutout", action="store_true",
                     help="不做人物抠像层（大字会压在人前面）")
     a = ap.parse_args()
@@ -498,7 +606,8 @@ def main():
     videos, t, n_fail = [], 0.0, 0
     for i, s in enumerate(segs, 1):
         try:
-            cl = get_clip(lib, proj, s, force=a.force_extract)
+            cl = get_clip(lib, proj, s, force=a.force_extract, extractor=a.extractor,
+                          W=W, H=H, FPS=FPS, grade=GRADE.get(str(style.get("grade") or ""), ""))
         except SystemExit as e:
             print(f"  ！段 {s.get('n', i)} 切不出来：{e}", file=sys.stderr)
             n_fail += 1

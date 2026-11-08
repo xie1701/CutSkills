@@ -413,7 +413,12 @@
 | `--grade` | CSS filter，例：saturate(1.5) contrast(1.1) |
 | `--no-render` | 只生成 HTML 并 lint |
 | `--no-loudnorm` | 开关 |
+| `--reuse-raw` | 复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染） |
+| `--hdr` | 按 HDR 出片（本机 ffmpeg 无 zscale，文字层会整片丢失，不建议） |
+| `--fg-layer` | 抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要（默认 'ffmpeg'） |
 | `--force-extract` | 开关 |
+| `--extractor` | auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract（默认 'auto'） |
+| `--no-cutout` | 不做人物抠像层（大字会压在人前面） |
 
 ### `selftest.py`
 *端到端自测：从零造一个小素材库，把 A→B→C→D 整条链跑一遍。*

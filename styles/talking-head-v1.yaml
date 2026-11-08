@@ -12,6 +12,11 @@ canvas:
   height: 1920
   fps: 30
 
+# 调色在切片阶段烤进素材（scripts/render_hf.py 的 GRADE 表）。
+# 之前这条风格包没有调色，HDR 段压出来是灰的（luma 0.52 / 饱和 0.13），
+# 加这条链之后 luma 0.374，参考片 0.381。
+grade: warm_high_sat
+
 subtitle:
   font: NotoSansSC-SemiBold         # 思源黑体 SemiBold。这行原来是 AlimamaShuHeiTi-Bold：
                                     # 标题美术字做字幕，小字号笔画带装饰就是脏点

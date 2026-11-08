@@ -321,7 +321,7 @@ ffmpeg 那层**没有布局引擎**。当天所有坑都是同一件事的变体
 | 谁干 | 干什么 | 为什么不能交给对方 |
 |---|---|---|
 | `render_hf.py` | 从 EDL 生成 `hf/index.html`、切段缓存、调 `hyperframes render`、落 `out/subs.json` 与 `out/cards.json` | 它是唯一知道"哪一段配哪句话、卡什么时候出"的一层 |
-| `hyperframes measure extract` | 切段与标准化（HDR→709、旋转、统一尺寸） | 旋转过的 HEVC 竖屏这里自动出 1080×1920，不用自己算 display matrix |
+| `render_hf.extract_own()` | 切段与标准化（HDR→709、旋转、缩放到画布） | 自带 zscale 的 ffmpeg 才能把 HLG 正确转 SDR，`measure extract` 会把彩度压掉一半（见下）|
 | `render_film.build_cues` | 字幕切条与逐字对齐（导入，不重写） | 那段逻辑是踩出来的：按**字**裁段窗口、逐字对**字**、换气收口、纯标点不成条 |
 | 浏览器 | 排版、字体、动效、图层顺序 | 这是换引擎的全部理由 |
 
@@ -330,24 +330,52 @@ ffmpeg 那层**没有布局引擎**。当天所有坑都是同一件事的变体
 | 动作 | 耗时 |
 |---|---|
 | 只生成 HTML + lint | ~1 秒 |
-| 切一段 6.7s 素材（第一次） | ~38 秒；**之后走缓存** |
+| 切 14 段（自己切，4K 素材带 HDR 色调映射） | **98 秒**；之后走缓存 |
+| 切 14 段（`--extractor hf` 旧路径） | 6 分 54 秒（4K 上跑 zscale/缩放） |
 | 渲 14.5 秒片（`looks`, 4 workers） | 35–105 秒（机器负载决定） |
-| 外推 79 秒片（`looks`） | ≈3–7 分钟 |
+| 渲 79 秒片（段已转 SDR，`draft` + 4 workers） | **59.6 秒**（整条命令 5 分 13 秒，含切段和响度）|
+| 同一条片（HDR 素材没转 SDR 时） | 10–12 分钟 |
 
 比 ffmpeg 那条链慢约一个数量级。**日常迭代靠 `hyperframes preview` 在浏览器里看，不靠 render。**
 
-### 亮度和调色不在模板里
+### 调色在切片阶段烤进素材，不走 CSS
 
-`talking-head-v1.yaml` 没有调色字段，所以 HTML 链路默认**不调色**——直出素材原色。
-要调就传 CSS：
+2026-11-09 改的。原来调色靠 `--grade` 传 CSS filter，问题是 **CSS 会把字幕和字卡一起染**，
+而调色只该作用在画面上。现在 `styles/talking-head-v1.yaml` 里写 `grade: warm_high_sat`，
+`render_hf.extract_own()` 在切段时用 ffmpeg `eq` 烤进去（跟 `render_film.py` 的 GRADE
+是同一条链：`saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.10` +
+`colortemperature=4900:mix=0.45`）。
+
+实测（14 段粗剪，未加字）：无调色 luma **0.547** / 饱和 0.130；
+加这条链 luma **0.374**，参考片 0.381。
+
+**饱和别拿参考片的 0.511 当目标**：那是带大字和色卡的整片，纯画面只有 0.13 起步，
+硬拉只会拉成霓虹。要比就比 luma 和 G/R、B/R 两个比值。
+
+`--grade`（CSS filter）还留着，但只用来做临时对比，不要写进正式出片。
+
+### 素材是 HDR 时必须先转 SDR，否则整片文字层会没
+
+柒造库 153 个素材里有 **45 个是 HLG / 杜比视界（bt2020）**。两个后果，都必须靠
+带 zscale 的 ffmpeg 解决（装法见 [references/ffmpeg-zimg.md](references/ffmpeg-zimg.md)
+
+抠像为什么不用 `hyperframes remove-background`（权重已经下好了，是**因为它更慢更糙**）：
+[references/background-removal.md](references/background-removal.md)。
+motion-video 那套 71 个控件的规格怎么接（引擎接不了，接规格）：
+[references/motion-video-integration.md](references/motion-video-integration.md)。）：
+
+1. **颜色**：`measure extract` 直接压成 bt709，彩度掉一半。同一帧实测饱和
+   **0.082（旧）→ 0.154（zscale+tonemap）**。
+2. **文字层**：HyperFrames 检测到 HDR 就走 `capture_hdr_layered`，本机 ffmpeg 没有
+   zscale 时**整片字幕/身份卡/大一个字都不出**，而 20 秒以内的窗口渲染又完全正常。
+   现在切片阶段就转成 SDR，这条分支根本不会被触发。
 
 ```bash
-python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --grade "saturate(1.5) contrast(1.1) brightness(0.95)"
+# 默认 auto：有 zscale 就自己切；没有会报错并告诉你装法
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --extractor auto
+# 退回旧路径（只在排查时用）
+python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --extractor hf
 ```
-
-这一条必须明说，因为**量出来的数和 ffmpeg 版对不上时，第一嫌疑就是这里**：
-没传 `--grade` 时实测 luma 119.5 / 饱和 0.334，ffmpeg 版是 91.4 / 0.587——
-差的是调色，不是引擎好坏。（当时视觉模型说"HyperFrames 色彩更通透"，量完发现是反的。）
 
 ---
 

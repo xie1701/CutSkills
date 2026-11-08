@@ -32,7 +32,12 @@ export CUTSKILLS_HOME="$ROOT"
 export npm_config_prefix="$ROOT/npm"
 export npm_config_cache="$ROOT/npm-cache"
 export NODE_PATH="$ROOT/npm/node_modules${NODE_PATH:+:$NODE_PATH}"
-export PATH="$ROOT/npm/node_modules/.bin:$ROOT/bin:$PATH"
+# 自编的带 zscale 的 ffmpeg 排在系统前面：素材里的 HLG / 杜比视界要靠它转 SDR，
+# 系统 brew 的 ffmpeg 没有 libzimg，压出来偏亮偏灰（原因见 references/ffmpeg-zimg.md）。
+if [ -x "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" ]; then
+  export CUTSKILLS_FFMPEG="$ROOT/opt/ffmpeg-zimg/bin/ffmpeg"
+fi
+export PATH="${CUTSKILLS_FFMPEG:+$ROOT/opt/ffmpeg-zimg/bin:}$ROOT/npm/node_modules/.bin:$ROOT/bin:$PATH"
 export PYTHONPATH="$ROOT/py:$HERE/vendor${PYTHONPATH:+:$PYTHONPATH}"
 export PIP_CACHE_DIR="$ROOT/pip-cache"
 export XDG_CACHE_HOME="$ROOT/cache"
@@ -80,7 +85,8 @@ export CUTSKILLS_HOME="$ROOT"
 export npm_config_prefix="$ROOT/npm"
 export npm_config_cache="$ROOT/npm-cache"
 export NODE_PATH="$ROOT/npm/node_modules"
-export PATH="$ROOT/npm/node_modules/.bin:$ROOT/bin:\$PATH"
+export CUTSKILLS_FFMPEG="${CUTSKILLS_FFMPEG:-}"
+export PATH="\${CUTSKILLS_FFMPEG:+$ROOT/opt/ffmpeg-zimg/bin:}$ROOT/npm/node_modules/.bin:$ROOT/bin:\$PATH"
 export PYTHONPATH="$ROOT/py:$HERE/vendor"
 export PIP_CACHE_DIR="$ROOT/pip-cache"
 export XDG_CACHE_HOME="$ROOT/cache"
