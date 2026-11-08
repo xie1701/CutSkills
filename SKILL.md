@@ -296,6 +296,16 @@ python3 <SKILL_DIR>/scripts/render_film.py --project <项目目录> --library "<
 
 EDL 进，`out/film.mp4` 出。只做四件能在成片上验的事：**画幅统一、声音对齐、字幕贴准、响度达标**。
 
+### ⛔ 包装模板层已雪藏（2026-11-08）
+
+下面这一整节留作记录，**不要再用**。停的原因和实测数据在 [SHELVED.md](SHELVED.md)：
+按参考片量出来的比例复刻，18 项绿灯、四轮迭代，得到的仍是「完全不可用」——
+因为那些指标只量几何和信号，量不了"好不好看"。
+
+当前主链路是**不带 `--pack`** 的那条：`--style styles/talking-head-v1.yaml`
+（字幕 1080 宽 80px、居中 0.674H、思源黑体 SemiBold）。下面关于 `--pack` / `--shell` /
+`measure_pack` / `compare_films` / `pick_pack` / `gen_boroll` 的内容，全部按"已停"读。
+
 ### 包装模板：用 `--pack` / `--shell`，不要手改像素
 
 ```bash
@@ -574,6 +584,9 @@ source scripts/runtime.sh env && scripts/runtime.sh install
 **转写只有一条路：`coli asr --model sensevoice`**（本地、字级时间戳、最快）。它挂了就停下来告诉用户，不要照着一条不存在的降级链去试：ElevenLabs Scribe 的 key 2026-11-06 实测 401（订阅欠费），`hyperframes transcribe` 实测 TLS 断流，两条都不能用。以后要加兜底，先把通路跑通再写进文档。
 
 ## 参考文件
+
+- [STATUS.md](STATUS.md) — 这套东西现在到底能做什么、缺什么、下一步优化什么
+- [SHELVED.md](SHELVED.md) — 已雪藏的包装模板层，为什么停、怎么复活
 
 - [references/index-schema.md](references/index-schema.md) — `index.json` v2 字段（uid/spec/handling/storage/l2_coverage）、L2 记录字段、阈值标定数据
 - [references/glossary.md](references/glossary.md) — 术语释义：ASR/HLG/PQ/LUFS/EDL… 对着用户解释时先查这里
