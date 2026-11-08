@@ -1,10 +1,10 @@
 {
  "from_edl": "edl.json",
  "style": "talking-head-v1",
- "segments": 3,
- "total_s": 14.466,
- "captions": 7,
- "cards": 4,
+ "segments": 14,
+ "total_s": 79.352,
+ "captions": 37,
+ "cards": 6,
  "fonts": {
   "sub": "NotoSansSC-SemiBold.ttf",
   "big": "NotoSansSC-Black.ttf"

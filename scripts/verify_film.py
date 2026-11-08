@@ -262,7 +262,7 @@ def main() -> int:
                 add("身份卡烧进画面", f"{mid:.1f}s 处白字占比 {whites * 100:.2f}%",
                     "green" if whites > 0.002 else "red", "")
             else:
-                px = list(im.crop((0, 760, W, 1040)).getdata())
+                px = list(im.convert("L").crop((0, 760, W, 1040)).getdata())
                 dark = sum(1 for v_ in px if v_ < 80) / max(1, len(px))
                 add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
                     "green" if dark > 0.12 else "red", "")

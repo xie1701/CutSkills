@@ -29,6 +29,18 @@
    "text": "差不多就行",
    "start": 10.406,
    "end": 11.406
+  },
+  {
+   "kind": "keyword",
+   "text": "都有偏颇",
+   "start": 15.006,
+   "end": 16.006
+  },
+  {
+   "kind": "behind",
+   "text": "成本贵在哪",
+   "start": 47.217,
+   "end": 48.427
   }
  ],
  "engine": "hyperframes"

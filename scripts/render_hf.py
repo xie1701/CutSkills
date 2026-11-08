@@ -165,6 +165,11 @@ def card_windows(segs, lib, chars_cache, style):
         if not c:
             continue
         kind = str(c.get("kind") or "keyword")
+        if kind in ("boroll", "card") and not c.get("text"):
+            # 代码画的结构卡（gen_boroll）属于已雪藏的那一层，HTML 链路不画它。
+            # 悄悄当空卡渲出去会得到一个空的大字 div，所以明确跳过并说一声。
+            print(f"  ！段 {s['n']} 卡的类型「{kind}」HTML 链路不支持，跳过", file=sys.stderr)
+            continue
         start = round(s["_start"] + (float(c["at"]) if isinstance(c.get("at"), (int, float)) else 0.6), 3)
         d = max(h0, min(float(c.get("dur") or h1), h1))
         on = str(c.get("on") or "").strip()
@@ -246,13 +251,15 @@ document.querySelectorAll(".kw").forEach((c) => {{
   const d = parseFloat(c.dataset.duration);
   tl.fromTo(c.querySelector("span"),
     {{ scale: 0.74, opacity: 0, rotate: -2.4 }},
-    {{ scale: 1, opacity: 1, rotate: 0, duration: 0.34, ease: "back.out(2.2)" }}, t);
+    {{ scale: 1, opacity: 1, rotate: 0, duration: 0.34, ease: "back.out(2.2)",
+       immediateRender: false }}, t);
   tl.to(c.querySelector("span"), {{ opacity: 0, duration: 0.16, ease: "power1.in" }},
         t + Math.max(0, d - 0.16));
 }});
 document.querySelectorAll(".idcard > span").forEach((el, i) => {{
   tl.fromTo(el, {{ x: -18, opacity: 0 }},
-    {{ x: 0, opacity: 1, duration: 0.42, ease: "power3.out" }}, 0.42 + i * 0.08);
+    {{ x: 0, opacity: 1, duration: 0.42, ease: "power3.out",
+       immediateRender: false }}, 0.42 + i * 0.08);
 }});
 window.__timelines["main"] = tl;
 tl.seek(0);
@@ -272,7 +279,7 @@ def esc(t: str) -> str:
 
 
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
-               fg_by_seg=None):
+               fg_by_seg=None, fg_mode="browser"):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
     cap_px = int(sub.get("size_px") or 72)
@@ -290,8 +297,14 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         kw_px = int(round(H * 0.10))
     kw_top = round(float(emph.get("top_h") or 0.44) * 100, 2)
     entry = str(sub.get("entry") or "fade")
-    tween = ('tl.fromTo(h, { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.18, '
-             'ease: "power3.out" }, t);' if entry != "hard_cut" else
+    # immediateRender:false 是必须的。GSAP 的 fromTo 默认立刻渲染 from 状态，
+    # 于是整条时间轴在 t=0 就被设成 opacity:0；一旦浏览器的捕获路径某一段没推进
+    # GSAP（长片分段渲染时实测会这样），这些层就**永远停在不可见**——
+    # 79 秒那次整片 7 块卡一块都没出来，而 snapshot 同一秒是好的。
+    # 加上这个参数，元素保持 CSS 里"看得见"的状态，动效只是锦上添花：失败也不会黑掉。
+    tween = ('tl.fromTo(h, { y: 16, opacity: 0 }, '
+             '{ y: 0, opacity: 1, duration: 0.18, ease: "power3.out", '
+             'immediateRender: false }, t);' if entry != "hard_cut" else
              'tl.set(h, { y: 0, opacity: 1 }, t);')
     idcard = next((c for c in cards if c["kind"] == "idcard"), None)
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
@@ -302,7 +315,11 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="0" '
         f'playsinline data-has-audio="true"></video>'
         for i, v in enumerate(videos, 1))
-    fg_html = "\n".join(
+    # fg_mode="ffmpeg" 时这里不输出 <video>，抠像层改由本脚本在浏览器渲完后用
+    # ffmpeg overlay 贴回去。原因：Chrome 把带 alpha 的 webm 交给硬件视频管线时
+    # alpha 会被丢掉——画面上看不出（抠像视频和底片是同一帧，画成不透明正好等于原画），
+    # 但它会盖住下面所有层：大字、身份卡一块都不出来。实测 snapshot 有、render 没有。
+    fg_html = "" if fg_mode != "browser" else "\n".join(
         f'    <video id="fg{i}" class="clip" src="{fg_by_seg[i]}" data-start="{v["start"]}" '
         f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="1" '
         f'playsinline muted></video>'
@@ -388,6 +405,40 @@ def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
     return 0
 
 
+def cover_fg(raw: Path, dst: Path, fgs: list[tuple[Path, float, float]], crf: int = 17) -> int:
+    """浏览器渲完后把抠像层贴回去。
+
+    fgs: [(webm 路径, 起始秒, 时长秒)]。用 overlay 的 enable 窗口开关，
+    每个抠像层只在自己的段里出现，其余时间不参与合成。
+    """
+    if not fgs:
+        shutil.move(str(raw), str(dst))
+        return 0
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(raw)]
+    for f, _, _ in fgs:
+        # 必须显式指定 libvpx-vp9。ffmpeg 自带的 vp9 解码器**不解 alpha**，
+        # 抠像层会整帧变不透明——画面上看不出（和底片是同一帧），但它把下面
+        # 的大字和身份卡全盖住。实测：不加这个参数，洋红底色一点透不出来（0%）；
+        # 加上之后 87% 正常透出。
+        cmd += ["-c:v", "libvpx-vp9", "-i", str(f)]
+    parts, prev = [], "[0:v]"
+    for i, (_, t0, dur) in enumerate(fgs, 1):
+        lab = f"[o{i}]"
+        parts.append(f"{prev}[{i}:v]overlay=0:0:eof_action=pass:"
+                     f"enable='between(t,{t0:.3f},{t0 + dur:.3f})'{lab}")
+        prev = lab
+    parts.append(f"{prev}format=yuv420p[v]")
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[v]", "-map", "0:a?",
+            "-c:v", "libx264", "-crf", str(crf), "-preset", "medium",
+            "-c:a", "copy", str(dst)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print("  ！抠像层贴回失败：" + (r.stderr or "").strip().splitlines()[-1], file=sys.stderr)
+        return r.returncode
+    print(f"  抠像层贴回 {len(fgs)} 段")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
@@ -399,6 +450,13 @@ def main():
     ap.add_argument("--grade", default=None, help="CSS filter，例：saturate(1.5) contrast(1.1)")
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
     ap.add_argument("--no-loudnorm", action="store_true")
+    ap.add_argument("--reuse-raw", action="store_true",
+                    help="复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染）")
+    ap.add_argument("--hdr", dest="sdr", action="store_false",
+                    help="按 HDR 出片（本机 ffmpeg 无 zscale，文字层会整片丢失，不建议）")
+    ap.add_argument("--fg-layer", choices=["ffmpeg", "browser", "none"], default="ffmpeg",
+                    help="抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；"
+                         "browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要")
     ap.add_argument("--force-extract", action="store_true")
     ap.add_argument("--no-cutout", action="store_true",
                     help="不做人物抠像层（大字会压在人前面）")
@@ -483,6 +541,8 @@ def main():
             cl = next((v for i, v in enumerate(videos, 1) if i == n_), None)
             if not cl:
                 continue
+            if a.fg_layer == "none":
+                continue
             fgp = make_fg(proj, proj / "hf" / cl["src"], cl["dur"], FPS)
             if fgp:
                 fg_by_seg[n_] = f"clips/{fgp.name}"
@@ -524,7 +584,8 @@ def main():
     # 3) 写 HTML
     html_txt = build_html(slug=edl.get("slug") or proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
-                          style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg)
+                          style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
+                          fg_mode=a.fg_layer)
     (hf / "index.html").write_text(html_txt)
     (hf / "meta.json").write_text(json.dumps(
         {"from_edl": "edl.json", "style": name, "segments": len(videos),
@@ -557,14 +618,35 @@ def main():
     env = dict(os.environ, PRODUCER_BROWSER_GPU_MODE=os.environ.get(
         "PRODUCER_BROWSER_GPU_MODE", "hardware"))
     cmd = [*HF.split(), "render", "-o", str(raw), "-q", a.quality, "-w", str(a.workers)]
-    print(f"  渲染中（{a.quality}, {a.workers} workers）…")
-    r = subprocess.run(cmd, cwd=hf, capture_output=True, text=True, env=env)
-    if r.returncode != 0 or not raw.exists():
+    # 必须 --sdr。素材里有 45 段是 HLG/杜比视界（bt2020），HyperFrames 一旦判定
+    # hasHdrContent 就走 capture_hdr_layered 那条路：本机 ffmpeg 没有 zscale，
+    # 结果是**整片一个字都不出来**——字幕、身份卡、大字全丢（1 秒窗口反而正常，
+    # 所以一开始被误判成「分段渲染太长的偶发问题」）。加 --sdr 走普通截屏路径，
+    # 同一秒字幕白像素 0.0% → 1.28%、大字黄 0.03% → 6.98%。
+    if a.sdr:
+        cmd.append("--sdr")
+    if a.reuse_raw and raw.exists():
+        print(f"  复用 {raw.name}（跳过浏览器渲染）")
+        r = None
+    else:
+        print(f"  渲染中（{a.quality}, {a.workers} workers）…")
+        r = subprocess.run(cmd, cwd=hf, capture_output=True, text=True, env=env)
+    if r is not None and (r.returncode != 0 or not raw.exists()):
         tail = ((r.stdout or "") + (r.stderr or "")).splitlines()[-25:]
         raise SystemExit("渲染失败：\n" + "\n".join(tail))
-    for ln in (r.stdout or "").splitlines():
+    for ln in ((r.stdout if r else "") or "").splitlines():
         if "rendered in" in ln:
             print("  " + ln.strip())
+
+    # 5.5) 抠像层：ffmpeg 贴回
+    if a.fg_layer == "ffmpeg" and fg_by_seg:
+        fgs = [(hf / fg_by_seg[i], v["start"], v["dur"])
+               for i, v in enumerate(videos, 1) if i in fg_by_seg]
+        fgd = proj / "out" / "_hf_fg.mp4"
+        if cover_fg(raw, fgd, fgs) == 0:
+            raw = fgd
+        else:
+            print("  ！抠像层没贴上，成片不带大字在人物背后", file=sys.stderr)
 
     # 6) 响度：成片必须落在样式包给的值上（本机 hyperframes 混完是 -20 LUFS 左右）
     dst = proj / "out" / "film-hf.mp4"
