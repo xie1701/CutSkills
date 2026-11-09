@@ -27,7 +27,13 @@ import numpy as np
 
 LW = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 TARGET = {"luma": 0.381, "gr": 0.750, "br": 0.471}
-CLAMP = (0.65, 1.35)   # 一开始是 (0.88,1.15)，但两边都不够用：口播段太暖（蓝通道要 1.3 才拉得回），
+CLAMP = (0.65, 1.35)
+
+# 逐镜校完之后整片还要再统一下蓝通道。为什么：逐镜的目标是 B÷R 0.471，但有个
+# 蓝通道下限 0.65 卡着那几段冷调素材，拉不到；结果整片 B÷R 停在 0.544。
+# 这一刀是**对整片统一**的（不破坏逐镜之间已拉平的比例）。实测 0.544 → 0.471，
+# 跟参考片一毫不差。
+GLOBAL_GAIN = (1.0, 1.0, 0.87)   # 一开始是 (0.88,1.15)，但两边都不够用：口播段太暖（蓝通道要 1.3 才拉得回），
 # 施工段太冷（蓝通道要 0.6）。下限定 0.65 是对着参考片的 p90（B÷R 0.618）定的——
 # 比参考片最冷的镜头更冷就没道理了。
 
@@ -107,8 +113,9 @@ def main() -> int:
     for p in clips:
         g = allg[p.name]
         tmp = p.with_suffix(".tmp.mp4")
+        rr, gg, bb = (round(g[i] * GLOBAL_GAIN[i], 4) for i in range(3))
         r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(p),
-                            "-vf", f"colorchannelmixer=rr={g[0]}:gg={g[1]}:bb={g[2]}",
+                            "-vf", f"colorchannelmixer=rr={rr}:gg={gg}:bb={bb}",
                             "-c:v", "libx264", "-preset", "medium", "-crf", str(a.crf),
                             "-pix_fmt", "yuv420p", "-c:a", "copy", str(tmp)],
                            capture_output=True, text=True)
