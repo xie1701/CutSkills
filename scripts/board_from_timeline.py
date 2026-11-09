@@ -275,7 +275,12 @@ def build_board(proj: Path, lib: Path, *, title: str | None = None) -> dict:
                     "name": f"{sid} 代码画面",
                     "text": (f"生成一段 {float(s.get('dur') or 3):.1f} 秒、{W}×{H} 的画面：{s.get('what')}。"
                              f"用在本镜「{s.get('for')}」。风格：{kw_color} 为主色，深底，无实拍素材。"
-                             f"交付：scripts/gen_scene.py 的一个 scene 函数 + 一次样片。"),
+                             + (f"\n已经有场景函数：python3 scripts/gen_scene.py --scene {s['scene']} "
+                                f"--dur {float(s.get('dur') or 3):.1f} --fps {FPS} --out <输出>；"
+                                f"样片在 {s.get('sample')}。改它，不要另起一套。"
+                                if s.get("scene") else
+                                "\n交付：scripts/gen_scene.py 的一个 scene 函数 + 一次样片；"
+                                "先用 --probe 量一遍（节拍写死秒数会在短时长版本里露馅）。")),
                     "tool": "本仓 gen_scene.py",
                 }
                 shot.setdefault("rec", {})
