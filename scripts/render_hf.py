@@ -23,6 +23,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_edl import resolve_lib                      # noqa: E402
+import lock as lockmod                                 # noqa: E402
 import subs                                            # noqa: E402
 from render_film import load_chars                    # noqa: E402
 
@@ -852,20 +853,42 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 
 
 # 卡片入场配什么音效：按卡片职责分，别每张都「嗖」一下
-CARD_SFX = {"keyword": ("pop", -11.0), "behind": ("impact", -9.0),
-            "cutout": ("impact", -9.0), "idcard": ("whoosh", -14.0),
-            "gen": ("whoosh", -12.0)}
+# 音效一律取自 CC0 库（Jerry 2026-11-09：「用现有的素材，不要自己生成」）。
+# 名字对应 cc0_lib.SFX_MAP；增益由库里的 under_voiceover_db 给，不再拍脑袋写 -11。
+CARD_SFX = {"keyword": ("pop-medium-in", -2.0), "behind": ("impact-light-firm", -2.0),
+            "cutout": ("impact-light-firm", -2.0), "idcard": ("whoosh-medium-soft", -2.0),
+            "gen": ("appear-materialise", -3.0)}
+
+# 音效落在连续人声上，光靠调增益听不出来（实测只涨 1–3 dB）：得让声音给它让位。
+# 90ms、-6dB，耳朵听不出人声被压，但音效的瞬态就露出来了。
+DUCK_DB = 0.5
+DUCK_S = 0.09
 
 
-def ensure_sfx() -> Path:
-    """音效文件在 $CUTSKILLS_HOME/assets/sfx；缺了就用 gen_sfx.py 现做（不联网）。"""
+def sfx_spec(name: str) -> dict | None:
+    """取一条音效的规格：文件、同步点、人声下的增益。
+
+    优先 CC0 库（带 sync_at 与 under_voiceover_db，插进去就能对上画面）；
+    库不在才退回本地合成的那三条，并且明确说一声。
+    """
+    try:
+        import cc0_lib
+    except ImportError:
+        cc0_lib = None
+    if cc0_lib and cc0_lib.sfx_available():
+        return cc0_lib.pick_sfx(name)
     home = Path(os.environ.get("CUTSKILLS_HOME") or (Path.home() / ".cutskills"))
     d = home / "assets" / "sfx"
-    need = [n for n in ("pop", "impact", "whoosh") if not (d / f"{n}.wav").exists()]
-    if need:
+    alias = {"pop-medium-in": "pop", "impact-light-firm": "impact",
+             "whoosh-medium-soft": "whoosh", "appear-materialise": "whoosh"}
+    f = d / f"{alias.get(name, name)}.wav"
+    if not f.exists():
         subprocess.run([sys.executable, str(Path(__file__).with_name("gen_sfx.py"))],
                        check=False, capture_output=True, text=True)
-    return d
+    if not f.exists():
+        return None
+    print(f"  ⚠ 音效库没接上，用本地合成的 {f.name}", file=sys.stderr)
+    return {"path": str(f), "id": name, "sync_at": 0.0, "gain_db": -9.0}
 
 
 def mix_sfx(film: Path, events: list[dict], dst: Path) -> int:
@@ -873,18 +896,35 @@ def mix_sfx(film: Path, events: list[dict], dst: Path) -> int:
     归一之后再混，音效会被一起抹平（实测 whoosh 只涨 1–3 dB，等于没打）。"""
     if not events:
         return 1
-    d = ensure_sfx()
-    have = [(e, d / f"{e['name']}.wav") for e in events]
-    have = [(e, f) for e, f in have if f.exists()]
+    have = []
+    for e in events:
+        spec = sfx_spec(str(e.get("name") or "keyword"))
+        if not spec:
+            continue
+        p = Path(spec["path"])
+        if p.exists():
+            have.append((e, p, spec))
     if not have:
         return 1
     cmd = [ffmpeg_bin(), "-y", "-v", "error", "-i", str(film)]
-    for _e, f in have:
-        cmd += ["-i", str(f)]
-    fc, mixins = [], ["[0:a]"]
-    for i, (e, _f) in enumerate(have, 1):
-        ms = max(0, int(round(float(e["t"]) * 1000)))
-        fc.append(f"[{i}:a]adelay={ms}|{ms},volume={float(e.get('gain_db', -12))}dB[s{i}]")
+    for _e, p, _s in have:
+        cmd += ["-i", str(p)]
+    fc, mixins = [], []
+    # 底音（人声+BGM）在每条音效前后让位 90ms
+    duck = ",".join(
+        f"volume=volume={DUCK_DB}:enable='between(t,{max(0.0, float(e['t']) - 0.02):.3f},"
+        f"{max(0.0, float(e['t']) - 0.02) + DUCK_S:.3f})'"
+        for e, _p, _s in have)
+    fc.append(f"[0:a]{duck or 'anull'}[bed]")
+    mixins.append("[bed]")
+    for i, (e, _p, spec) in enumerate(have, 1):
+        # 起始时刻 = 画面时刻 − sync_at：库里的 sync_at 是「最该对上画面的那一点」，
+        # 直接按画面时刻起播会让打击点晚半拍（whoosh 能晚 200ms 以上）。
+        start = max(0.0, float(e["t"]) - float(spec.get("sync_at") or 0))
+        ms = int(round(start * 1000))
+        gain = float(e.get("gain_db") if e.get("gain_db") is not None
+                     else (spec.get("gain_db") or -9.0))
+        fc.append(f"[{i}:a]adelay={ms}|{ms},volume={gain}dB[s{i}]")
         mixins.append(f"[s{i}]")
     fc.append(f"{''.join(mixins)}amix=inputs={len(mixins)}:duration=first:normalize=0[aout]")
     cmd += ["-filter_complex", ";".join(fc), "-map", "0:v:0", "-map", "[aout]",
@@ -1017,6 +1057,8 @@ def main():
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
     ap.add_argument("--no-sfx", action="store_true", help="不混卡片音效")
     ap.add_argument("--no-loudnorm", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="方案没拍板也硬渲（正常不该用）")
     ap.add_argument("--bgm", default=None, help="BGM 文件；给 auto 就用项目里的 bgm.wav")
     ap.add_argument("--bgm-mood", default="auto",
                     choices=["auto", "clear", "warm", "minimal", "tense", "hopeful"],
@@ -1038,6 +1080,23 @@ def main():
     a = ap.parse_args()
 
     proj = Path(a.project).expanduser().resolve()
+    # 方案闸门：Jerry 2026-11-09 定——剪辑和包装方案要先给人看过、被认可，再动手。
+    # 片子改一次就是几分钟机器 + 他一次完整观看；方案是文字，改一行几秒钟。
+    # 2026-11-09 又叠了一层：认可要绑在**具体时间轴版本**上（lock.json 的哈希），
+    # 否则改完一个字节那个「批准」还挂着，等于没批。
+    code, why = lockmod.verify(proj)
+    ok = code == 0
+    if not ok and (proj / "approval.json").exists():
+        # 旧项目只有 approval.json：给一条读得懂的提示，不静默放行
+        why += "；approval.json 是旧闸门，改跑 `lock.py --lock` 换上锁"
+    if not ok and not a.force:
+        print(f"还没拍板：{why}。\n"
+              "  先跑 `python3 scripts/plan_card.py --project …` 出方案，"
+              "人看过之后 `--approve`（会顺手写 lock.json）。\n"
+              "  （确实要硬渲就加 --force。）", file=sys.stderr)
+        return 4
+    if ok:
+        print(f"  {why}", file=sys.stderr)
     lib = resolve_lib(proj, a.library)
     elements, tl_src = load_elements(proj)
 
@@ -1304,13 +1363,33 @@ def main():
                 or want.get("mood") != a.bgm_mood
                 or abs(float(want.get("dur") or 0) - total) > 0.05)
         if need:
-            subprocess.run([sys.executable, str(Path(__file__).with_name("bgm_gen.py")),
-                            "--project", str(proj), "--mood", a.bgm_mood], check=False)
+            # 垫乐从 CC0 库里挑（Jerry 2026-11-09：「用现有的素材，不要自己生成」）。
+            # 合成那条路留着，只在库没接上时兜底，并且必须说出来——悄悄换回合成
+            # 会让人以为「库里挑的那首不好听」，其实是根本没接上。
+            picked = None
             try:
-                mood_now = json.loads(stamp.read_text()).get("mood") if stamp.exists() else a.bgm_mood
-            except (json.JSONDecodeError, OSError):
-                mood_now = a.bgm_mood
-            print(f"  BGM 重新合成：{mood_now}")
+                import cc0_lib
+                if cc0_lib.bgm_available():
+                    picked = cc0_lib.pick_bgm(a.bgm_mood, total, seed=f"{proj.name}-{a.bgm_mood}")
+            except ImportError:
+                picked = None
+            if picked:
+                r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", picked["path"],
+                                    "-t", f"{total:.3f}", "-ar", "48000", "-ac", "2",
+                                    str(cand)], capture_output=True, text=True)
+                if r.returncode == 0 and cand.exists():
+                    stamp.write_text(json.dumps(
+                        {"mood": a.bgm_mood, "dur": total, "source": "cc0",
+                         "title": picked["title"], "file": picked["path"],
+                         "why": picked["why"]}, ensure_ascii=False, indent=1))
+                    print(f"  BGM 选自 CC0 库：{picked['title']}"
+                          f"（{picked['category']}｜{picked['why']}）")
+                else:
+                    picked = None
+            if not picked:
+                subprocess.run([sys.executable, str(Path(__file__).with_name("bgm_gen.py")),
+                                "--project", str(proj), "--mood", a.bgm_mood], check=False)
+                print("  ⚠ BGM 库没接上，退回代码合成", file=sys.stderr)
         bgm_p = cand if cand.exists() else None
     elif a.bgm:
         bgm_p = Path(a.bgm).expanduser()
@@ -1375,4 +1454,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -318,6 +318,35 @@
 | `--moods` | 开关 |
 | `--analyze` | 只量一段 wav，不合成 |
 
+### `board_check.py`
+*看板数据的不变式检查，外加「导出 XML 后应该看到什么」的对照表。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--xml` | 打出 XML 应有的 clip 表 |
+| `--md` | 写成 board/check-report.md |
+
+### `board_from_timeline.py`
+*timeline.json v4 → 制作看板（board.js + board.html）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--out` | 输出目录（相对项目，默认 board）（默认 'board'） |
+| `--title` | — |
+| `--no-build` | 只出 board.js，不生成 html |
+
+### `board_patch.py`
+*看板回传的「【制作看板评论…」→ 改写 timeline.json。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--file` | 评论文本文件；不给就读 stdin |
+| `--dry-run` | 开关 |
+
 ### `brief.py`
 *CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
 
@@ -339,6 +368,23 @@
 | `--tolerance` | （默认 80） |
 | `--tolerance-from` | 反推：要多宽的窗口才能让这支片自己达到这个同步率 |
 | `--json` | 开关 |
+
+### `cc0_lib.py`
+*从 CC0 库里挑 BGM 和音效——不再自己合成。*
+
+| 参数 | 说明 |
+|---|---|
+| `--bgm` | — |
+| `--moods` | 开关 |
+| `--sfx` | — |
+| `--dur` | （默认 60.0） |
+
+### `check_sfx.py`
+*音效到底听不听得见——量出来，别靠嘴说。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
 
 ### `check_subs.py`
 *CutSkills · 字幕裁判：去标点 / 呼吸组 / 单行宽度 / 强调色 / 硬切。*
@@ -404,6 +450,17 @@
 | `--canvas` | WxH，默认 1080x1920；spec 里也能写 canvas |
 | `--font` | f'字体，默认 {FONT_DEFAULT}（默认 str(FONT_DEFAULT)） |
 
+### `gen_scene.py`
+*用代码画画面——不是把字卡换个样式，是让画面本身把话讲完。*
+
+| 参数 | 说明 |
+|---|---|
+| `--scene` | （默认 'phase'） |
+| `--out` | **必填** |
+| `--dur` | （默认 5.0） |
+| `--fps` | （默认 24） |
+| `--size` | （默认 '1080x1920'） |
+
 ### `gen_sfx.py`
 *CutSkills · 合成音效素材：一次算完落盘，之后只读复用。*
 
@@ -437,6 +494,17 @@
 | `--show` | 开关 |
 | `--kit` | 出一份给人看的评审包（说明+评分表） |
 | `--vote` | 记真人投票：逗号分隔，A/B/C 顺序对应看片顺序，如 A,B,C |
+
+### `lock.py`
+*方案锁：拍板的那一刻，把时间轴钉死。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--lock` | 开关 |
+| `--verify` | 开关 |
+| `--status` | 开关 |
+| `--note` | — |
 
 ### `match_font.py`
 *match_font.py — 认一支片子的字幕/花字用的是哪一种字体。*
@@ -491,6 +559,16 @@
 | `--json` | 打印机器可读结果 |
 | `--no-write` | 不写 pack-choice.md |
 
+### `plan_card.py`
+*剪辑 + 包装方案：动手之前先让人看一遍、拍一次板。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
+| `--approve` | 人看过之后拍板：写 approval.json，render 才放行 |
+| `--show` | 开关 |
+
 ### `probe_packaging.py`
 *CutSkills · 包装探针：从参考片里量出「包装」这一层的规格。*
 
@@ -523,6 +601,7 @@
 | `--no-render` | 只生成 HTML 并 lint |
 | `--no-sfx` | 不混卡片音效 |
 | `--no-loudnorm` | 开关 |
+| `--force` | 方案没拍板也硬渲（正常不该用） |
 | `--bgm` | BGM 文件；给 auto 就用项目里的 bgm.wav |
 | `--bgm-mood` | auto＝按 brief 里讲的事挑情绪（默认）；也可指定（默认 'auto'） |
 | `--reuse-raw` | 复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染） |
@@ -561,6 +640,15 @@
 | `--out` | **必填**　输出 JSON 路径 |
 | `--transcript` | 可选：SRT/VTT/JSON 转写；不给就自动找同名字幕或 _cutskills/index.json |
 | `--json-only` | 不打印人类可读的表 |
+
+### `snap_cuts.py`
+*CutSkills · 切点吸附：把一个切点的 100ms 级漂移，用「挪声音」而不是「裁画面」修掉。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--apply` | 真写回 timeline.json |
+| `--max-delta` | （默认 0.25） |
 
 ### `subs.py`
 *CutSkills · 字幕：按呼吸组切、去标点、单行、强调词变色。*

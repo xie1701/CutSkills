@@ -33,8 +33,10 @@ metadata:
 |---|---|---|
 | `index.json` | 素材事实（写一次，增量，可全量重建） | A 段脚本 |
 | `brief.json` | 需求四格（唯一真值源，缺格必有 `assumed[]`） | `brief.py` |
-| `timeline.json` | **元素时间轴（v4）**：第几秒到第几秒画面上是什么 | `timeline.py` |
+| `timeline.json` | **元素时间轴（v4）**：第几秒到第几秒画面上是什么 | `timeline.py` / `board_patch.py` |
 | `styles/*.yaml` | 风格包参数（跨片复用，只存参数不存 CSS） | 人 |
+| `board/board.js` | **看板视图**（人看、拖、批），从 timeline 导出 | `board_from_timeline.py` |
+| `lock.json` | 拍板时的时间轴哈希。渲不渲看它 | `lock.py` |
 
 `paper-edit.md`、`gaps.md`、`verify-report.md`、`yield-card.md`、`decisions.md` 全是**视图**，
 从上面几个生成。视图能被手改，手改完和真值源不一致，整条流水线就开始撒谎——视图永远可以删掉重建。
@@ -61,6 +63,13 @@ python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候�
 # 3 构形：意图 → 元素时间轴（缺口按兜底链自动补 gen / 章节卡）
 python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
 python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由
+
+# 3.5 给人审：出看板 → 人拖完批完 → 补丁落回 timeline → 上锁
+python3 scripts/board_from_timeline.py --project <项目>       # 出 board/board.html + 声音轨
+python3 scripts/board_check.py --project <项目> --xml --md     # 12 条不变式 + XML 应有对照表
+node scripts/board_smoke.js <项目>/board/board.html <项目>/board   # 真开一次浏览器：报错/截图/导出 XML
+pbpaste | python3 scripts/board_patch.py --project <项目> --dry-run  # 粘回来的评论 → 看 diff
+python3 scripts/lock.py --project <项目> --lock --note "认可"         # 拍板（哈希钉死时间轴）
 
 # 4 成型：渲 → 验 → 良率卡
 python3 scripts/bgm_gen.py --project <项目> --mood auto     # 按 brief 挑情绪（渲染时也会自动调）
@@ -115,8 +124,32 @@ python3 scripts/golden.py
 
 ---
 
-## 阶段 A · 索引
+## 第五层：人能看方案、能动手改（制作看板）
 
+> 规格写在 [references/board-fusion.md](references/board-fusion.md)。这里是入口。
+
+人不能读 `timeline.json`。所以中间加一层**看板**：单个 HTML，能按空格预演、能拖 clip 改时长、
+能拖画面元素、能量出「生成动效任务」、能导 FCP XML。**看板是视图，不是真相**：
+
+```
+timeline.json  ──I1 board_from_timeline──▶  board/board.html（人看、拖、批）
+      ▲                                              │
+      └────── I2 board_patch ◀──「【制作看板评论」（粘回来）
+                         │
+                    I3 lock（拍板 → 哈希）× render_hf（没锁不渲）
+```
+
+三条铁律：
+
+1. **看板不估时长。** 每镜都写 `fixed` = 真实秒数（`gap` 由绝对秒反算），所以预演＝成片节奏。
+2. **看板不存素材。** 素材在 `index.json`，看板只写文件名。
+3. **改动必须经 I2 落地。** 浏览器里拖了什么不会自己变回时间轴。
+
+看板引擎是 vendored 的 `vendor/production-board/`（MIT，见其 `THIRD_PARTY_NOTICES.md`）：
+**只换数据块，不改样式和引擎**。`board_check.py` 验 12 条不变式；`board_smoke.js` 用真 Chrome
+开一次，报 JS 错误、截图、把导出的 XML 存下来对账——「报告全绿但画面是空」吃过两次亏，不能再只读 JSON。
+
+## 阶段 A · 索引
 ```bash
 python3 <SKILL_DIR>/scripts/index_assets.py --library "<素材库根目录>" --jobs 4
 ```
@@ -792,6 +825,7 @@ source scripts/runtime.sh env && scripts/runtime.sh install
 - [references/packtest-2026-11-08/report.md](references/packtest-2026-11-08/report.md) — **换素材的 10 秒：模板和临摹的分界线**，8 个 token 的实测与三个新坑
 - [references/cli.md](references/cli.md) — **全部脚本的全部参数**（从代码生成，不要手改）
 - [references/production-line.md](references/production-line.md) — 这套东西当**产线**看时的验收：要量的四个数、现在各有多少、为什么「一条片 12 项绿灯」证明不了可复用
+- [references/board-fusion.md](references/board-fusion.md) — **制作看板与 CutSkills 的融合规格**：三层、字段映射（timeline → BOARD）、三道接口、看板能做什么/做不了什么
 - [references/stranger-run-2026-11-07/卡点.md](references/stranger-run-2026-11-07/卡点.md) — 一个没参加过讨论的人照这份说明书跑一遍的卡点清单，以及为此改了什么。**下次大改文档后再找一个人跑一遍**，这是唯一能查出「你以为写清了」的裁判
 - [references/audit-a-b-2026-11-07.md](references/audit-a-b-2026-11-07.md) — A/B 段需求和实现的对账存档：41 条里哪些真做了、哪些只是写在纸上、为什么当时这么判
 - [BRIEF.md](BRIEF.md) — 完整需求 v1.1（硬指标数字、版本切分、砍掉了什么及为什么）
