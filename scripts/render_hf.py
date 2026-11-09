@@ -256,7 +256,52 @@ GEN_CSS = """
 """
 
 
-def gen_html(el: dict, H: int, total: float = 0.0) -> str:
+def gen_child_count(el: dict) -> int:
+    """生成物里会「一条一条进场」的子件有几个。参数决定，不吃素材。"""
+    p = el.get("props") or {}
+    tpl = el.get("template")
+    if tpl == "compare":
+        return 2
+    if tpl == "steps":
+        return len(p.get("items") or [])
+    if tpl == "chart":
+        return len(p.get("values") or [])
+    if tpl == "flow":
+        return len(p.get("nodes") or [])
+    if tpl == "layers":
+        return len(p.get("layers") or [])
+    return 1
+
+
+def gen_child_times(el: dict, amap: dict | None) -> list[float]:
+    """子件什么时候进场：跟着这格覆盖到的那几个**音频块的重音点**走。
+
+    原来按「元素时长均分」——话说到第三个词时第二条才弹出来，节奏是死的。
+    现在每个子件挂一句真话：读第 i 条的时候，第 i 个子件亮。
+    返回相对这格起点的秒数（按时间升序、去重、限制在格内）。
+    """
+    n = gen_child_count(el)
+    if not amap or n <= 1:
+        return []
+    t0 = float(el.get("at") if el.get("track") == "overlay" else (el.get("_start") or 0))
+    d = float(el.get("dur") or 0)
+    peaks = []
+    for b in amap.get("blocks") or []:
+        if b.get("is_filler") or b.get("peak_at") is None:
+            continue
+        pk = round(float(b["t"]) + (float(b["peak_at"]) - float(b["src_start"])), 3)
+        if t0 - 0.05 <= pk <= t0 + d + 0.05:
+            peaks.append(round(pk - t0, 3))
+    peaks = sorted(set(peaks))
+    if len(peaks) < n:
+        return []                                  # 话不够，退回均分，不硬凑
+    if len(peaks) > n:                             # 均匀取样，别把前几句全挤在开头
+        step = (len(peaks) - 1) / (n - 1)
+        peaks = [peaks[round(i * step)] for i in range(n)]
+    return [max(0.0, min(round(d - 0.25, 3), p_)) for p_ in peaks]
+
+
+def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None) -> str:
     """一张代码画出来的整屏。**只吃参数，不吃素材**——库里没有的画面靠它补。"""
     tpl = el.get("template")
     p = el.get("props") or {}
@@ -264,7 +309,8 @@ def gen_html(el: dict, H: int, total: float = 0.0) -> str:
     start = round(float(el.get("at") if ov else (el.get("_start") or 0)), 3)
     dur = round(float(el.get("dur") or 2), 3)
     cls = "gen gen-ov" if ov else "clip gen"
-    head = (f'<div class="{cls} gen-{tpl}" data-start="{start}" data-duration="{dur}">')
+    ct_attr = (f' data-ct="{",".join(f"{x:.2f}" for x in ct)}"' if ct else "")
+    head = (f'<div class="{cls} gen-{tpl}" data-start="{start}" data-duration="{dur}"{ct_attr}>')
     body = ""
     if tpl == "keyword":
         body = (f'<div class="big" style="font-size:{int(H * 0.105)}px">{esc(p.get("text"))}</div>'
@@ -283,8 +329,8 @@ def gen_html(el: dict, H: int, total: float = 0.0) -> str:
                     f'<div class="sm" style="font-size:{int(H * 0.022)}px">{esc(s.get("title"))}</div>'
                     f'<div class="big" style="font-size:{fit_px(v, H * 0.052)}px">{esc(v)}</div></div>')
         body = (f'<div class="cols">{col("left", False)}{col("right", True)}</div>'
-                + (f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-top:44px">'
-                   f'{esc(p.get("note"))}</div>' if p.get("note") else ""))
+                + (f'<div class="sm ct-last" style="font-size:{int(H * 0.024)}px;'
+                   f'margin-top:44px">{esc(p.get("note"))}</div>' if p.get("note") else ""))
     elif tpl == "number":
         body = (f'<div class="num" style="font-size:{int(H * 0.16)}px">{esc(p.get("value"))}'
                 f'<span style="font-size:{int(H * 0.05)}px">{esc(p.get("unit") or "")}</span></div>'
@@ -639,11 +685,23 @@ document.querySelectorAll(".gen").forEach((c) => {{
   const t = parseFloat(c.dataset.start);
   const d = parseFloat(c.dataset.duration);
   const kids = c.querySelectorAll(".col, ol li, .bar, .chn, blockquote, .num, .fnode, .layer");
+  // 每条子件的入场时刻：优先用「这句台词的重音点」（data-ct），没有才均分。
+  const ct = (c.dataset.ct || "").split(",").filter(Boolean).map(Number);
+  // 收尾那一行（比如对比屏下面的结论）永远最后出：它得等两栏都比完了才有意义。
+  const last = c.querySelector(".ct-last");
+  if (last) {{
+    const at = (ct.length ? Math.max(...ct) + 0.5 : d * 0.55);
+    tl.set(last, {{ opacity: 0 }}, t);
+    tl.fromTo(last, {{ opacity: 0 }}, {{ opacity: 1, duration: 0.24, immediateRender: false }},
+              t + Math.min(Math.max(0.2, at), Math.max(0.3, d - 0.45)));
+  }}
   kids.forEach((k, i) => {{
+    const when = (ct.length === kids.length) ? t + ct[i]
+      : t + 0.12 + i * Math.min(0.34, Math.max(0.12, (d - 0.5) / Math.max(1, kids.length)));
     tl.set(k, {{ opacity: 0, y: 18 }}, t);          // 轮到之前必须是不可见，否则一开场全亮
     tl.fromTo(k, {{ opacity: 0, y: 18 }},
       {{ opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
-         immediateRender: false }}, t + 0.12 + i * Math.min(0.34, Math.max(0.12, (d - 0.5) / Math.max(1, kids.length))));
+         immediateRender: false }}, when);
   }});
   tl.fromTo(c, {{ opacity: 0, y: 24 }},
     {{ opacity: 1, y: 0, duration: 0.32, ease: "power2.out", immediateRender: false }}, t);
@@ -871,7 +929,9 @@ def main():
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
     ap.add_argument("--no-loudnorm", action="store_true")
     ap.add_argument("--bgm", default=None, help="BGM 文件；给 auto 就用项目里的 bgm.wav")
-    ap.add_argument("--bgm-mood", default="warm", choices=["warm", "minimal", "tense", "hopeful"])
+    ap.add_argument("--bgm-mood", default="auto",
+                    choices=["auto", "clear", "warm", "minimal", "tense", "hopeful"],
+                    help="auto＝按 brief 里讲的事挑情绪（默认）；也可指定")
     ap.add_argument("--reuse-raw", action="store_true",
                     help="复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染）")
     ap.add_argument("--hdr", dest="sdr", action="store_false",
@@ -924,6 +984,14 @@ def main():
     # silence 是什么都不给（黑底），它们只占时间。v4 之前这里默认每一格都有视频。
     hf = proj / "hf"
     (hf / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
+    # 音频层要早于格循环载入：生成物的子件入场时刻靠它（重音点）
+    amap = None
+    amp = proj / "audio-map.json"
+    if amp.exists():
+        try:
+            amap = json.loads(amp.read_text())
+        except json.JSONDecodeError:
+            amap = None
     videos, gens, clips_like, t, n_fail = [], [], [], 0.0, 0
     gd = GRADE.get(str(style.get("grade") or ""), "")
     for el in segs:
@@ -952,7 +1020,9 @@ def main():
             clips_like.append(el)
             t = round(t + cl["dur"], 3)
         elif kind == "gen":
-            gens.append(gen_html(el, H))
+            if (el.get("track") or "video") == "overlay":
+                el["_start"] = round(float(el.get("at") or 0.0), 3)
+            gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
             if (el.get("track") or "video") == "overlay":
                 el["_start"] = round(float(el.get("at") or 0.0), 3)
                 el.pop("_pads", None)
@@ -982,13 +1052,6 @@ def main():
     for c in caps:
         c["end"] = min(round(c["end"], 3), total)
 
-    amap = None
-    amp = proj / "audio-map.json"
-    if amp.exists():
-        try:
-            amap = json.loads(amp.read_text())
-        except json.JSONDecodeError:
-            amap = None
     # overlay 生成物占着的那几秒，大字必须先让开（同屏只讲一件事：
     # 实测黄字压在对比屏上，卡里的小字全糊成一团）。
     ov_win = [(float(el.get("at") or 0.0), round(float(el.get("at") or 0.0) + el_dur(el), 3))
@@ -1137,9 +1200,26 @@ def main():
     bgm_p = None
     if a.bgm == "auto":
         cand = proj / "bgm.wav"
-        if not cand.exists():
+        stamp = proj / "bgm.json"
+        # 只判「文件在不在」会一直用上一版垫乐——2026-11-09 就撞过：情绪换了一整套，
+        # bgm.wav 还是旧的无人机嗡鸣，渲染照旧混那一条，谁都没发现。
+        want = None
+        if stamp.exists():
+            try:
+                want = json.loads(stamp.read_text())
+            except json.JSONDecodeError:
+                want = None
+        need = (not cand.exists() or not want
+                or want.get("mood") != a.bgm_mood
+                or abs(float(want.get("dur") or 0) - total) > 0.05)
+        if need:
             subprocess.run([sys.executable, str(Path(__file__).with_name("bgm_gen.py")),
                             "--project", str(proj), "--mood", a.bgm_mood], check=False)
+            try:
+                mood_now = json.loads(stamp.read_text()).get("mood") if stamp.exists() else a.bgm_mood
+            except (json.JSONDecodeError, OSError):
+                mood_now = a.bgm_mood
+            print(f"  BGM 重新合成：{mood_now}")
         bgm_p = cand if cand.exists() else None
     elif a.bgm:
         bgm_p = Path(a.bgm).expanduser()

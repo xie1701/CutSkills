@@ -156,6 +156,9 @@ def main() -> int:
     ap.add_argument("--choose", default=None, help="定案：A / B / C")
     ap.add_argument("--note", default=None)
     ap.add_argument("--show", action="store_true")
+    ap.add_argument("--kit", action="store_true", help="出一份给人看的评审包（说明+评分表）")
+    ap.add_argument("--vote", default=None,
+                    help="记真人投票：逗号分隔，A/B/C 顺序对应看片顺序，如 A,B,C")
     a = ap.parse_args()
 
     proj = Path(a.project).expanduser().resolve()
@@ -170,6 +173,78 @@ def main() -> int:
             mark = "★" if h.get("chosen") == c["id"] else " "
             print(f" {mark}{c['id']}. {c['label']:<6} {c['duration_s']:.2f}s  {c['elements'][0]['why']}")
         print(f"定案：{h.get('chosen') or '还没定'}")
+        return 0
+
+    if a.kit:
+        h = load(hp)
+        if not h:
+            raise SystemExit("先跑一次 hooks.py 生成候选")
+        kit = proj / "hooks" / "review-kit.md"
+        kit.parent.mkdir(parents=True, exist_ok=True)
+        rows = "\n".join(
+            f"| {c['id']} | {c['label']} | {c['duration_s']:.2f}s | "
+            f"`hooks/{c['id']}-{c['label']}.mp4` |".replace("`hooks/", "`")
+            for c in h["candidates"])
+        kit.write_text(f"""# 前 3 秒评审包
+
+给谁看：**两个到三个人**，最好有一个不是做这行的。不要给他们讲设计意图，也不要说是 AI 剪的。
+
+怎么看：先放 A、B、C 各一遍，中间停 3 秒。第二遍打乱顺序再放（顺序会带偏见）。
+然后只问一句：**「这三条里，你会继续往下看哪一条？为什么？」**
+
+判过：**至少 2 个人选同一个**，才算定了。一个人选的不算，全不一样就是三个都没做对，
+回去重做——不是投票选出最好的，是准确地被同一句话打中。
+
+| 候选 | 做法 | 时长 | 文件 |
+|---|---|---|---|
+{rows}
+
+投票记法（看完回来跑这条，别凭记忆）：
+
+```
+python3 scripts/hooks.py --project <项目> --vote B,B,A
+```
+
+三个字母＝三个人各自选的，顺序他们无所谓。命令会算多数、写进 hooks.json 的 `votes`
+（真人读数）和 `passed`（≥2 票同一才 true），良率卡按 `passed` 说话。
+""", encoding="utf-8")
+        print(f"评审包 → {kit}")
+        print(f"候选文件在 {proj / 'hooks'}：")
+        for c in h["candidates"]:
+            f = proj / "hooks" / f"{c['id']}-{c['label']}.mp4"
+            print(f"  {c['id']} {c['label']:<6} {'有' if f.exists() else '缺（先 --render）'} {f.name}")
+        return 0
+
+    if a.vote:
+        h = load(hp)
+        if not h:
+            raise SystemExit("还没有 hooks.json")
+        ids = {c["id"] for c in h["candidates"]}
+        votes = [v.strip().upper() for v in a.vote.split(",") if v.strip()]
+        bad = [v for v in votes if v not in ids]
+        if bad:
+            raise SystemExit(f"投票里有不认识的候选 {bad}（有 {sorted(ids)}）")
+        tally: dict[str, int] = {}
+        for v in votes:
+            tally[v] = tally.get(v, 0) + 1
+        win, n = max(tally.items(), key=lambda kv: kv[1])
+        passed = n >= 2
+        h["votes"] = {"raw": votes, "tally": tally, "majority": win if passed else None,
+                      "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+        h["passed"] = passed
+        hp.write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding="utf-8")
+        try:
+            from log_decision import append_row
+            append_row(proj, said=f"前 3 秒真人投票：{'/'.join(votes)}",
+                       did=(f"多数选 {win}（{n}/{len(votes)}），判过" if passed
+                            else f"没有 2 票同一（{tally}），该重做"))
+        except Exception as e:
+            print(f"  ！decisions.md 没写进去：{e}", file=sys.stderr)
+        said = (f"多数选 {win}（{n}/{len(votes)}）" if passed
+                else f"没人拿到 2 票（{tally}）")
+        print(f"投票 {'/'.join(votes)} → {said}；{'过' if passed else '没过，回去重做候选'}")
+        if passed and h.get("chosen") and h["chosen"] != win:
+            print(f"  ⚠ 投票选的是 {win}，但当前定的是 {h['chosen']}——重新 --choose {win}")
         return 0
 
     if a.choose:

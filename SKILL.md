@@ -49,7 +49,9 @@ source scripts/runtime.sh env                       # 依赖全在这，任务�
 # 1 入口：四格 + 片长三档（30 秒系列 / 60–90 秒口播 / 自定）+ 风格挑一个
 python3 scripts/brief.py --project <项目>            # 交互；--set 可非交互，--show 看现状
 
-# 2 理解：先出音频块（声音是时间基准），再出 3 秒钩子的候选
+# 2 理解：先定主张（观点先行），再出音频块（声音是时间基准），再出 3 秒钩子
+python3 scripts/thesis.py --project <项目> --init    # 写 claim / claims：这一步人做，脚本不代笔
+python3 scripts/thesis.py --project <项目> --match --show   # 匹配证据、报缺口、判「要不要倒序」
 python3 scripts/audio_map.py --project <项目>        # 声音切块：半句/气口/重音，带能量与填充词
 python3 scripts/arrange.py --project <项目>          # 四套结构方案挑一个（原顺序/结论前置/现场切入/倒序）
 python3 scripts/skeleton.py --video <参考片> --out <项目>/skeleton.json   # 节拍骨架
@@ -61,11 +63,17 @@ python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
 python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由
 
 # 4 成型：渲 → 验 → 良率卡
-python3 scripts/bgm_gen.py --project <项目> --mood warm     # 先出垫乐（渲染时 auto 也会自动调）
+python3 scripts/bgm_gen.py --project <项目> --mood auto     # 按 brief 挑情绪（渲染时也会自动调）
+python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频：谱质心 <350Hz 就是闷
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/sync_check.py --project <项目>              # 声画同步率/断章率/大字偏移
+python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
+python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
+
+# 阈值校准（改判据之前先量参考片自己的读数，别拍脑袋定标准）
+python3 scripts/calibrate.py --video <参考片> --tolerance-from 0.85
 
 # 横向：加任何新能力之前先跑回归，别把上周的片弄坏
 python3 scripts/golden.py
@@ -78,8 +86,14 @@ python3 scripts/golden.py
 断章率（一口气里被切刀的比例，≤15%）、大字偏移（大字 vs 重音，≤120ms）。
 
 这三条不是自我感觉——2026-11-09 一上来就量出「切点永远慢 120ms」「大字慢 486ms」
-「对比屏压错位置 810ms」，三个都改完才转绿。细节与阈值来由见
-[references/audio-first.md](references/audio-first.md)。
+「对比屏压错位置 810ms」，三个都改完才转绿。
+
+**但校准之后要改口**：拿参考片跑同一套算法，它自己的同步率只有 18%（切点 p50 差 418ms）——
+因为它的画面切点跟着节奏走、话说一半就切。所以我们这 88% 验的是「自家切点没漂」，
+不是「比参考片强」。断章率我们 11%、参考片 24%：想更狠可以放开到 25%，那是口味不是质量。
+细节、数字与阈值来由见 [references/audio-first.md](references/audio-first.md)。
+
+观点怎么先定下来（主张 → 证据 → 缺口 → 要不要倒序）见 [references/thesis.md](references/thesis.md)。
 
 ### 第 3 层的关键：一格可以是「造出来的」
 

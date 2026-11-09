@@ -312,10 +312,11 @@
 | 参数 | 说明 |
 |---|---|
 | `--project` | — |
-| `--mood` | （默认 'warm'） |
+| `--mood` | （默认 'auto'） |
 | `--dur` | 秒；默认取 timeline 片长 |
 | `--out` | — |
 | `--moods` | 开关 |
+| `--analyze` | 只量一段 wav，不合成 |
 
 ### `brief.py`
 *CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
@@ -326,6 +327,18 @@
 | `--set` | 非交互写入：audience / audience_present_state / change / length / style（默认 []） |
 | `--show` | 打印当前 brief |
 | `--reset` | 清空重来（旧文件备份为 brief.json.bak） |
+
+### `calibrate.py`
+*CutSkills · 用参考片校准「声画同步」的阈值。*
+
+| 参数 | 说明 |
+|---|---|
+| `--video` | **必填** |
+| `--skeleton` | skeleton.json；不给就现场跑 skeleton.py |
+| `--cache` | （默认 str(Path.home() / '.cutskills/cache/calib')） |
+| `--tolerance` | （默认 80） |
+| `--tolerance-from` | 反推：要多宽的窗口才能让这支片自己达到这个同步率 |
+| `--json` | 开关 |
 
 ### `check_timeline.py`
 *CutSkills · 校验 timeline.json（v4 元素时间轴）。*
@@ -414,6 +427,8 @@
 | `--choose` | 定案：A / B / C |
 | `--note` | — |
 | `--show` | 开关 |
+| `--kit` | 出一份给人看的评审包（说明+评分表） |
+| `--vote` | 记真人投票：逗号分隔，A/B/C 顺序对应看片顺序，如 A,B,C |
 
 ### `match_font.py`
 *match_font.py — 认一支片子的字幕/花字用的是哪一种字体。*
@@ -500,7 +515,7 @@
 | `--no-render` | 只生成 HTML 并 lint |
 | `--no-loudnorm` | 开关 |
 | `--bgm` | BGM 文件；给 auto 就用项目里的 bgm.wav |
-| `--bgm-mood` | （默认 'warm'） |
+| `--bgm-mood` | auto＝按 brief 里讲的事挑情绪（默认）；也可指定（默认 'auto'） |
 | `--reuse-raw` | 复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染） |
 | `--hdr` | 按 HDR 出片（本机 ffmpeg 无 zscale，文字层会整片丢失，不建议） |
 | `--fg-layer` | 抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要（默认 'ffmpeg'） |
@@ -548,6 +563,17 @@
 | `--timeline` | — |
 | `--tolerance` | （默认 TOL_MS） |
 | `--json` | 开关 |
+
+### `thesis.py`
+*CutSkills · 观点先行：先定「一句话讲完什么」，再回头挑素材。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--lib` | 素材库根目录；默认从项目路径往上找 _cutskills |
+| `--init` | 开关 |
+| `--match` | 开关 |
+| `--show` | 开关 |
 
 ### `timeline.py`
 *CutSkills · plan.json + brief.json → timeline.json（元素时间轴 v4）。*
