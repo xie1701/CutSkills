@@ -20,12 +20,18 @@ import re
 import sys
 from pathlib import Path
 
+import lexicon  # noqa: E402  转写词表（品牌名/术语）纠错
+
 PUNCT = "，。！？、；：…—～,.!?;:"
 SENTINEL = "\x00"        # 句边界标记，不进字幕
 GAP_BREAK = 0.30          # 呼吸组之间的停顿
 GAP_SPLIT = 0.12          # 组内允许拆开的最小停顿
-MAX_CHARS = 14            # 目标上限
-HARD_MAX = 19             # 真上限：没停顿也别硬切，宁可这一条长一点（切词比长更难读）
+# 上限不是拍出来的，是**算**出来的：字号 80px、1080 宽，14 字就是 1120px，
+# 比画幅还宽——2026-11-09 逐帧量成片才发现字幕两头都被切掉了（左上和右下都缺字），
+# 而所有 JSON 和判据全是绿的（判据按「字数 ≤14」放行，没人算过像素）。
+# 参考片同口径：字幕 bbox p50 57%W、p90 71%W、最大 88%W。12 字 × 80px = 960 = 89%W。
+MAX_CHARS = 12            # 目标上限（≈89%W）
+HARD_MAX = 12             # 真上限：超过就必然出画，不再"宁可长一点"
 MIN_CHARS = 7             # 少于这个字并且前后离得近就并进邻居（8 字一闪太快）
 TARGET_SOFT = 10          # 到这么多字、后面又有小停顿，就收口（凑成 10–14 的观感）
 
@@ -115,7 +121,7 @@ NEG_WORDS = ("不是", "不会", "不能", "不", "没有", "没", "别", "只",
              "更", "最", "差", "贵", "便宜", "翻", "连", "都")
 
 
-def _items(segments, index_by_id, chars_cache, lib, load_chars):
+def _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
     """每段一段的 (字, 起, 止)，已经换到输出时间轴。
 
     与 `render_film.build_cues` 收集部分同源；收字窗口必须和 build_edl 算 evidence
@@ -158,7 +164,7 @@ def _items(segments, index_by_id, chars_cache, lib, load_chars):
         if items:
             out.append({"el": seg.get("n"), "seg_start": seg["_start"],
                         "s_in": s_in, "dur": seg.get("_dur_q") or seg.get("_dur"),
-                        "items": items})
+                        "items": lexicon.fix_items(items, lex)})
     return out
 
 
@@ -286,9 +292,12 @@ def regroup(items: list[tuple[str, float, float]]):
     return final
 
 
-def build(segments, index_by_id, chars_cache, lib, load_chars) -> list[dict]:
+def build(segments, index_by_id, chars_cache, lib, load_chars,
+          colorize: bool = True) -> list[dict]:
+    """`colorize=False` 时一个字都不变色（Jerry 2026-11-09：重点词变色取消）。"""
     cues: list[dict] = []
-    for blk in _items(segments, index_by_id, chars_cache, lib, load_chars):
+    lex = lexicon.load(Path(lib) / "_cutskills")
+    for blk in _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
         for g, why in regroup(blk["items"]):
             raw = "".join(t for t, _, _ in g)
             text = "".join(ch for ch in raw if ch not in PUNCT and ch != SENTINEL).strip()
@@ -299,7 +308,8 @@ def build(segments, index_by_id, chars_cache, lib, load_chars) -> list[dict]:
             if b <= a:
                 continue
             cues.append({"start": round(a, 3), "end": round(b, 3), "text": text,
-                         "html": emphasis_html(text), "chars": len(text),
+                         "html": emphasis_html(text) if colorize else None,
+                         "chars": len(text),
                          "el": blk["el"], "break_after": why})
     cues.sort(key=lambda c: c["start"])
     # 相邻重叠：后一条推到前一条收口之后（硬切不留缝）
@@ -310,7 +320,7 @@ def build(segments, index_by_id, chars_cache, lib, load_chars) -> list[dict]:
             if c["end"] - c["start"] < 0.25:
                 out[-1]["end"] = max(out[-1]["end"], c["end"])
                 out[-1]["text"] += c["text"]
-                out[-1]["html"] = emphasis_html(out[-1]["text"])
+                out[-1]["html"] = emphasis_html(out[-1]["text"]) if colorize else None
                 out[-1]["chars"] = len(out[-1]["text"])
                 continue
         out.append(c)

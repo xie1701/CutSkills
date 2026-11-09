@@ -30,6 +30,7 @@ import wave
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lexicon  # noqa: E402
 from make_edl import resolve_lib  # noqa: E402
 from check_edl import tokens as char_tokens  # noqa: E402  词级时间戳只有这一处来源
 
@@ -101,14 +102,18 @@ def segment(blocks: list[dict]) -> list[dict]:
     return out
 
 
-def chars_of(lib: Path, aid: str) -> list[dict]:
+def chars_of(lib: Path, aid: str, lex: dict | None = None) -> list[dict]:
     """字级时间戳。**只有一处来源**：`_cutskills/cache/asr/` 里的 chunk 文件，
     index.json 里存的是整句 phrases，没有单字时间——用整句当块，动画就永远落在句首。"""
     got = char_tokens(lib, aid)
     if not got:
         return []
     chars, starts, ends = got
-    return [{"c": c, "s": float(s), "e": float(e)} for c, s, e in zip(chars, starts, ends)]
+    items = [(c, float(s), float(e)) for c, s, e in zip(chars, starts, ends)]
+    if lex:
+        # 音频块的文本也过词表：它是卡片锚词和高亮判断的来源，不纠就还是「7灶」。
+        items = lexicon.fix_items(items, lex)
+    return [{"c": c, "s": s, "e": e} for c, s, e in items]
 
 
 def analyze_span(lib: Path, aid: str, t0: float, t1: float, frames_of) -> dict:
@@ -135,6 +140,7 @@ def build(proj: Path, lib: Path) -> dict:
     index = {x["id"]: x for x in json.loads(
         (lib / "_cutskills" / "index.json").read_text())["assets"]}
 
+    lex = lexicon.load(lib / "_cutskills")
     # 只解一次每条素材的音频
     cache: dict[str, list[float]] = {}
 
@@ -168,7 +174,7 @@ def build(proj: Path, lib: Path) -> dict:
             rec = index.get(aid) or {}
             # 只在 [a0, a0+d) 里取字。以前两头各留 50ms 容差，结果相邻两段共用的那个字
             # 同时进了两段（「我」既是片头最后一块、又是下一段的第一块），块列表里凭空多一条。
-            chs = [c for c in chars_of(lib, aid) if a0 - 0.02 <= c["s"] < a0 + d - 0.02]
+            chs = [c for c in chars_of(lib, aid, lex) if a0 - 0.02 <= c["s"] < a0 + d - 0.02]
             for n_, blk in enumerate(segment(chs), 1):
                 txt = blk["text"].strip(PUNCT + " ")
                 if not txt:

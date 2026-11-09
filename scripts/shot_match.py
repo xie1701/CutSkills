@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,9 +32,11 @@ CLAMP = (0.65, 1.35)
 
 # 逐镜校完之后整片还要再统一下蓝通道。为什么：逐镜的目标是 B÷R 0.471，但有个
 # 蓝通道下限 0.65 卡着那几段冷调素材，拉不到；结果整片 B÷R 停在 0.544。
-# 这一刀是**对整片统一**的（不破坏逐镜之间已拉平的比例）。实测 0.544 → 0.471，
-# 跟参考片一毫不差。
-GLOBAL_GAIN = (1.0, 1.0, 0.87)   # 一开始是 (0.88,1.15)，但两边都不够用：口播段太暖（蓝通道要 1.3 才拉得回），
+# 这一刀是**对整片统一**的（不破坏逐镜之间已拉平的比例）。
+# 2026-11-09 重调（GRADE 换成 sat 0.95 / con 1.0 / gam 0.99 / bri +0.02 之后，
+# 老那组 (1,1,0.87) 已经不再对得上：实测 G/R 0.809、B/R 0.443）。
+# 现在这组是在成片上叠滤镜试出来再折回管线的：(1, 0.809, 0.800)。
+GLOBAL_GAIN = (1.0, 0.90, 0.83)   # 一开始是 (0.88,1.15)，但两边都不够用：口播段太暖（蓝通道要 1.3 才拉得回），
 # 施工段太冷（蓝通道要 0.6）。下限定 0.65 是对着参考片的 p90（B÷R 0.618）定的——
 # 比参考片最冷的镜头更冷就没道理了。
 
@@ -87,10 +90,18 @@ def main() -> int:
     clips = sorted(Path(a.clips).glob("*.mp4"))
     if not clips:
         raise SystemExit(f"没有片段：{a.clips}")
+    # 原片留一份。增益必须**从原片量、往原片上套**：量已经校过的片子再套到原片上，
+    # 等于把上一轮的校正抹掉（实测重跑一次，中位 luma 从 0.412 跳回 0.473，日志还说成功）。
+    pristine = Path(a.clips) / ".pristine"
+    pristine.mkdir(exist_ok=True)
+    for p in clips:
+        fresh = pristine / p.name
+        if not fresh.exists():
+            shutil.copy2(p, fresh)
     rows, allg = [], {}
     print(f"{'片段':<46}{'luma':>7}{'G/R':>7}{'B/R':>7}   →  增益 R/G/B")
     for p in clips:
-        cur = stats(p)
+        cur = stats(pristine / p.name)
         g = gains(cur, TARGET, a.strength)
         allg[p.name] = list(g)
         rows.append((p.name, cur, g))
@@ -110,11 +121,15 @@ def main() -> int:
         print("\n没加 --apply，什么都没改。")
         return 0
 
+    # 增益必须作用在**没校过的**片段上。原地覆盖会累积：同一个片段被跑两遍就等于
+    # 校了两遍（实测把绿红从 0.809 压到 0.644，整片发红发暗，而报告照旧说成功）。
+    # 所以第一次处理时把原片留一份在 clips/.pristine/，以后永远从它出发。
     for p in clips:
         g = allg[p.name]
+        fresh = pristine / p.name
         tmp = p.with_suffix(".tmp.mp4")
         rr, gg, bb = (round(g[i] * GLOBAL_GAIN[i], 4) for i in range(3))
-        r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(p),
+        r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(fresh),
                             "-vf", f"colorchannelmixer=rr={rr}:gg={gg}:bb={bb}",
                             "-c:v", "libx264", "-preset", "medium", "-crf", str(a.crf),
                             "-pix_fmt", "yuv420p", "-c:a", "copy", str(tmp)],

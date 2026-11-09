@@ -33,13 +33,18 @@ subtitle:
   hold_max_s: 2.4
   density_per_min: [45, 58]         # 实测 50–56；低于 40 显拖
   entry: hard_cut                   # 硬切，不做入场动画
+  colorize_emphasis: false          # 2026-11-09 Jerry：「字幕的重点词变色还是取消」。
+                                    # 只染否定词和数字本来就窄，观众读到的是一次次的黄块，
+                                    # 不是重点；要重就把重点交给大字那一层去做。
 
 emphasis:
   font: NotoSansSC-Black            # 花字单独一层字体：放大到 10–16%H 才撑得住分量
   grammars: [big_keyword, strikethrough, quote]   # 只有三种
   keyword_color: "#F6EB34"          # 并列选项、转折词
   negation_color: "#C1121F"         # 否定结论
-  big_keyword_px: [133, 304]        # 占画面高 10–16%
+  big_keyword_px: [133, 304]        # 占画面高 10–16%（老口径，单排 FIT 之前）
+  fit_width: 0.70                   # 大字单排、左右撑到画幅宽度的 70%，按字数缩放
+                                    # （2026-11-09 Jerry：放大 2-3 倍 + 一排 + 适当缩放）
   top_h: 0.30                       # 大字顶边落在 0.30H：实测 0.44H 正压在画面主体上
   max_one_action_per_caption: true
 

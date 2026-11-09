@@ -24,6 +24,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_edl import resolve_lib                      # noqa: E402
 import lock as lockmod                                 # noqa: E402
+import lexicon                                        # noqa: E402
 import subs                                            # noqa: E402
 from render_film import load_chars                    # noqa: E402
 
@@ -98,7 +99,12 @@ GRADE = {
     # `colorchannelmixer` 那三个增益是这次加的主旋钮：原来只靠 colortemperature，
     # 一暖就把 G÷R 也压下去（0.770 → 0.696），绿红平衡对不上。
     # 改成压 B 通道（×0.785）、G 微调（×0.993）、R 微抬（×1.02），三个数同时落位。
-    "warm_high_sat": "eq=saturation=1.50:contrast=1.10:gamma=0.85:brightness=-0.086",
+    # 2026-11-09 二改（Jerry：「A-roll 整体画面调色比较失真，可能饱和度过高」）。
+    # 量出来的账：源片 S均 0.399 / p90 0.578，加老那条链后 0.707 / **p90 1.000**——
+    # 饱和度已经顶到 1.0 在削波，肉眼看到的就是「颜色糊成一片」。根因不是 saturate(1.5)
+    # 一项，是 contrast 1.10 + gamma 0.85 把亮度压下去之后**相对彩度被进一步放大**。
+    # 参考片同口径：S均 0.485 / p90 0.840 / luma 0.421；这条链落在 0.501 / 0.770 / 0.444。
+    "warm_high_sat": "eq=saturation=0.90:contrast=1.00:gamma=0.94:brightness=-0.040",
 }
 
 # HLG / PQ → 场景线性（npl=100 是把 100% 白当参考）→ hable 压到 SDR 亮度 → bt709。
@@ -448,6 +454,15 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
     tag = f"{Path(aid).stem[-14:]}_{seg['in']:.2f}-{seg['out']:.2f}".replace(".", "p")
     tag = "".join(c if c.isalnum() or c in "-_" else "_" for c in tag)
     dst = clips / f"{tag}.mp4"
+    # 片段缓存必须知道自己是在哪个 GRADE 下切的。2026-11-09 踩过：调色改了，但缓存
+    # 命中，剪出来的还是老画面；紧接着逐镜检查又按新 GRADE 重算增益，在老画面上
+    # 再压一遍——颜色被连着校了三次，越校越暗越偏（luma 0.346 → 0.316 → 仍在降），
+    # 而日志每行都说成功。
+    import hashlib
+    _want = hashlib.sha1(f"{grade}|{W}x{H}@{FPS}".encode()).hexdigest()[:10]
+    _stamp = clips / ".grade"
+    if _stamp.exists() and _stamp.read_text().strip() != _want:
+        force = True
     if force or not dst.exists() or dst.stat().st_size < 4096:
         src = lib / aid
         if not src.exists():
@@ -462,6 +477,7 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
         if use_own:
             extract_own(src, float(seg["in"]), float(seg["out"]), dst,
                         W=int(W), H=int(H), fps=int(FPS), grade=grade or "", aud=aud)
+            _stamp.write_text(_want)
         else:
             r = subprocess.run(
                 [*HF.split(), "measure", "extract", str(src),
@@ -644,6 +660,9 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         a_in = float((s.get("audio") or {}).get("in", s["in"]))
         if on:
             chars = chars_cache.get(aid) or chars_cache.setdefault(aid, load_chars(lib, aid))
+            # 锚词比对必须先过词表：卡上写「柒造」、ASR 写「7灶」，不纠就永远对不上，
+            # 于是「沿用默认时机」——卡出得比声音早，正是 Jerry 说的「抢拍」。
+            chars = lexicon.fix_items(chars, lexicon.load(lib / "_cutskills"))
             win = [(ch, st, en) for ch, st, en in chars
                    if a_in - 0.05 <= st < a_in + s["_dur_q"] + 0.05]
             txt = "".join(ch for ch, _, _ in win)
@@ -722,7 +741,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 .kw-behind {{ top:{kwb_top}%; }}
 .kw-behind span {{ font-size:{kwb_px}px; }}
 .kw span {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:{kw_px}px;
-  line-height:1.06; text-align:center; color:{kw_color};
+  line-height:1.06; text-align:center; color:{kw_color}; white-space:nowrap;
   text-shadow:0 6px 22px rgba(0,0,0,0.6); {kw_extra} }}
 .idcard {{ position:absolute; left:{idc_x}%; top:{idc_y}%; text-align:left; }}
 .idcard span {{ display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }}
@@ -837,6 +856,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     # 「脑后露出一半」：顶边压到 0.30H 附近、字再放大约 15%，让脑袋吃掉字的下半截
     kwb_top = round(float(emph.get("behind_top_h") or 0.285) * 100, 2)
     kwb_px = int(kw_px * float(emph.get("behind_scale") or 1.15))
+    fit_w = float(emph.get("fit_width") or 0.70)   # 大字单排占多宽
     entry = str(sub.get("entry") or "fade")
     # immediateRender:false 是必须的。GSAP 的 fromTo 默认立刻渲染 from 状态，
     # 于是整条时间轴在 t=0 就被设成 opacity:0；一旦浏览器的捕获路径某一段没推进
@@ -894,12 +914,12 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                 f'    <div id="idc" class="clip idcard" data-start="{c["start"]}" '
                 f'data-duration="{d}">\n{lines}\n    </div>')
         else:
-            # 按字数收字号：7 个字的卡用 4 个字的字号就会顶到画幅外，
-            # 浏览器只好折行，块儿整体往下长——实测 48.2s 那张「做涂料的人来做」
-            # 就压到手臂上了。宽度上限 0.92W，够就沿用全局字号。
+            # 大字一律单排、撑到画幅宽度的 70%（Jerry 2026-11-09：「字体还要放大 2-3 倍
+            # 能撑满屏幕宽度的 70%，但所有的大字应该控制在一排出现，要进行适当的缩放」）。
+            # 做法：先按「70% 宽 ÷ 字数」给字号，再用高度上限兜住 1–2 个字的极端情况。
+            # 老做法是「全局字号 163px，超宽才缩」，2 个字的「柒造」只占 37% 宽，显得小气。
             _n = max(1, len(c["text"]))
-            _px = min(kwb_px if c["kind"] == "behind" else kw_px,
-                      int(W * 0.92 / _n))
+            _px = min(int(round(W * fit_w / _n)), int(H * 0.34))
             card_html.append(
                 f'    <div id="kw-{i:02d}" class="clip kw'
                 f'{" kw-behind" if c["kind"] == "behind" else ""}" '
@@ -1088,11 +1108,17 @@ def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
     return 0
 
 
-def cover_fg(raw: Path, dst: Path, fgs: list[tuple[Path, float, float]], crf: int = 17) -> int:
+def cover_fg(raw: Path, dst: Path, fgs: list[tuple[Path, float, float]], crf: int = 17,
+             crop_h: int = 0) -> int:
     """浏览器渲完后把抠像层贴回去。
 
     fgs: [(webm 路径, 起始秒, 时长秒)]。用 overlay 的 enable 窗口开关，
     每个抠像层只在自己的段里出现，其余时间不参与合成。
+
+    `crop_h`：抠像层只留这么高（从顶上算）。**字幕带必须留在裁剪线以下**——
+    2026-11-09 Jerry 指出「字幕不应该应用抠像放在人物后面」：抠像层是在浏览器渲完之后
+    整帧贴回去的，它连字幕一起盖住了。抠像本来只为「大字压在脑袋后面」这一件事存在，
+    字幕带以下的人体本来就是同一帧原画面，裁掉零损失。
     """
     if not fgs:
         shutil.move(str(raw), str(dst))
@@ -1111,7 +1137,8 @@ def cover_fg(raw: Path, dst: Path, fgs: list[tuple[Path, float, float]], crf: in
         # 抠像层只有这一段那么长（实测 8.58s），到第 28 秒 overlay 去读它时早就
         # EOF 了，eof_action=pass 就把这一格直接放过——成片看着毫无变化（实测
         # 与底片差异 0.17%，全是编码噪声），而日志照样打印「抠像层贴回 1 段」。
-        parts.append(f"[{i}:v]setpts=PTS+{t0:.3f}/TB[f{i}]")
+        _crop = f"crop=iw:{crop_h}:0:0," if crop_h else ""
+        parts.append(f"[{i}:v]{_crop}setpts=PTS+{t0:.3f}/TB[f{i}]")
         parts.append(f"{prev}[f{i}]overlay=0:0:eof_action=pass:"
                      f"enable='between(t,{t0:.3f},{t0 + dur:.3f})'{lab}")
         prev = lab
@@ -1316,7 +1343,10 @@ def main():
     active = sorted(carriers, key=lambda s: s["_start"])
     # 2026-11-09 换实现：按呼吸组切、去标点、单行、数字与否定词变色（scripts/subs.py）。
     # render_film.build_cues 是保留路径，仍按字数软断——主链路不再用它。
-    caps = subs.build(active, by_id, chars_cache, lib, load_chars)
+    # 重点词变色：Jerry 2026-11-09 取消（「字幕的重点词变色还是取消，不应该只作用于否定词和数字」）。
+    # 样式里 subtitle.colorize_emphasis 控制；关掉之后一条字幕里一个字都不变色。
+    colorize = bool(sub.get("colorize_emphasis", True))
+    caps = subs.build(active, by_id, chars_cache, lib, load_chars, colorize=colorize)
     caps = [c for c in caps if c["start"] < total]
     for c in caps:
         c["end"] = min(round(c["end"], 3), total)
@@ -1359,6 +1389,7 @@ def main():
         "speech_chars": speech_chars,
         "avg_chars": round(speech_chars / len(caps), 2) if caps else 0,
         "chars_per_s": round(speech_chars / speech_s, 2) if speech_s else 0,
+        "colorize": colorize,
         "engine": "hyperframes",
     }, ensure_ascii=False, indent=1), encoding="utf-8")
     (proj / "out" / "cards.json").write_text(json.dumps(
@@ -1367,7 +1398,13 @@ def main():
 
     # 1b) 逐镜校对亮度与白平衡（整片一个平均值不够——口播段和工地段差一倍）
     if a.shot_match > 0 and videos:
-        stamp = hf / "clips" / f".shot-match-{a.shot_match:.2f}"
+        # 戳里带上 GRADE 的指纹：调色一改，上一轮的逐镜增益就作废了。
+        # 只按 strength 命名会一直复用旧增益（量的是旧画面、套在新画面上）。
+        import hashlib
+        import shot_match as _sm
+        _g = (GRADE.get(str(style.get("grade") or "")) or "") + repr(_sm.GLOBAL_GAIN)
+        stamp = hf / "clips" / (f".shot-match-{a.shot_match:.2f}-"
+                                f"{hashlib.sha1(_g.encode()).hexdigest()[:8]}")
         if not stamp.exists() or a.force_extract:
             r = subprocess.run([sys.executable, str(Path(__file__).with_name("shot_match.py")),
                                 "--clips", str(hf / "clips"),
@@ -1461,7 +1498,11 @@ def main():
         fgs = [(hf / fg_by_seg[v["n"]], v["start"], v["dur"])
                for v in videos if v["n"] in fg_by_seg]
         fgd = proj / "out" / "_hf_fg.mp4"
-        if cover_fg(raw, fgd, fgs) == 0:
+        # 裁剪线压在字幕带顶边之上：字幕中心 0.674H、字号 80px，顶边约 0.65H。
+        _ctr = float(sub.get("center_y_px") or H * 0.674)
+        _sz = float(sub.get("size_px") or 80)
+        _crop_h = max(2, int(round(_ctr - _sz * 0.95)) // 2 * 2)
+        if cover_fg(raw, fgd, fgs, crop_h=_crop_h) == 0:
             raw = fgd
         else:
             print("  ！抠像层没贴上，成片不带大字在人物背后", file=sys.stderr)

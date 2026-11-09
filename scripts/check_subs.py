@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 PUNCT = "，。！？、；：…—～,.!?;:"
 MAX_CHARS = 14
-WIDE_TOL = 15             # 允许一条 15 字：没有停顿也没有接缝时，宁可多一个字也不切词
+WIDE_TOL = 12             # 与 subs.MAX_CHARS 对齐：80px × 12 字 = 960 = 89%W，再长就出画
 # 判的是「中位数落在这个带里」：10–14 是拆长句的目标，短句本来就是 6–9 字。
 # 真卡死的是上限（>15 一刀不放过）和「一刀两断」（断词）。
 WIDTH_BAND = (8, 14)
@@ -43,16 +43,19 @@ def main() -> int:
     a = ap.parse_args()
 
     proj = Path(a.project).expanduser().resolve()
-    subs = load(proj / "out" / "subs.json")
-    if not subs:
+    d = load(proj / "out" / "subs.json")
+    if not d:
         raise SystemExit("还没有 out/subs.json（先跑 render_hf.py）")
-    cues = subs.get("cues") or []
+    cues = d.get("cues") or []
 
     punct = [c for c in cues if any(ch in PUNCT for ch in str(c.get("text") or ""))]
     wide = [c for c in cues if len(str(c.get("text") or "")) > WIDE_TOL]
     widths = sorted(len(str(c.get("text") or "")) for c in cues)
     med = widths[len(widths) // 2] if widths else 0
     em = sum(1 for c in cues if "<span class" in str(c.get("html") or ""))
+    # 变色是可以关的（Jerry 2026-11-09：「字幕的重点词变色还是取消」）。关了就要
+    # 一条都没有——不能因为「规则没染上」也算过。
+    colorize = bool(d.get("colorize", True))
     # 断词要按**词边界**判，不能按「断在哪儿」判。
     # 原来只盯 break_after == "width"，于是 ASR 句子边界落在词中间那种情况一路绿灯：
     # 「墙面或者地面或者任何表」+「面的让他成为成品就」把「表面」劈成两半，
@@ -99,7 +102,8 @@ def main() -> int:
         "width_median": {"value": med, "pass": WIDTH_BAND[0] <= med <= WIDTH_BAND[1],
                          "need": WIDTH_BAND},
         "word_split": {"value": len(tight), "pass": not tight, "need": 0},
-        "emphasis_cues": {"value": em, "pass": em > 0, "need": ">0"},
+        "emphasis_cues": ({"value": em, "pass": em > 0, "need": ">0"} if colorize
+                          else {"value": em, "pass": em == 0, "need": "=0（已取消变色）"}),
         "fade_s": {"value": fade, "pass": fade <= FADE_MAX, "need": f"<={FADE_MAX}"},
     }
     ok = all(v["pass"] for v in checks.values())
@@ -119,7 +123,9 @@ def main() -> int:
     print(f"  标点 0 处{'✅' if not punct else '✗ ' + str(len(punct))}")
     print(f"  超宽（>{MAX_CHARS} 字）{'✅' if not wide else '✗ ' + str(len(wide))}")
     print(f"  断词 {'✅' if not tight else '✗ ' + str(len(tight))}（贴着切的，像同一口气被劈开）")
-    print(f"  强调色 {em} 条{'✅' if em else '✗'} · 淡入 {fade:.2f}s{'✅' if fade <= FADE_MAX else '✗'}")
+    _ok = (em > 0) if colorize else (em == 0)
+    print(f"  强调色 {em} 条{'✅' if _ok else '✗'}{'' if colorize else '（已取消）'}"
+          f" · 淡入 {fade:.2f}s{'✅' if fade <= FADE_MAX else '✗'}")
     for t in [c.get("text") for c in punct[:3]]:
         print(f"  · 带标点：{t}")
     for a_, b_, ms in [(x["a"], x["b"], x["gap_ms"]) for x in tight[:3]]:

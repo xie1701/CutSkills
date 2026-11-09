@@ -23,13 +23,17 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lexicon  # noqa: E402
 from check_edl import tokens  # noqa: E402
 from timeline import resolve_lib  # noqa: E402
 
 
-def window_text(chars, starts, ends, s_in: float, s_out: float) -> str:
-    return "".join(c for c, st in zip(chars, starts)
-                   if s_in - 0.02 <= st < s_out - 0.02)
+def window_text(chars, starts, ends, s_in: float, s_out: float, lex=None) -> str:
+    """窗口内的字。过一下词表：evidence 是字幕、锚词、看板口播原文的同一个源头，
+    不纠错就会把 ASR 的「7灶」一路带到卡片的锚词比对里（对不上就「沿用默认时机」）。"""
+    txt = "".join(c for c, st in zip(chars, starts)
+                  if s_in - 0.02 <= st < s_out - 0.02)
+    return lexicon.fix_text(txt, lex) if lex else txt
 
 
 def main() -> int:
@@ -43,6 +47,7 @@ def main() -> int:
     tl_p = proj / "timeline.json"
     tl = json.loads(tl_p.read_text())
 
+    lex = lexicon.load(Path(lib) / "_cutskills")
     cache: dict[str, tuple] = {}
     changed = 0
     for el in tl["elements"]:
@@ -54,7 +59,7 @@ def main() -> int:
         s_out = float(aud.get("out", el.get("out") or 0))
         if aid not in cache:
             cache[aid] = tokens(lib, aid)
-        txt = window_text(*cache[aid], s_in, s_out)
+        txt = window_text(*cache[aid], s_in, s_out, lex)
         old = el.get("evidence") or ""
         if txt != old:
             changed += 1

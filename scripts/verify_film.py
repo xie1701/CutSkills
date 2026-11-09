@@ -111,7 +111,11 @@ def main() -> int:
     # 因为同一族要跨两个方向用。验收这一步却需要**一个**确定画幅。
     # 所以碰到这种模板，画幅/帧率一律以成片自己的流信息为准，模板在这两项上不发言——
     # 硬塞一个 width 进去，等于让模板替片子决定它该是什么尺寸。
-    if "subtitle" in style and "stem" not in (style.get("subtitle") or {}):
+    # 只有**包装模板**才需要翻译：它们写的是 `canvas.aspect`（一族跨两个方向用）。
+    # 风格包（talking-head-v1）本来就是最终参数表，再翻译一遍会把 size_px 80 变成 96——
+    # 2026-11-09 就是这一步让验收算出「96px × 12 字 = 1152px 出画」，
+    # 而渲染端老老实实按 80px 排，字幕其实是好的。两边读两套数，谁都不知道对方的存在。
+    if "width" not in (style.get("canvas") or {}):
         # 走渲染时用的同一个翻译层，别让验收去读模板的原始字段：
         # 两边各读一套字段，迟早会出现"渲的时候 0.098H、验的时候 0.070H"这种对不上的事。
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -426,6 +430,15 @@ def main() -> int:
         mx = int(style["subtitle"].get("max_chars_per_line") or 16)
         add("单条最长", f"{longest} 字", "green" if longest <= mx else "yellow",
             f"上限 {mx}（超了断句，别缩字号）")
+        # 字数合规不等于塞得下：字幕宽度必须按像素算一次。
+        # 80px × 14 字 = 1120 > 1080，两头真的被切掉了，而按字数的判据全绿。
+        _sz = float(style["subtitle"].get("size_px") or 0)
+        if _sz:
+            widest = max(len(c["text"]) for c in cues) * _sz
+            add("字幕最宽（像素）", f"{widest / W * 100:.0f}%W",
+                "green" if widest <= 0.92 * W else "red",
+                f"上限 92%W（{_sz:.0f}px × {longest} 字 = {widest:.0f}px / {W}px）"
+                + ("" if widest <= 0.92 * W else "——超了会被画幅切掉两头"))
         gaps = [(cues[i + 1]["start"] - cues[i]["end"]) for i in range(len(cues) - 1)]
         dead = [g for g in gaps if g > 3.0]
         add("最长无字幕空档", f"{max(gaps):.1f}s" if gaps else "—",
@@ -461,6 +474,22 @@ def main() -> int:
             "每条都出自本段原声" if not strays else
             "这些是已经被剪掉、字幕还留着的句子：" +
             " / ".join(f"「{t}」" for t, _ in strays[:3]))
+        # 词表：品牌名/术语写错是最容易被观众一眼抓住的错误（「7灶」）。
+        # 判据是字面扫描，不靠模型：词表里每一条「错写法」都不许出现在字幕和 evidence 里。
+        try:
+            import lexicon
+            from make_edl import resolve_lib
+            _lex = lexicon.load(resolve_lib(proj) / "_cutskills")
+            _els = (edl.get("elements") or [])
+            _bad = lexicon.violations([c["text"] for c in cues] +
+                                      [e.get("evidence") or "" for e in _els], _lex)
+        except Exception:
+            _bad = []
+        add("过词表（品牌名/术语）", f"{len(_bad)} 处",
+            "green" if not _bad else "red",
+            "字幕与 evidence 里没有词表认定的错写法" if not _bad else
+            "ASR 写错的词漏到画面上了：" +
+            " / ".join(f"「{b}」→「{_lex['terms'][b]}」" for b, _ in _bad[:3]))
     else:
         add("字幕", "0 条", "red", "没有字幕")
 
