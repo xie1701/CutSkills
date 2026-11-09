@@ -10,30 +10,75 @@ metadata:
 
 # CutSkills
 
-**一个素材库，一个编导体。** 素材进来一次、索引一次、反复取用；编导体拿意图和索引产出一条能发的成片。
+**一个素材库，一条产线。** 用户发一句话需求 + 一个素材文件夹，产出一条能发的成片；
+库里没有的画面由代码造，风格在开剪之前就选定。先只做单人口播/旁白，其余片型留接口。
 
-四段，按「人要不要介入」切，不按技术步骤切：
+四层，按「什么时候可能被推翻」切，不按技术步骤切：
 
-| 段 | 做什么 | 人 |
+| 层 | 做什么 | 产出 | 谁可能推翻它 |
+|---|---|---|---|
+| **1 入口** | 对话即需求：给谁看 / 他现在信什么 / 要他怎么变 / 多长 / 什么风格 | `brief.json` | 用户一句话 |
+| **2 理解** | 需求 × 素材：三个 3 秒钩子候选、可用 / 不可用 / 缺口三栏 | `hooks.json`、`gaps.md` | 看完钩子 |
+| **3 构形** | 结构 → **元素时间轴**（真实素材 / 代码生成 / 图片 / 纯文字 / 空，混排） | `timeline.json` | 看纸面稿 |
+| **4 成型** | 渲 × 验 × 良率卡 | `out/film-hf.mp4`、`yield-card.md` | 看片 |
+
+旧的四段（A 索引 / B 决定 / C 成片 / D 验收）**没有废**，它变成了第 4 层内部的分工——
+索引层和验收层就是当年拿事故换来的那 2,700 行 + 19 项像素断言，继续用，不重写。
+被换掉的是「中间那层」：v2 的 `edl.json` 是一条**镜头列表**，它默认片子是「从库里挑出来的」；
+一旦承认素材不足要靠代码造，这个默认就不成立。
+
+## 契约：真值源与视图
+
+| 文件 | 是什么 | 谁来写 |
 |---|---|---|
-| **A 索引** | 素材 → `index.json`（事实、画质、词级时间戳、分级取用） | 不用在场 |
-| **B 决定** | 意图 + 索引 → 纸面剪辑 → `edl.json` | **确认 ①：读文字稿** |
-| **C 成片** | EDL → 包装、动效、混音、封面 | — |
-| **D 验收** | 硬指标 + 切点自检 + 片段级返工 | 看成片 |
+| `index.json` | 素材事实（写一次，增量，可全量重建） | A 段脚本 |
+| `brief.json` | 需求四格（唯一真值源，缺格必有 `assumed[]`） | `brief.py` |
+| `timeline.json` | **元素时间轴（v4）**：第几秒到第几秒画面上是什么 | `timeline.py` |
+| `styles/*.yaml` | 风格包参数（跨片复用，只存参数不存 CSS） | 人 |
 
-A 和 B 分开的理由：索引算一次能用很多次，剪辑每次都重跑。混在一起，每剪一条片都要重扫一遍素材。
+`paper-edit.md`、`gaps.md`、`verify-report.md`、`yield-card.md`、`decisions.md` 全是**视图**，
+从上面几个生成。视图能被手改，手改完和真值源不一致，整条流水线就开始撒谎——视图永远可以删掉重建。
 
-> **当前状态：A 和 B 已实现并在真实素材上跑通，C/D 尚未实现。** 用户要求出片时，先完成 A→B，产出 EDL 和纸面稿，然后明确告诉用户「渲染还没接」，不要假装出了片。
+Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](references/timeline-schema.md) · [edl-schema.md](references/edl-schema.md)（v2，兼容）
 
-## 契约：三个真值源
+## v4 主链路：一条命令一层
 
-- `index.json` — 素材事实（写一次，增量，可全量重建）
-- `edl.json` — 剪辑决定（每片一份，可回滚）
-- `style.yaml` — 风格包参数（跨片复用）
+```bash
+source scripts/runtime.sh env                       # 依赖全在这，任务第一件事
 
-`paper-edit.md`、`pickup.md`、`takes_packed.md`、`verify-report.md`、`decisions.md` 全是**视图**，从上面三个生成。视图能被手改，手改完和真值源不一致，整条流水线就开始撒谎——所以视图永远可以删掉重建。
+# 1 入口：四格 + 片长三档（30 秒系列 / 60–90 秒口播 / 自定）+ 风格挑一个
+python3 scripts/brief.py --project <项目>            # 交互；--set 可非交互，--show 看现状
 
-Schema 见 [references/index-schema.md](references/index-schema.md) 和 [references/edl-schema.md](references/edl-schema.md)。
+# 2 理解：先出 3 秒钩子的候选，再谈整条
+python3 scripts/skeleton.py --video <参考片> --out <项目>/skeleton.json   # 节拍骨架
+python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候选 → hooks/，逐个 3 秒渲出来
+# 怎么测、几个人看算过：[references/hook-test.md](references/hook-test.md)
+
+# 3 构形：意图 → 元素时间轴（缺口按兜底链自动补 gen / 章节卡）
+python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
+python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由
+
+# 4 成型：渲 → 验 → 良率卡
+python3 scripts/render_hf.py --project <项目> --extractor own --quality looks
+python3 scripts/verify_film.py --project <项目>
+python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
+
+# 横向：加任何新能力之前先跑回归，别把上周的片弄坏
+python3 scripts/golden.py
+```
+
+### 第 3 层的关键：一格可以是「造出来的」
+
+`timeline.json` 的每一格带 `kind`（`clip` / `image` / `gen` / `silence`）和 `track`（`video` / `overlay`）。
+`gen` 是代码画的整屏（7 个模板：keyword / compare / number / steps / quote / chapter / chart），
+参数化、字数有上限、时长有下限——低于下限宁可不放。
+
+`track: overlay` 是**盖在口播上**的造法：不占时间、不换画面、声音不断。
+为什么需要这一档：整屏滑屏要吃掉 4 秒旁白，而口播片里没有 4 秒是空的。
+实测过这件事——把对比屏插成独立一格，验收立刻报「最长无字幕空档 4.3s」。
+
+兜底链**写死，不许跨级**：索引里的 clip → 索引里的照片 → 代码生成 → 刻意的空 → 报缺口给用户补拍。
+「硬塞一张不相关的图」不是兜底，是骗人。
 
 ---
 
@@ -206,7 +251,7 @@ scripts/runtime.sh run <命令...>    # 带环境跑一条命令
 1. **`npx` 会按版本各下一套**。装成固定依赖（`deps.json` 里 `hyperframes: latest` 解析后记进 manifest），之后一律用 `runtime.sh run hyperframes ...`，不走 npx。
 2. **pip 在 SOCKS 代理下会报 `Missing dependencies for SOCKS support`**。这台机器就是。所以 python 小依赖优先随包 `scripts/vendor/`（`pypinyin` 已带），runtime 的 `py/` 只是给额外包的。
 
-## 阶段 B · 决定
+## 阶段 B · 决定（v2 路线，仍可用；v4 主链路见上）
 
 ```bash
 python3 <SKILL_DIR>/scripts/init_project.py --library "<素材库>" --intent "<用户原话>" --slug qizao-01 \
@@ -288,7 +333,7 @@ python3 <SKILL_DIR>/scripts/ab_open.py --project <项目目录>
 
 详细的 B 段工作方法（怎么选段、留白多少、什么算好理由）见 [references/stage-b-playbook.md](references/stage-b-playbook.md)。
 
-## 阶段 C · 成片
+## 阶段 C · 成片（v2/v4 共用的渲染细节）
 
 **主链路是 HTML 渲染（HyperFrames），不是 ffmpeg 合成。**
 

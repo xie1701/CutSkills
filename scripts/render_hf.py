@@ -172,6 +172,161 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
         raise SystemExit(f"切片失败：{src.name} {t0}-{t1}\n{(r.stderr or '')[-900:]}")
 
 
+# ------------------------------------------------------------------ 时间轴
+
+def load_elements(proj: Path) -> tuple[list[dict], str]:
+    """读时间轴。**优先 timeline.json（v4）**，没有就回落到 edl.json（v2）。
+
+    v2 是「镜头列表」，表达不了代码生成的格子和刻意的空。v4 把每一格叫 element，
+    带 kind（clip / image / gen / silence）——渲的时候就不再假设「一定有个视频」。
+    """
+    tlp = proj / "timeline.json"
+    if tlp.exists():
+        tl = json.loads(tlp.read_text())
+        els = tl.get("elements") or []
+        if not els:
+            raise SystemExit(f"{tlp} 里一个元素都没有")
+        return els, "timeline.json"
+    edl = json.loads((proj / "edl.json").read_text())
+    els = []
+    for s in edl["segments"]:
+        el = {k: v for k, v in s.items() if k != "n"}
+        el.update({"n": s["n"], "kind": "clip", "track": "video"})
+        els.append(el)
+    return els, "edl.json"
+
+
+def el_dur(el: dict) -> float:
+    if el.get("kind") == "clip":
+        return round(float(el["out"]) - float(el["in"]), 3)
+    return round(float(el.get("dur") or 0.0), 3)
+
+
+# ------------------------------------------------------------------ 生成元素（代码画的格子）
+
+GEN_CSS = """
+.gen { position:absolute; inset:0; display:flex; flex-direction:column;
+       justify-content:center; align-items:center; background:#14110f; color:#fff;
+       padding:0 88px; text-align:center; }
+.gen .big { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.04;
+            letter-spacing:0.01em; }
+.gen .sm { font-family:"SC-Sub",sans-serif; font-weight:600; line-height:1.4;
+           color:rgba(255,255,255,0.82); }
+.gen .cols { display:flex; width:100%; gap:40px; align-items:stretch; }
+.gen .col { flex:1; display:flex; flex-direction:column; justify-content:center;
+            gap:18px; padding:48px 24px; border-radius:18px; background:rgba(255,255,255,0.06); }
+.gen .col.hi { background:rgba(246,235,52,0.14); outline:2px solid rgba(246,235,52,0.55); }
+.gen .row { display:flex; align-items:baseline; gap:26px; width:100%; }
+.gen .bar { height:38px; border-radius:6px; background:#F6EB34; }
+.gen .chn { font-family:"SC-Big",sans-serif; font-weight:900; color:#F6EB34;
+            opacity:0.92; line-height:1; }
+.gen .num { font-family:"SC-Big",sans-serif; font-weight:900; color:#F6EB34; line-height:1; }
+.gen blockquote { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.3; }
+.gen cite { font-family:"SC-Sub",sans-serif; font-style:normal; opacity:0.7; }
+.gen ol { list-style:none; width:100%; display:flex; flex-direction:column; gap:26px; }
+.gen ol li { display:flex; gap:26px; align-items:baseline; }
+.gen ol li b { font-family:"SC-Big",sans-serif; color:#F6EB34; }
+.gen-ov { inset:auto 56px auto 56px; top:50%; transform:translateY(-50%);
+          background:rgba(14,12,10,0.88); border-radius:26px; padding:64px 48px;
+          box-shadow:0 24px 60px rgba(0,0,0,0.55); backdrop-filter:blur(2px); }
+"""
+
+
+def gen_html(el: dict, H: int, total: float = 0.0) -> str:
+    """一张代码画出来的整屏。**只吃参数，不吃素材**——库里没有的画面靠它补。"""
+    tpl = el.get("template")
+    p = el.get("props") or {}
+    ov = el.get("track") == "overlay"
+    start = round(float(el.get("at") if ov else (el.get("_start") or 0)), 3)
+    dur = round(float(el.get("dur") or 2), 3)
+    cls = "gen gen-ov" if ov else "clip gen"
+    head = (f'<div class="{cls} gen-{tpl}" data-start="{start}" data-duration="{dur}">')
+    body = ""
+    if tpl == "keyword":
+        body = (f'<div class="big" style="font-size:{int(H * 0.105)}px">{esc(p.get("text"))}</div>'
+                + (f'<div class="sm" style="font-size:{int(H * 0.026)}px;margin-top:26px">'
+                   f'{esc(p.get("sub"))}</div>' if p.get("sub") else ""))
+    elif tpl == "compare":
+        def col(side, hi):
+            s = p.get(side) or {}
+            return (f'<div class="col{" hi" if hi else ""}">'
+                    f'<div class="sm" style="font-size:{int(H * 0.022)}px">{esc(s.get("title"))}</div>'
+                    f'<div class="big" style="font-size:{int(H * 0.052)}px">{esc(s.get("value"))}</div></div>')
+        body = (f'<div class="cols">{col("left", False)}{col("right", True)}</div>'
+                + (f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-top:44px">'
+                   f'{esc(p.get("note"))}</div>' if p.get("note") else ""))
+    elif tpl == "number":
+        body = (f'<div class="num" style="font-size:{int(H * 0.16)}px">{esc(p.get("value"))}'
+                f'<span style="font-size:{int(H * 0.05)}px">{esc(p.get("unit") or "")}</span></div>'
+                f'<div class="sm" style="font-size:{int(H * 0.028)}px;margin-top:30px">{esc(p.get("label"))}</div>')
+    elif tpl == "steps":
+        items = p.get("items") or []
+        lis = "".join(f'<li><b style="font-size:{int(H * 0.03)}px">{i:02d}</b>'
+                       f'<span style="font-size:{int(H * 0.034)}px">{esc(t)}</span></li>'
+                       for i, t in enumerate(items, 1))
+        body = ((f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-bottom:44px">'
+                 f'{esc(p.get("title"))}</div>' if p.get("title") else "") + f'<ol>{lis}</ol>')
+    elif tpl == "quote":
+        body = (f'<blockquote style="font-size:{int(H * 0.042)}px">“{esc(p.get("text"))}”</blockquote>'
+                + (f'<cite style="font-size:{int(H * 0.024)}px;margin-top:40px">—— {esc(p.get("who"))}</cite>'
+                   if p.get("who") else ""))
+    elif tpl == "chapter":
+        body = (f'<div class="chn" style="font-size:{int(H * 0.19)}px">{esc(p.get("n"))}</div>'
+                f'<div class="big" style="font-size:{int(H * 0.042)}px;margin-top:18px">{esc(p.get("title"))}</div>')
+    elif tpl == "chart":
+        bars = p.get("bars") or []
+        top = max([float(b.get("value") or 0) for b in bars] + [1.0])
+        rows = "".join(
+            f'<div class="row"><span class="sm" style="font-size:{int(H * 0.022)}px;'
+            f'min-width:{int(H * 0.11)}px;text-align:left">{esc(b.get("label"))}</span>'
+            f'<div class="bar" style="width:{max(0.03, float(b.get("value") or 0) / top) * 62:.1f}%"></div>'
+            f'<span class="sm" style="font-size:{int(H * 0.022)}px">{esc(b.get("value"))}</span></div>'
+            for b in bars)
+        body = ((f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-bottom:36px">'
+                 f'{esc(p.get("title"))}</div>' if p.get("title") else "")
+                + f'<div style="width:100%;display:flex;flex-direction:column;gap:26px">{rows}</div>')
+    return head + body + "</div>"
+
+
+def get_photo(lib: Path, proj: Path, el: dict, *, W: int, H: int, FPS: int,
+              grade: str = "") -> dict:
+    """一张照片变成一段静帧。HEIC 先转 JPEG——这台 ffmpeg 不认 HEIC。"""
+    clips = proj / "hf" / "clips"
+    clips.mkdir(parents=True, exist_ok=True)
+    aid = el["asset"]
+    dur = max(0.4, float(el.get("dur") or 3.0))
+    tag = "photo_" + "".join(c if c.isalnum() else "_" for c in Path(aid).stem)[-14:]
+    dst = clips / f"{tag}_{str(dur).replace('.', 'p')}.mp4"
+    if not dst.exists() or dst.stat().st_size < 4096:
+        src = lib / aid
+        if not src.exists():
+            raise SystemExit(f"素材不存在：{src}")
+        img = src
+        if src.suffix.lower() in (".heic", ".heif"):
+            jpg = clips / f"{tag}.jpg"
+            if not jpg.exists():
+                r = subprocess.run(["sips", "-s", "format", "jpeg", str(src), "--out", str(jpg)],
+                                   capture_output=True, text=True)
+                if r.returncode != 0 or not jpg.exists():
+                    raise SystemExit(f"HEIC 转码失败：{src.name}\n{(r.stderr or '')[-400:]}")
+            img = jpg
+        vf = [f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos",
+              f"crop={W}:{H}", "format=yuv420p"]
+        if grade:
+            vf.append(grade)
+        vf += [f"fps={FPS}", "setsar=1"]
+        cmd = [ffmpeg_bin(), "-y", "-v", "error", "-loop", "1", "-i", str(img),
+               "-t", f"{dur:.3f}", "-vf", ",".join(vf), "-an",
+               "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p",
+               "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+               str(dst)]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0 or not dst.exists():
+            raise SystemExit(f"照片转片段失败：{src.name}\n{(r.stderr or '')[-600:]}")
+    info = probe(dst)
+    return {"path": dst, "dur": round(info["dur"], 3), "w": info["w"], "h": info["h"]}
+
+
 def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
              extractor: str = "auto", W: int = 1080, H: int = 1920,
              FPS: int = 30, grade: str = "") -> dict:
@@ -338,6 +493,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   text-shadow:0 6px 22px rgba(0,0,0,0.6); {kw_extra} }}
 .idcard {{ position:absolute; left:{idc_x}%; top:{idc_y}%; text-align:left; }}
 .idcard span {{ display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }}
+{gen_css}
 </style>
 </head>
 <body>
@@ -345,6 +501,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
        data-width="{W}" data-height="{H}" data-fps="{FPS}" data-duration="{total}">
 {videos}
     <div id="grade"></div>
+{gens}
 {cards}
 {fg}
     <div id="caplayer">
@@ -376,6 +533,17 @@ document.querySelectorAll(".idcard > span").forEach((el, i) => {{
     {{ x: 0, opacity: 1, duration: 0.42, ease: "power3.out",
        immediateRender: false }}, 0.42 + i * 0.08);
 }});
+// 代码生成的整屏：淡入 + 上移，撤场只降透明。不许有布局动画——
+// 整屏的文本量比字幕大得多，一缩放就糊。
+document.querySelectorAll(".gen").forEach((c) => {{
+  const t = parseFloat(c.dataset.start);
+  const d = parseFloat(c.dataset.duration);
+  tl.fromTo(c, {{ opacity: 0, y: 24 }},
+    {{ opacity: 1, y: 0, duration: 0.32, ease: "power2.out", immediateRender: false }}, t);
+  if (d > 0.8) {{
+    tl.to(c, {{ opacity: 0, duration: 0.2, ease: "power1.in" }}, t + d - 0.2);
+  }}
+}});
 window.__timelines["main"] = tl;
 tl.seek(0);
 </script>
@@ -394,7 +562,7 @@ def esc(t: str) -> str:
 
 
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
-               fg_by_seg=None, fg_mode="browser"):
+               fg_by_seg=None, fg_mode="browser", gens=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
     cap_px = int(sub.get("size_px") or 72)
@@ -426,7 +594,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
 
     v_html = "\n".join(
-        f'    <video id="v{i}" class="clip" src="{v["src"]}" data-start="{v["start"]}" '
+        f'    <video id="v{v["n"]}" class="clip" src="{v["src"]}" data-start="{v["start"]}" '
         f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="0" '
         f'playsinline data-has-audio="true"></video>'
         for i, v in enumerate(videos, 1))
@@ -475,6 +643,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                   if emph.get("gradient") else ""),
         idc_x=idc_x, idc_y=idc_y,
         videos=v_html, caps=c_html, cards="\n".join(card_html), fg=fg_html,
+        gens="\n".join(gens or []), gen_css=GEN_CSS,
         cap_entry=entry, cap_tween=tween)
 
 
@@ -583,9 +752,11 @@ def main():
 
     proj = Path(a.project).expanduser().resolve()
     lib = resolve_lib(proj, a.library)
-    edl = json.loads((proj / "edl.json").read_text())
+    elements, tl_src = load_elements(proj)
 
-    name = a.style or edl.get("style_pack") or "talking-head-v1"
+    name = a.style or json.loads((proj / ("timeline.json" if tl_src == "timeline.json"
+                                           else "edl.json")).read_text()).get("style_pack") \
+        or "talking-head-v1"
     style_path = SKILL / "styles" / f"{name}.yaml"
     if not style_path.exists():
         raise SystemExit(f"样式包不存在：{style_path}")
@@ -609,29 +780,53 @@ def main():
             raise SystemExit(f"找不到字体文件：{nm}（样式包 styles/{name}.yaml）")
         fonts[key] = f
 
-    segs = edl["segments"][:a.segments] if a.segments else edl["segments"]
+    segs = elements[:a.segments] if a.segments else elements
 
-    # 1) 切段（带缓存）
+    # 1) 逐格造画面（带缓存）。**只有 clip / image 才切素材**：gen 是代码画的，
+    # silence 是什么都不给（黑底），它们只占时间。v4 之前这里默认每一格都有视频。
     hf = proj / "hf"
     (hf / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
-    videos, t, n_fail = [], 0.0, 0
-    for i, s in enumerate(segs, 1):
-        try:
-            cl = get_clip(lib, proj, s, force=a.force_extract, extractor=a.extractor,
-                          W=W, H=H, FPS=FPS, grade=GRADE.get(str(style.get("grade") or ""), ""))
-        except SystemExit as e:
-            print(f"  ！段 {s.get('n', i)} 切不出来：{e}", file=sys.stderr)
+    videos, gens, clips_like, t, n_fail = [], [], [], 0.0, 0
+    gd = GRADE.get(str(style.get("grade") or ""), "")
+    for el in segs:
+        kind = el.get("kind") or "clip"
+        dur = el_dur(el)
+        if dur <= 0:
+            print(f"  ！格 {el.get('n')} 时长 {dur}，跳过", file=sys.stderr)
             n_fail += 1
             continue
-        videos.append({"src": f"clips/{cl['path'].name}", "start": round(t, 3),
-                       "dur": cl["dur"]})
-        s["_start"] = round(t, 3)
-        s["_dur"] = round(s["out"] - s["in"], 3)
-        s["_dur_q"] = cl["dur"]                    # 以真正播出来的长度为准
-        t = round(t + cl["dur"], 3)
+        if not (kind == "gen" and (el.get("track") or "video") == "overlay"):
+            el["_start"] = round(t, 3)
+        if kind in ("clip", "image"):
+            try:
+                if kind == "image":
+                    cl = get_photo(lib, proj, el, W=W, H=H, FPS=FPS, grade=gd)
+                else:
+                    cl = get_clip(lib, proj, el, force=a.force_extract, extractor=a.extractor,
+                                  W=W, H=H, FPS=FPS, grade=gd)
+            except SystemExit as e:
+                print(f"  ！格 {el.get('n')} 造不出来：{e}", file=sys.stderr)
+                n_fail += 1
+                continue
+            videos.append({"n": el["n"], "src": f"clips/{cl['path'].name}",
+                           "start": round(t, 3), "dur": cl["dur"]})
+            el["_dur_q"] = cl["dur"]
+            clips_like.append(el)
+            t = round(t + cl["dur"], 3)
+        elif kind == "gen":
+            gens.append(gen_html(el, H))
+            if (el.get("track") or "video") == "overlay":
+                el["_start"] = round(float(el.get("at") or 0.0), 3)
+                el.pop("_pads", None)
+            else:
+                t = round(t + dur, 3)
+        elif kind == "silence":
+            t = round(t + dur, 3)
+        else:
+            raise SystemExit(f"格 {el.get('n')} 的 kind「{kind}」不认识（clip/image/gen/silence）")
     total = round(t, 3)
-    if not videos:
-        raise SystemExit("一段都没切出来")
+    if not videos and not gens:
+        raise SystemExit("一格画面都没造出来")
 
     index = json.loads((lib / "_cutskills" / "index.json").read_text())
     by_id = {x["id"]: x for x in index["assets"]}
@@ -643,7 +838,7 @@ def main():
         soft_c, hard_c = int(sub["chars_soft"]), int(sub["max_chars_per_line"])
     else:
         soft_c, hard_c = 6, 9
-    active = [s for s in segs if s.get("_start") is not None]
+    active = [s for s in clips_like if s.get("_start") is not None]
     caps = build_cues(active, by_id, chars_cache, lib, hard_c, soft_c)
     caps = [c for c in caps if c["start"] < total]
     for c in caps:
@@ -658,7 +853,7 @@ def main():
         want = {int(s_["n"]): s_ for s_ in active
                 if str((s_.get("card") or {}).get("kind") or "") in ("behind", "cutout")}
         for n_, s_ in want.items():
-            cl = next((v for i, v in enumerate(videos, 1) if i == n_), None)
+            cl = next((v for v in videos if v["n"] == n_), None)
             if not cl:
                 continue
             if a.fg_layer == "none":
@@ -717,18 +912,23 @@ def main():
         shutil.copy2(gsap_src, gsap_dst)
 
     # 3) 写 HTML
-    html_txt = build_html(slug=edl.get("slug") or proj.name, W=W, H=H, FPS=FPS,
+    html_txt = build_html(slug=proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
-                          fg_mode=a.fg_layer)
+                          fg_mode=a.fg_layer, gens=gens)
     (hf / "index.html").write_text(html_txt)
     (hf / "meta.json").write_text(json.dumps(
-        {"from_edl": "edl.json", "style": name, "segments": len(videos),
-         "total_s": total, "captions": len(caps), "cards": len(cards),
+        {"from": tl_src, "style": name, "elements": len(segs),
+         "clips": len(videos), "gen": len(gens), "total_s": total,
+         "captions": len(caps), "cards": len(cards),
          "fonts": fonts, "engine": "hyperframes"}, ensure_ascii=False, indent=1))
 
-    print(f"  段 {len(videos)} · {total}s · 字幕 {len(caps)} 条 · 卡 {len(cards)} 块"
-          + (f" · 切不出来 {n_fail} 段" if n_fail else ""))
+    kinds: dict[str, int] = {}
+    for el in segs:
+        kinds[el.get("kind") or "clip"] = kinds.get(el.get("kind") or "clip", 0) + 1
+    print(f"  格子 {len(segs)}（" + " · ".join(f"{k} {v}" for k, v in kinds.items())
+          + f"）· {total}s · 字幕 {len(caps)} 条 · 卡 {len(cards)} 块"
+          + (f" · 没造出来 {n_fail} 格" if n_fail else ""))
 
     # 4) lint
     r = subprocess.run([*HF.split(), "lint"], cwd=hf, capture_output=True, text=True)
@@ -775,8 +975,8 @@ def main():
 
     # 5.5) 抠像层：ffmpeg 贴回
     if a.fg_layer == "ffmpeg" and fg_by_seg:
-        fgs = [(hf / fg_by_seg[i], v["start"], v["dur"])
-               for i, v in enumerate(videos, 1) if i in fg_by_seg]
+        fgs = [(hf / fg_by_seg[v["n"]], v["start"], v["dur"])
+               for v in videos if v["n"] in fg_by_seg]
         fgd = proj / "out" / "_hf_fg.mp4"
         if cover_fg(raw, fgd, fgs) == 0:
             raw = fgd

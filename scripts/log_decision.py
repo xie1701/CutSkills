@@ -35,6 +35,42 @@ def load_rows(text: str) -> list[str]:
     return [ln for ln in text.splitlines() if ln.startswith("| 20")]
 
 
+def shape_of(proj: Path) -> str:
+    """结论前面挂上当时的片子状态：段数 / 时长，以后回看才知道那条决定影响多大。"""
+    edl_f = proj / "edl.json"
+    if not edl_f.exists():
+        return ""
+    try:
+        segs = json.loads(edl_f.read_text()).get("segments") or []
+        if segs:
+            total = sum(s["out"] - s["in"] for s in segs)
+            return f"<sub>{len(segs)} 段 / {total:.1f}s</sub>"
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+    return ""
+
+
+def append_row(proj: Path, said: str, did: str, verdict: str = "accepted") -> Path:
+    """追加一行，不改旧行。brief.py 也走这里——decisions.md 只允许这一个写入实现。"""
+    f = proj / "decisions.md"
+    if not f.exists():
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(HEADER.format(slug=proj.name))
+
+    shape = shape_of(proj)
+    said = said.replace("|", "／").replace("\n", " ").strip()
+    did = did.replace("|", "／").replace("\n", " ").strip()
+    label = {"accepted": "✅ 接受", "rejected": "❌ 推翻", "pending": "⏳ 待定"}[verdict]
+    cell = f"{label} {shape}".strip()
+    row = f"| {datetime.now().strftime('%Y-%m-%d %H:%M')} | {said} | {did} | {cell} |"
+
+    text = f.read_text()
+    if not text.endswith("\n"):
+        text += "\n"
+    f.write_text(text + row + "\n")
+    return f
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
@@ -55,31 +91,7 @@ def main() -> int:
         print("--said 和 --did 都要给（--show 除外）", file=sys.stderr)
         return 2
 
-    if not f.exists():
-        f.write_text(HEADER.format(slug=proj.name))
-
-    # 结论前面挂上当时的片子状态：段数 / 时长，以后回看才知道那条决定影响多大
-    shape = ""
-    edl_f = proj / "edl.json"
-    if edl_f.exists():
-        try:
-            segs = json.loads(edl_f.read_text()).get("segments") or []
-            if segs:
-                total = sum(s["out"] - s["in"] for s in segs)
-                shape = f"<sub>{len(segs)} 段 / {total:.1f}s</sub>"
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    said = a.said.replace("|", "／").replace("\n", " ").strip()
-    did = a.did.replace("|", "／").replace("\n", " ").strip()
-    verdict = {"accepted": "✅ 接受", "rejected": "❌ 推翻", "pending": "⏳ 待定"}[a.verdict]
-    cell = f"{verdict} {shape}".strip()
-    row = f"| {datetime.now().strftime('%Y-%m-%d %H:%M')} | {said} | {did} | {cell} |"
-
-    text = f.read_text()
-    if not text.endswith("\n"):
-        text += "\n"
-    f.write_text(text + row + "\n")
+    f = append_row(proj, a.said, a.did, a.verdict)
     print(f"已记入 {f}（第 {len(load_rows(f.read_text()))} 条）")
     return 0
 

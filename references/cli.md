@@ -287,6 +287,27 @@
 | `--render-only` | 只量渲染+验收（改一段的返工成本） |
 | `--show` | 只打印历史 |
 
+### `brief.py`
+*CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填**　项目目录（<项目>/brief.json 落在它下面） |
+| `--set` | 非交互写入：audience / audience_present_state / change / length / style（默认 []） |
+| `--show` | 打印当前 brief |
+| `--reset` | 清空重来（旧文件备份为 brief.json.bak） |
+
+### `check_timeline.py`
+*CutSkills · 校验 timeline.json（v4 元素时间轴）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--timeline` | — |
+| `--library` | — |
+| `--strict` | 把 warning 当 error |
+| `--json` | 开关 |
+
 ### `compare_films.py`
 *成片 vs 参考片 · 逐帧对照台。*
 
@@ -340,6 +361,29 @@
 | `--name` | 只做这一个 |
 | `--force` | 已存在也重做 |
 | `--dir` | 输出目录（默认 $CUTSKILLS_HOME/assets/sfx） |
+
+### `golden.py`
+*CutSkills · golden 回归：加新能力之前，先证明旧样片没退化。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 要纳入的项目目录，可多次（默认 []） |
+| `--add` | 加进清单（写进基线文件）（默认 []） |
+| `--only` | — |
+| `--init` | 用当前读数覆盖基线 |
+
+### `hooks.py`
+*CutSkills · 第 2 层：先出前 3 秒的候选，再谈整条。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--style` | — |
+| `--render` | 开关 |
+| `--choose` | 定案：A / B / C |
+| `--note` | — |
+| `--show` | 开关 |
 
 ### `match_font.py`
 *match_font.py — 认一支片子的字幕/花字用的是哪一种字体。*
@@ -451,3 +495,42 @@
 | `--apply` | 真的重编码（不加只出报告） |
 | `--crf` | （默认 16） |
 | `--json` | 把每镜的增益写到这个文件 |
+
+### `skeleton.py`
+*从参考片抽「节拍骨架」：切点、字幕带、大字、介质变化、推断的 beats、音频底子。*
+
+| 参数 | 说明 |
+|---|---|
+| `--video` | **必填**　参考片路径 |
+| `--out` | **必填**　输出 JSON 路径 |
+| `--transcript` | 可选：SRT/VTT/JSON 转写；不给就自动找同名字幕或 _cutskills/index.json |
+| `--json-only` | 不打印人类可读的表 |
+
+### `timeline.py`
+*CutSkills · plan.json + brief.json → timeline.json（元素时间轴 v4）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--plan` | — |
+| `--brief` | — |
+| `--style` | — |
+| `--skeleton` | — |
+| `--fill` | 没有画面的论点插章节卡补位 |
+| `--fit-skeleton` | 长过骨架 p90 的元素裁到字界 |
+| `--from-edl` | 把 v2 edl.json 升成 v4 |
+| `--dry-run` | 只打印，不落盘 |
+| `--show` | 开关 |
+
+### `yield_card.py`
+*CutSkills · 良率卡：一条片出片时打一张卡，累积成趋势。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--style` | — |
+| `--hook` | hooks.json（前 3 秒 A/B 结果） |
+| `--blind` | blind.json（盲测聚合结果） |
+| `--no-verify` | 不重跑 verify_film，读旧报告 |
+| `--json` | 开关 |
