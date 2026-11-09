@@ -271,11 +271,17 @@ def gen_html(el: dict, H: int, total: float = 0.0) -> str:
                 + (f'<div class="sm" style="font-size:{int(H * 0.026)}px;margin-top:26px">'
                    f'{esc(p.get("sub"))}</div>' if p.get("sub") else ""))
     elif tpl == "compare":
+        def fit_px(txt, max_px, max_chars=6, floor_px=0.028):
+            """按字数缩字号：11 个字塞进半屏宽，用 0.052H 会折成五行。"""
+            n = max(1, len(str(txt or "").strip()))
+            return int(max(H * floor_px, max_px * (max_chars / n)))
+
         def col(side, hi):
             s = p.get(side) or {}
+            v = s.get("value")
             return (f'<div class="col{" hi" if hi else ""}">'
                     f'<div class="sm" style="font-size:{int(H * 0.022)}px">{esc(s.get("title"))}</div>'
-                    f'<div class="big" style="font-size:{int(H * 0.052)}px">{esc(s.get("value"))}</div></div>')
+                    f'<div class="big" style="font-size:{fit_px(v, H * 0.052)}px">{esc(v)}</div></div>')
         body = (f'<div class="cols">{col("left", False)}{col("right", True)}</div>'
                 + (f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-top:44px">'
                    f'{esc(p.get("note"))}</div>' if p.get("note") else ""))
@@ -472,7 +478,7 @@ def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
 
 # ------------------------------------------------------------------ 卡片
 
-def card_windows(segs, lib, chars_cache, style, amap=None):
+def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
     """EDL 的 card → (text, start, end, kind)。
 
     大字什么时候出不由我们拍板，由这句话什么时候被说出来决定：`on` 写这类词里的
@@ -530,8 +536,30 @@ def card_windows(segs, lib, chars_cache, style, amap=None):
             else:
                 print(f"  ！大字对不上原话「{on}」（段 {s['n']}），沿用默认时机",
                       file=sys.stderr)
-        cards.append({"kind": kind, "text": str(c.get("text") or ""),
-                      "start": start, "end": round(start + d, 3)})
+        # 一屏只讲一件事：跟 overlay 生成物撞了，大字让开、挪到卡片之后说。
+        # 直接删掉会让整片一块大字都没有（实测「卡 0 块」），所以先挪、挪不下才删。
+        deferred = None
+        for a0, b0 in ov_win:
+            if start < b0 - 0.05 and start + d > a0 + 0.05 and kind in ("keyword", "behind", "cutout"):
+                seg_end = s["_start"] + s.get("_dur_q", 9)
+                shifted = round(max(b0, start), 3)
+                room = seg_end - shifted
+                if room < 0.8:
+                    print(f"  ！大字「{c.get('text')}」段内没地方让给 overlay 卡，撤掉", file=sys.stderr)
+                    start, d = None, 0
+                else:
+                    print(f"  · 大字「{c.get('text')}」让开 overlay 卡："
+                          f"{start}→{shifted}s", file=sys.stderr)
+                    deferred = round(b0, 3)   # 让位目标：overlay 卡结束的那一刻
+                    start, d = shifted, round(min(float(hold[1]), room), 3)
+                break
+        if start is None:
+            continue
+        _cd = {"kind": kind, "text": str(c.get("text") or ""),
+               "start": start, "end": round(start + d, 3)}
+        if deferred is not None:
+            _cd["deferred_to"] = deferred
+        cards.append(_cd)
     return cards
 
 
@@ -961,7 +989,12 @@ def main():
             amap = json.loads(amp.read_text())
         except json.JSONDecodeError:
             amap = None
-    cards = card_windows(active, lib, chars_cache, style, amap=amap)
+    # overlay 生成物占着的那几秒，大字必须先让开（同屏只讲一件事：
+    # 实测黄字压在对比屏上，卡里的小字全糊成一团）。
+    ov_win = [(float(el.get("at") or 0.0), round(float(el.get("at") or 0.0) + el_dur(el), 3))
+              for el in segs if el.get("kind") == "gen"
+              and (el.get("track") or "video") == "overlay"]
+    cards = card_windows(active, lib, chars_cache, style, amap=amap, ov_win=ov_win)
 
     # 大字放人物背后：给这些段做一层带 alpha 的人像，叠在卡上面、字幕下面。
     # 层级：底(全画幅) → 卡 → 人像(透明背景) → 字幕。

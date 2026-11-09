@@ -40,6 +40,7 @@ emphasis:
   keyword_color: "#F6EB34"          # 并列选项、转折词
   negation_color: "#C1121F"         # 否定结论
   big_keyword_px: [133, 304]        # 占画面高 10–16%
+  top_h: 0.30                       # 大字顶边落在 0.30H：实测 0.44H 正压在画面主体上
   max_one_action_per_caption: true
 
 shots:
