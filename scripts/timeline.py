@@ -57,6 +57,10 @@ GEN_TEMPLATES = {
                 "props": {"title": 12, "items": None, "foot": 16}, "required": ["items"]},
     "chart":   {"min_dur": 3.0, "max_dur": 8.0,
                 "props": {"title": 12, "bars": None, "unit": 6}, "required": ["bars"]},
+    # 场景生成器（scripts/gen_scene.py）画的整屏：不是文字卡，是**一件事在变**。
+    # 位图由 gen_scene 逐帧画好再当画面播；声音必须另给 `audio`，否则那几秒是哑的。
+    "scene":   {"min_dur": 2.0, "max_dur": 9.0,
+                "props": {"scene": 16, "label": 8}, "required": ["scene"]},
 }
 
 KINDS = {"clip", "image", "gen", "silence"}

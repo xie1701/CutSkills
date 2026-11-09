@@ -53,20 +53,30 @@ def main() -> int:
     widths = sorted(len(str(c.get("text") or "")) for c in cues)
     med = widths[len(widths) // 2] if widths else 0
     em = sum(1 for c in cues if "<span class" in str(c.get("html") or ""))
+    # 断词要按**词边界**判，不能按「断在哪儿」判。
+    # 原来只盯 break_after == "width"，于是 ASR 句子边界落在词中间那种情况一路绿灯：
+    # 「墙面或者地面或者任何表」+「面的让他成为成品就」把「表面」劈成两半，
+    # 而裁判报「断词 ✅」。判据得是：把两条接回去，切开的位置在不在词与词之间。
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from subs import HAVE_JIEBA, word_bounds  # noqa: E402
+
     tight = []
     for prev, nxt in zip(cues, cues[1:]):
         # 只比**同一格**里的相邻两条：跨段的贴边是切点造成的，不是把词劈开
         if prev.get("el") != nxt.get("el"):
             continue
-        # 标点断和停顿断都会让两条贴在一起（0ms 也是正常的）：
-        # 真正要抓的是「到宽度上限硬断」——那才是把一个词劈成两半。
-        if prev.get("break_after") != "width":
+        a_, b_ = str(prev.get("text") or ""), str(nxt.get("text") or "")
+        if not a_ or not b_:
             continue
         gap = float(nxt["start"]) - float(prev["end"])
-        if gap < TIGHT_GAP:
-            tight.append({"a": str(prev.get("text") or "")[-6:],
-                          "b": str(nxt.get("text") or "")[:6],
-                          "gap_ms": round(gap * 1000)})
+        if gap > 0.40:                       # 中间空了一大截，这两条本来就不连着
+            continue
+        if HAVE_JIEBA:
+            bad = len(a_) not in word_bounds(a_ + b_)
+        else:                                 # 没分词器只能退回老判据
+            bad = prev.get("break_after") == "width" and gap < TIGHT_GAP
+        if bad:
+            tight.append({"a": a_[-6:], "b": b_[:6], "gap_ms": round(gap * 1000)})
 
     style = None
     for f in (proj / "style.yaml", ):

@@ -156,10 +156,15 @@ def build(proj: Path, lib: Path) -> dict:
              else float(el.get("dur") or 0))
         if el.get("track") == "overlay":
             continue
-        if el["kind"] == "clip":
+        # 「有话的那几秒」不只在 clip 里：整屏代码画面（kind=gen）换掉的是画面，
+        # 人声照旧在播。漏掉它，那一格的音频块就凭空消失——大字找不到重音点、
+        # 看板上那一镜的「口播原文」是空的（实测 naming-01 的第 6、8 格）。
+        if el["kind"] in ("clip", "gen") and el.get("audio"):
             a = el.get("audio") or {}
-            aid = a.get("asset") or el["asset"]
-            a0 = float(a.get("in") if a.get("in") is not None else el["in"])
+            aid = a.get("asset") or el.get("asset")
+            if not aid:
+                continue
+            a0 = float(a.get("in") if a.get("in") is not None else el.get("in") or 0.0)
             rec = index.get(aid) or {}
             # 只在 [a0, a0+d) 里取字。以前两头各留 50ms 容差，结果相邻两段共用的那个字
             # 同时进了两段（「我」既是片头最后一块、又是下一段的第一块），块列表里凭空多一条。

@@ -26,7 +26,11 @@ import numpy as np
 SR = 48000
 BAND = (2000, 8000)
 WIN = 0.15          # 音效自身窗口：卡入场后 150ms
-BASE_GAP = (0.60, 0.20)   # 基线：t-0.6 ~ t-0.2
+# 基线取**三段的中位数**，不再只看「前 0.6 秒那一段」。
+# 有垫乐之后，单段基线会被音乐自己的鼓点带走：实测同一个 whoosh 在无垫乐时
+# 抬 18 dB，垫乐进来后基线那 0.4 秒里正好有一下 hi-hat，算出来只剩 8 dB。
+# 三个窗口（前、更前、后）取中位数，鼓点的偶发影响就被压掉了。
+BASE_GAPS = ((-0.65, -0.35), (-1.45, -1.15), (0.90, 1.20))
 PASS_DB = 3.0       # 音效相对基线的抬升；低于这个数，观众根本听不出来
 CTRL_OFF = 1.0      # 对照组偏移
 
@@ -56,7 +60,8 @@ def band_db(x: np.ndarray, a: float, b: float) -> float:
 
 def lift(x: np.ndarray, t: float) -> float:
     on = band_db(x, t, t + WIN)
-    off = band_db(x, t - BASE_GAP[0], t - BASE_GAP[1])
+    off = float(np.median([band_db(x, max(0.0, t + a), t + b) for a, b in BASE_GAPS[:-1]]
+                          + [band_db(x, t + BASE_GAPS[2][0], t + BASE_GAPS[2][1])]))
     return on - off
 
 

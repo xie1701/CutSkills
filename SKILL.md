@@ -111,8 +111,9 @@ python3 scripts/golden.py
 ### 第 3 层的关键：一格可以是「造出来的」
 
 `timeline.json` 的每一格带 `kind`（`clip` / `image` / `gen` / `silence`）和 `track`（`video` / `overlay`）。
-`gen` 是代码画的整屏，9 个模板：文字类 keyword / compare / number / steps / quote / chapter / chart，
-**动画类 flow（工序流程，节点逐个亮起）/ layers（剖面，从下往上叠）**——后两个顶替库里没有的 B-roll。
+`gen` 是代码画的整屏：文字类 keyword / compare / number / steps / quote / chapter / chart，
+**动画类 flow（工序流程，节点逐个亮起）/ layers（剖面，从下往上叠）**，
+以及 **scene（场景生成器：一件事在变，见下节）**——后三个顶替库里没有的 B-roll。
 参数化、字数有上限、时长有下限，子件按顺序逐条进场（不是一屏同时亮）。
 
 `track: overlay` 是**盖在口播上**的造法：不占时间、不换画面、声音不断。

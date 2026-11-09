@@ -363,6 +363,47 @@ def main() -> int:
         add("真峰", f"{got_tp:.1f} dBTP", "green" if ok else "red",
             f"上限 {L['true_peak_dbtp']}（超了必削波）")
 
+    # 整屏代码画面那几秒有没有声音。
+    # 这是本轮最容易翻车的一处：画面换成代码画的整屏之后，人声得靠单独一条 <audio> 接着播。
+    # 光看 HTML 是对的、字幕也在走（字幕只读时间轴），成片里那几秒却可能是哑的——
+    # 只有量成片自己的声轨才看得见。判据：窗口内有声（均值 > −45 dB）。
+    # 整屏代码画面那几秒有没有声音。
+    # 这是本轮最容易翻车的一处：画面换成代码画的整屏之后，人声得靠单独一条 <audio> 接着播。
+    # 光看 HTML 是对的、字幕也在走（字幕只读时间轴），成片里那几秒却可能是哑的——
+    # 只有量成片自己的声轨才看得见。判据：窗口内有声（均值 > −45 dB）。
+    import re as _re
+    # 位置要自己累加：`seg["in"]` 是**素材内**的时间（clip 的原片入点），不是成片时间。
+    # 拿它当片内位置量过一遍，量到的是片头——判词会变成「代码画面量到的却是实拍亮度」，
+    # 而片子其实是对的（2026-11-09 实测这一条差点把我带偏）。
+    _t = 0.0
+    for seg in edl.get("segments") or []:
+        _d = float(seg.get("dur") or 0)
+        if seg.get("kind") != "gen" or not _d:
+            _t += _d
+            continue
+        g0, gd = round(_t, 3), _d
+        r = run(["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{g0 + 0.15:.3f}",
+                 "-t", f"{max(0.3, gd - 0.3):.3f}", "-i", str(film),
+                 "-af", "volumedetect", "-f", "null", "-"])
+        txt = (r.stderr or "") + (r.stdout or "")
+        mm = _re.search(r"mean_volume:\s*(-?[\d.]+) dB", txt)
+        mv = float(mm.group(1)) if mm else None
+        if mv is None:
+            add(f"代码画面 #{seg.get('n')} 的声音", "量不出来", "yellow", "volumedetect 没返回")
+        else:
+            add(f"代码画面 #{seg.get('n')} 的声音", f"{g0:.1f}s 起 {gd:.1f}s，均值 {mv:.0f} dB",
+                "green" if mv > -45 else "red",
+                "" if mv > -45 else "整屏换了画面，人声没接上——这几秒是哑的")
+        # 画面也得真的换掉了：代码画面是深底 + 品牌金，跟展厅/工地实拍差得远。
+        im = frame_at(g0 + gd * 0.6, f"gen{seg.get('n')}", mode="L")
+        if im is not None:
+            px = list(im.getdata())
+            dark = sum(1 for v in px if v < 46) / max(1, len(px))
+            add(f"代码画面 #{seg.get('n')} 真的在画面上", f"深底占比 {dark * 100:.0f}%",
+                "green" if dark > 0.35 else "red",
+                "" if dark > 0.35 else "这一格该是代码画的整屏，量到的却是实拍亮度")
+        _t = round(_t + _d, 3)
+
     # 字幕
     subs = json.loads((proj / "out" / "subs.json").read_text()) if (proj / "out" / "subs.json").exists() else {}
     cues = subs.get("cues") or []

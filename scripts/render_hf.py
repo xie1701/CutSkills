@@ -474,6 +474,70 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
     return {"path": dst, "dur": round(info["dur"], 3), "w": info["w"], "h": info["h"]}
 
 
+# ---------------------------------------------------------- 代码画的整屏格的声音
+
+def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> Path:
+    """`template: scene` 的整屏格：画面是 gen_scene.py 画出来的，落到 clips/ 缓存。
+
+    为什么场景要预渲染成 mp4，而不是像其他 gen 模板那样写成一层 `<div>`：
+    场景是**逐帧画出来的位图**（几十万个多边形、抹痕、液流），用 CSS/GSAP 做不出来。
+    它仍是代码画的、可复现的（同一秒永远同一帧），只是渲染发生在浏览器外面。
+
+    参数变了就重画：缓存名带上 scene / dur / marks，改一个字都不会拿旧片冒充。
+    """
+    from gen_scene import SCENES
+    name = str((el.get("props") or {}).get("scene") or "")
+    if name not in SCENES:
+        raise SystemExit(f"格 {el.get('n')} 的场景「{name}」不认识（{'/'.join(sorted(SCENES))}）")
+    dur = float(el.get("dur") or 0)
+    mk = el.get("marks") or (el.get("props") or {}).get("marks") or ""
+    if isinstance(mk, (list, tuple)):
+        mk = ",".join(f"{float(x):.4f}" for x in mk)
+    tag = f"scene-{name}-{dur:.2f}s-{FPS}fps" + (f"-m{str(mk).replace('.', 'p').replace(',', '_')}"
+                                                 if mk else "")
+    dst = proj / "hf" / "clips" / f"{tag}.mp4"
+    if dst.exists() and dst.stat().st_size > 4096:
+        return dst
+    cmd = [sys.executable, str(Path(__file__).with_name("gen_scene.py")),
+           "--scene", name, "--dur", f"{dur:.3f}", "--fps", str(FPS),
+           "--size", f"{W}x{H}", "--out", str(dst)]
+    if mk:
+        cmd += ["--marks", str(mk)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not dst.exists():
+        raise SystemExit(f"场景没画出来：{name} {dur}s\n{(r.stderr or r.stdout)[-600:]}")
+    return dst
+
+
+def get_audio_cell(lib: Path, proj: Path, seg: dict) -> dict | None:
+    """整屏格把画面换掉了，**声音还得接着播**——不然那几秒是哑的。
+
+    实测过 HyperFrames 的音频也走 clip 时间轴：`<audio data-start=2 data-duration=2>`
+    在成片里正好 2–4 秒有声、前后静音（/tmp/aud-test）。所以抽一条小 m4a 挂上去。
+    """
+    a = seg.get("audio") or {}
+    aid = a.get("asset") or seg.get("asset")
+    if not aid:
+        return None
+    s_in, s_out = float(a.get("in", seg.get("in") or 0)), float(a.get("out", seg.get("out") or 0))
+    if s_out - s_in <= 0.02:
+        return None
+    tag = f"aud-{Path(aid).stem[-14:]}_{s_in:.2f}-{s_out:.2f}".replace(".", "p")
+    tag = "".join(c if c.isalnum() or c in "-_" else "_" for c in tag)
+    dst = proj / "hf" / "clips" / f"{tag}.m4a"
+    if not dst.exists() or dst.stat().st_size < 2048:
+        src = lib / aid
+        if not src.exists():
+            raise SystemExit(f"声音素材不存在：{src}")
+        r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error",
+                            "-ss", f"{s_in:.3f}", "-t", f"{s_out - s_in:.3f}", "-i", str(src),
+                            "-vn", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+                            str(dst)], capture_output=True, text=True)
+        if r.returncode != 0 or not dst.exists():
+            raise SystemExit(f"抽声音失败：{aid} {s_in}-{s_out}\n{r.stderr[-500:]}")
+    return {"path": dst, "dur": round(s_out - s_in, 3)}
+
+
 # ------------------------------------------------------------------ 抠像
 
 MASK_BIN = Path(__file__).resolve().parent / "native" / "person_mask"
@@ -669,6 +733,8 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   <div id="root" data-composition-id="main" data-start="0"
        data-width="{W}" data-height="{H}" data-fps="{FPS}" data-duration="{total}">
 {videos}
+{s_html}
+{a_html}
     <div id="grade"></div>
 {gens}
 {cards}
@@ -751,7 +817,7 @@ def esc(t: str) -> str:
 
 
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
-               fg_by_seg=None, fg_mode="browser", gens=None):
+               fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
     cap_px = int(sub.get("size_px") or 72)
@@ -800,6 +866,17 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="1" '
         f'playsinline muted></video>'
         for i, v in enumerate(videos, 1) if fg_by_seg and i in fg_by_seg)
+    # 代码画的整屏：位图是哑的，所以 muted；声音由下面单独的 <audio> 接着放。
+    s_html = "\n".join(
+        f'    <video id="s{v["n"]}" class="clip" src="{v["src"]}" data-start="{v["start"]}" '
+        f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="0" '
+        f'playsinline muted></video>'
+        for v in (scenes or []))
+    a_html = "\n".join(
+        f'    <audio id="a{v["n"]}" src="{v["src"]}" data-start="{v["start"]}" '
+        f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="3" '
+        f'data-has-audio="true"></audio>'
+        for v in (audios or []))
     c_html = "\n".join(
         f'      <div id="cap-{i:03d}" class="clip cap" data-start="{c["start"]}" '
         f'data-duration="{round(c["end"] - c["start"], 3)}">'
@@ -847,6 +924,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                   if emph.get("gradient") else ""),
         idc_x=idc_x, idc_y=idc_y,
         videos=v_html, caps=c_html, cards="\n".join(card_html), fg=fg_html,
+        s_html=s_html, a_html=a_html,
         gens="\n".join(gens or []), gen_css=GEN_CSS,
         cap_entry=entry, cap_tween=tween)
 
@@ -855,12 +933,16 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 # 卡片入场配什么音效：按卡片职责分，别每张都「嗖」一下
 # 音效一律取自 CC0 库（Jerry 2026-11-09：「用现有的素材，不要自己生成」）。
 # 名字对应 cc0_lib.SFX_MAP；增益由库里的 under_voiceover_db 给，不再拍脑袋写 -11。
-CARD_SFX = {"keyword": ("pop-medium-in", -2.0), "behind": ("impact-light-firm", -2.0),
-            "cutout": ("impact-light-firm", -2.0), "idcard": ("whoosh-medium-soft", -2.0),
-            "gen": ("appear-materialise", -3.0)}
+# 增益在库给的值上**再抬 1 dB**：垫乐进来之后同一处音效更难听出来（实测同一条
+# whoosh 在无垫乐时抬 18 dB、有垫乐时只剩 8–9 dB）。90ms duck 只能管住入场那一瞬。
+CARD_SFX = {"keyword": ("pop-medium-in", 0.0), "behind": ("impact-light-firm", 0.0),
+            "cutout": ("impact-light-firm", 0.0), "idcard": ("whoosh-medium-soft", 0.0),
+            "gen": ("appear-materialise", -1.0)}
 
 # 音效落在连续人声上，光靠调增益听不出来（实测只涨 1–3 dB）：得让声音给它让位。
 # 90ms、-6dB，耳朵听不出人声被压，但音效的瞬态就露出来了。
+# −6 dB / 90ms。试过 −12 dB / 120ms，结果更差：量出来的「抬升」主要来自底音，
+# 把人声压狠了，抬升反而掉 6 dB（实测 24.12s 从 −7.3 掉到 −13.8）。让位要轻。
 DUCK_DB = 0.5
 DUCK_S = 0.09
 
@@ -1059,7 +1141,10 @@ def main():
     ap.add_argument("--no-loudnorm", action="store_true")
     ap.add_argument("--force", action="store_true",
                     help="方案没拍板也硬渲（正常不该用）")
-    ap.add_argument("--bgm", default=None, help="BGM 文件；给 auto 就用项目里的 bgm.wav")
+    # 默认**开**着：`auto`＝项目里没有就按情绪从 CC0 库挑一首。
+    # 原来默认 None，等于悄悄不出垫乐——连着三条片渲完都没人说，因为报告里没这一项。
+    ap.add_argument("--bgm", default="auto",
+                    help="BGM：auto＝用项目里的 bgm.wav（没有就从 CC0 库按情绪挑）；none＝不要；也可给文件")
     ap.add_argument("--bgm-mood", default="auto",
                     choices=["auto", "clear", "warm", "minimal", "tense", "hopeful"],
                     help="auto＝按 brief 里讲的事挑情绪（默认）；也可指定")
@@ -1141,6 +1226,7 @@ def main():
         except json.JSONDecodeError:
             amap = None
     videos, gens, clips_like, t, n_fail = [], [], [], 0.0, 0
+    scenes, audios = [], []          # 代码画的整屏格 + 它下面要接着播的口播原声
     gd = GRADE.get(str(style.get("grade") or ""), "")
     for el in segs:
         kind = el.get("kind") or "clip"
@@ -1170,11 +1256,32 @@ def main():
         elif kind == "gen":
             if (el.get("track") or "video") == "overlay":
                 el["_start"] = round(float(el.get("at") or 0.0), 3)
-            gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
-            if (el.get("track") or "video") == "overlay":
+                gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
                 el["_start"] = round(float(el.get("at") or 0.0), 3)
                 el.pop("_pads", None)
+            elif str(el.get("template") or "") == "scene":
+                # 场景生成器画的整屏：位图片子，走 <video>；口播原声单独挂 <audio>，
+                # 否则换画面的那几秒会哑掉（口播片的画面可以换，声音一秒都不能断）。
+                try:
+                    sp = scene_mp4(proj, el, FPS, W, H)
+                except SystemExit as e:
+                    print(f"  ！格 {el['n']} 的场景没画出来：{e}", file=sys.stderr)
+                    n_fail += 1
+                    continue
+                sdur = round(probe(sp)["dur"], 3)
+                scenes.append({"n": el["n"], "src": f"clips/{sp.name}",
+                               "start": round(t, 3), "dur": sdur})
+                el["_dur_q"] = sdur
+                ac = get_audio_cell(lib, proj, el)
+                if ac:
+                    audios.append({"n": el["n"], "src": f"clips/{ac['path'].name}",
+                                   "start": round(t, 3), "dur": ac["dur"]})
+                else:
+                    print(f"  ！格 {el['n']} 是整屏代码画面，却没给 audio："
+                          f"这几秒会没有声音", file=sys.stderr)
+                t = round(t + sdur, 3)
             else:
+                gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
                 t = round(t + dur, 3)
         elif kind == "silence":
             t = round(t + dur, 3)
@@ -1194,7 +1301,19 @@ def main():
         soft_c, hard_c = int(sub["chars_soft"]), int(sub["max_chars_per_line"])
     else:
         soft_c, hard_c = 6, 9
-    active = [s for s in clips_like if s.get("_start") is not None]
+    # 字幕和卡片的「说话人」不只是 clip：整屏代码画面盖住的那几秒，人还在说话，
+    # 字幕必须接着走（否则 4–5 秒没有字幕，验收会报「无字幕空档」）。
+    carriers = [s for s in clips_like if s.get("_start") is not None]
+    for el in segs:
+        if (el.get("kind") == "gen" and el.get("track") != "overlay"
+                and el.get("_start") is not None and el.get("audio")):
+            au = el["audio"]
+            carriers.append({"n": el["n"], "_start": el["_start"],
+                             "_dur_q": el.get("_dur_q") or el_dur(el),
+                             "asset": au.get("asset") or el.get("asset"),
+                             "in": au.get("in"), "out": au.get("out"),
+                             "audio": au, "medium": "talking"})
+    active = sorted(carriers, key=lambda s: s["_start"])
     # 2026-11-09 换实现：按呼吸组切、去标点、单行、数字与否定词变色（scripts/subs.py）。
     # render_film.build_cues 是保留路径，仍按字数软断——主链路不再用它。
     caps = subs.build(active, by_id, chars_cache, lib, load_chars)
@@ -1278,7 +1397,7 @@ def main():
     html_txt = build_html(slug=proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
-                          fg_mode=a.fg_layer, gens=gens)
+                          fg_mode=a.fg_layer, gens=gens, scenes=scenes, audios=audios)
     (hf / "index.html").write_text(html_txt)
     (hf / "meta.json").write_text(json.dumps(
         {"from": tl_src, "style": name, "elements": len(segs),
@@ -1291,6 +1410,7 @@ def main():
         kinds[el.get("kind") or "clip"] = kinds.get(el.get("kind") or "clip", 0) + 1
     print(f"  格子 {len(segs)}（" + " · ".join(f"{k} {v}" for k, v in kinds.items())
           + f"）· {total}s · 字幕 {len(caps)} 条 · 卡 {len(cards)} 块"
+          + (f" · 代码画面 {len(scenes)} 格" if scenes else "")
           + (f" · 没造出来 {n_fail} 格" if n_fail else ""))
 
     # 4) lint
@@ -1391,7 +1511,7 @@ def main():
                                 "--project", str(proj), "--mood", a.bgm_mood], check=False)
                 print("  ⚠ BGM 库没接上，退回代码合成", file=sys.stderr)
         bgm_p = cand if cand.exists() else None
-    elif a.bgm:
+    elif a.bgm and a.bgm != "none":
         bgm_p = Path(a.bgm).expanduser()
         # 版权风险只提示、不阻断（Jerry 2026-11-09 定：给风险，但别拦着干活）
         synth_made = (bgm_p.exists() and bgm_p.name == "bgm.wav")
@@ -1420,10 +1540,23 @@ def main():
         sfx_events.append({"t": float(c["start"]), "name": name, "gain_db": gain,
                            "for": str(c.get("text") or "")[:12]})
     for el in segs:
-        if el.get("kind") == "gen" and (el.get("track") or "video") == "overlay":
-            sfx_events.append({"t": float(el.get("at") or 0), "name": "whoosh",
-                               "gain_db": CARD_SFX["gen"][1],
-                               "for": f"gen-{el.get('template')}"})
+        if el.get("kind") != "gen":
+            continue
+        # overlay 的生成物按它的 `at` 出声；整屏代码画面（含 scene）按它落在时间轴上的位置出声。
+        # 漏掉 scene 这句，两处整屏画面会硬邦邦地「啪」一下换过去——画面动了，耳朵没收到。
+        if (el.get("track") or "video") == "overlay":
+            tt = float(el.get("at") or 0)
+        elif el.get("_start") is not None:
+            tt = float(el["_start"])
+        else:
+            continue
+        # 整屏代码画面是**换镜头**，不是弹出一张小卡：配 whoosh 而不是 appear-materialise。
+        # 实测 appear-materialise 落在这个切点上，2–8 kHz 只抬 2.4 dB（听不出来），
+        # 同样的位置换 whoosh 才够。
+        nm = ("whoosh-medium-soft" if el.get("template") == "scene" else CARD_SFX["gen"][0])
+        sfx_events.append({"t": tt, "name": nm,
+                           "gain_db": CARD_SFX["gen"][1],
+                           "for": f"gen-{el.get('template') or 'overlay'}-{el.get('n')}"})
     sfx_events = [e for e in sfx_events if 0 <= e["t"] <= total]
     if sfx_events and not a.no_sfx:
         sxd = proj / "out" / "_hf_sfx.mp4"

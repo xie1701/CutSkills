@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 PUNCT = "，。！？、；：…—～,.!?;:"
@@ -41,6 +42,73 @@ BREAK_HINTS = ("因为", "所以", "但是", "而且", "那么", "就是", "我�
 # 没有分词器时，用它判断一个切点像不像词边界——不精确，但能把「厦|门」这种切开拦住。
 ENDERS = set("的了着过是在和与上里中后前也都还又再很更最只就才把被让给对向从到为")
 STARTERS = set("我你他她它这那哪谁什怎那可就也还又再才只不没别和与从到对把被让给因为所如但而")
+
+# 分词器：只用来判「这个词能不能断」。装在 scripts/vendor/ 里（本机 pip 走 SOCKS 代理
+# 必失败，只能手动放），装不上就退回上面那两个字表——不精确，但能把「厦|门」拦住。
+_VENDOR = Path(__file__).resolve().parent / "vendor"
+try:
+    if str(_VENDOR) not in sys.path:
+        sys.path.insert(0, str(_VENDOR))
+    import warnings
+    with warnings.catch_warnings():          # jieba 0.42 的正则里还写着 "\."，Python 3.12 会告警
+        warnings.simplefilter("ignore", SyntaxWarning)
+        import jieba  # noqa: E402
+
+    jieba.setLogLevel(60)
+    HAVE_JIEBA = True
+except Exception:                                    # pragma: no cover
+    HAVE_JIEBA = False
+
+
+def word_bounds(txt: str) -> list[int]:
+    """能切的位置（第几个字之后）。词内部不算。
+
+    没有它的时候，「墙面或者地面或者任何表面的让他成为成品就」被切成
+    「…任何表」+「面的让他成为成品就」——**把「表面」劈成两半**。
+    验收没抓到，因为验收只查宽度、标点、条数；断词得靠词边界本身才判得出来。
+    """
+    if not HAVE_JIEBA or not txt:
+        return []
+    out, k = [], 0
+    for w in jieba.cut(txt):
+        k += len(w)
+        if k < len(txt):
+            out.append(k)
+    return out
+
+
+def is_word_bound(txt: str) -> bool:
+    """这一串字本身是不是「由若干个完整的词拼起来的」。没有分词器就不判（返回 True）。
+
+    ASR 的句界不可全信：它把「墙面或者地面或者任何表」当成一句、下一句从「面」开始。
+    照它断，字幕上就是「任何表」+「面的…」——把「表面」劈成两半。
+    所以句界只当**候选**，落在词中间的那个不要。
+    """
+    if not HAVE_JIEBA or not txt:
+        return True
+    return len(txt) in word_bounds(txt)
+
+
+def choose_cut(buf: list[tuple[str, float, float]], target: int | None = None) -> int | None:
+    """一条太长的字幕该从第几个字处断开。**只用词边界**，优先两侧都不太短。"""
+    txt = "".join(t for t, _, _ in buf)
+    n = len(txt)
+    lo, hi = 5, n - 3
+    if hi <= lo:
+        return None
+    b = [p for p in word_bounds(txt) if lo <= p <= hi]
+    if b:
+        goal = target if target else 0.55 * n
+        # 光看「离目标多近」会挑出「…任何表面」|「的让他成为成品就」这种：
+        # 「的」被甩到下一句开头，读着像下一句的定语。中文习惯把「的」留在前一句，
+        # 所以落在轻声字（的了着过…）之后的切点加分。
+        return min(b, key=lambda p: abs(p - goal) - (1.5 if buf[p - 1][0] in ENDERS else 0))
+    best, best_k = 0, None
+    for k in range(lo, hi + 1):
+        sc = (2 if buf[k - 1][0] in ENDERS else 0) + (2 if buf[k][0] in STARTERS else 0)
+        if sc > best:
+            best, best_k = sc, k
+    return best_k
 
 # 否定 / 对比 / 程度：只收会改变判断的那几个词，不收「很、也、就」这类口语填充
 NEG_WORDS = ("不是", "不会", "不能", "不", "没有", "没", "别", "只", "仅", "才",
@@ -135,7 +203,13 @@ def regroup(items: list[tuple[str, float, float]]):
         gap = (nxt[1] - it[2]) if nxt else 9.9
         width = len("".join(t for t, _, _ in buf))
         if ch == SENTINEL:                    # 句子边界：够一段就断，别硬拼两句
-            if len("".join(t for t, _, _ in buf)) >= MIN_CHARS:
+            txt = "".join(t for t, _, _ in buf if t != SENTINEL)
+            # 但 ASR 的句界会落在词中间（「…任何表」|「面的让他成为成品」）。
+            # 这种边界不算数：把哨兵扔掉，让它跟后面的字一起走，宽度上限自然会管。
+            if not is_word_bound(txt) and len(txt) <= MAX_CHARS:
+                buf.pop()
+                continue
+            if len(txt) >= MIN_CHARS:
                 groups.append((buf, "pause"))
                 buf = []
             continue
@@ -159,13 +233,8 @@ def regroup(items: list[tuple[str, float, float]]):
                     groups.append((buf[:k], "pause"))
                     buf = buf[k:]
                 elif width >= HARD_MAX:
-                    # 真到上限：挑一个「最像词边界」的地方断（收尾字后 / 起头字前）
-                    best, best_k = 0, None
-                    for k in range(6, len(buf) - 3):
-                        prev_ch, next_ch = buf[k - 1][0], buf[k][0]
-                        sc = (2 if prev_ch in ENDERS else 0) + (2 if next_ch in STARTERS else 0)
-                        if sc > best:
-                            best, best_k = sc, k
+                    # 真到上限：挑一个**词的边界**断（有分词器就按词典，没有才靠字表猜）
+                    best_k = choose_cut(buf, target=MAX_CHARS - 2)
                     if best_k:
                         groups.append((buf[:best_k], "pause"))
                         buf = buf[best_k:]
@@ -185,12 +254,7 @@ def regroup(items: list[tuple[str, float, float]]):
         if len(txt) <= MAX_CHARS + 2:
             fixed.append((g, why))
             continue
-        best, best_k = 0, None
-        for k in range(6, len(g) - 3):
-            prev_ch, next_ch = g[k - 1][0], g[k][0]
-            sc = (2 if prev_ch in ENDERS else 0) + (2 if next_ch in STARTERS else 0)
-            if sc > best:
-                best, best_k = sc, k
+        best_k = choose_cut(g)
         if best_k:
             fixed.append((g[:best_k], "pause"))
             fixed.append((g[best_k:], why))
@@ -206,6 +270,10 @@ def regroup(items: list[tuple[str, float, float]]):
                 len("".join(t for t, _, _ in merged[-1][0])) + w <= MAX_CHARS and \
                 g[0][1] - merged[-1][0][-1][2] < 0.55:
             merged[-1] = (merged[-1][0] + g, merged[-1][1])
+        elif merged and w <= 3:
+            # 夹在两句话之间、又并不进邻居的 2–3 字（「那么」「其实就」）：一闪就没了，
+            # 观众反而以为字幕出错。丢掉它，那个停顿就空着——口播片里空半秒不算断。
+            continue
         else:
             merged.append((g, why))
     # 只剩一个字的，无论多宽都塞回邻居：闪一个字比越界更糟

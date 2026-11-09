@@ -52,6 +52,17 @@ def ease(x: float) -> float:
     return x * x * (3 - 2 * x)
 
 
+# 节拍由谁定：**词**。脚本自己猜的比例（0.14 / 0.33 / 0.55）看着匀，但画面
+# 换形态的那一帧跟台词对不上——观众听到「地面」时形状早就变了。
+# 所以 `--marks` 把「第几秒变」换成了「念到那个词的第几成」：由调用方从 ASR
+# 字级时间戳算出比例再传进来。空着才用默认比例。
+MARKS: list[float] = []
+
+
+def marks(default: tuple[float, ...]) -> tuple[float, ...]:
+    return tuple(MARKS) if len(MARKS) >= len(default) else default
+
+
 # --------------------------------------------------------------- 场景：相变
 def scene_phase(t: float, W: int, H: int, dur: float) -> Image.Image:
     """一滩漆 → 一张膜。
@@ -270,7 +281,8 @@ def scene_pour(t: float, W: int, H: int, dur: float) -> Image.Image:
     liquid = _mix(LIQUID, SOLID, 0.22)
 
     # 节拍按片长算，不写死秒数：写死的话 3 秒版在结尾只填了墙的一条边（2026-11-09 实测）
-    k_out0, k_join_t, k_fill_t = dur * 0.12, dur * 0.36, dur * 0.52
+    m_out, m_join, m_fill = marks((0.12, 0.36, 0.52))
+    k_out0, k_join_t, k_fill_t = dur * m_out, dur * m_join, dur * m_fill
     k_join = ease((t - k_join_t) / (dur * 0.18))
     k_fill = ease((t - k_fill_t) / (dur * 0.42))
 
@@ -347,9 +359,11 @@ def scene_measure(t: float, W: int, H: int, dur: float) -> Image.Image:
     ]
     LABELS = ["墙面", "地面", "任何表面"]
 
-    # 三个节拍：0.45–1.05 / 1.05–1.75 / 1.75–2.45，之后定型
+    # 三个节拍默认 0.14 / 0.33 / 0.55，定型后收尾；台词有字级时间戳时由 --marks 接管
+    m_b1, m_b2, m_b3, m_end = marks((0.14, 0.33, 0.55, 0.78))
     k_in = ease(t / (dur * 0.16))
-    beats = (dur * 0.14, dur * 0.33, dur * 0.55)
+    beats = (dur * m_b1, dur * m_b2, dur * m_b3)
+    t_end = dur * m_end
     seg = 0
     for idx, start in enumerate(beats):
         if t >= start:
@@ -363,11 +377,11 @@ def scene_measure(t: float, W: int, H: int, dur: float) -> Image.Image:
     else:
         quad = [(POSES[prev][n][0] * (1 - k) + POSES[seg][n][0] * k,
                  POSES[prev][n][1] * (1 - k) + POSES[seg][n][1] * k) for n in range(4)]
-        hi = 1.0 if t < dur * 0.78 else max(0.0, 1 - ease((t - dur * 0.78) / (dur * 0.1))) * 0.6
+        hi = 1.0 if t < t_end else max(0.0, 1 - ease((t - t_end) / (dur * 0.1))) * 0.6
 
     # 收尾：这块面长回到「一面做好的表面」并整块变金。不收的话结尾是画面最小的一帧。
     FINAL = [(0.18, 0.300), (0.82, 0.300), (0.86, 0.620), (0.14, 0.620)]
-    k_end = ease((t - dur * 0.78) / (dur * 0.16))
+    k_end = ease((t - t_end) / (dur * 0.16))
     if k_end > 0:
         quad = [(quad[n][0] * (1 - k_end) + FINAL[n][0] * k_end,
                  quad[n][1] * (1 - k_end) + FINAL[n][1] * k_end) for n in range(4)]
@@ -405,12 +419,13 @@ def scene_measure(t: float, W: int, H: int, dur: float) -> Image.Image:
             max(0.0, min(1.0, (beats[1] - t) / (dur * 0.05) + 0.15))
         dim((pts[0][0], pts[0][1] - H * 0.048), (pts[1][0], pts[1][1] - H * 0.048),
             min(1.0, kk), LABELS[0], (0, -H * 0.028))
-    if beats[1] + dur * 0.03 < t < dur * 0.78:
+    if beats[1] + dur * 0.03 < t < t_end:
         kk = ease((t - beats[1] - dur * 0.03) / (dur * 0.12)) * \
-            (1 if t < dur * 0.72 else max(0.0, 1 - (t - dur * 0.72) / (dur * 0.06)))
+            (1 if t < t_end - dur * 0.06 else
+             max(0.0, 1 - (t - (t_end - dur * 0.06)) / (dur * 0.06)))
         dim((pts[3][0] - W * 0.015, pts[3][1] + H * 0.042),
             (pts[2][0] + W * 0.015, pts[2][1] + H * 0.042), kk, LABELS[1], (0, H * 0.026))
-    if beats[2] + dur * 0.03 < t <= dur * 0.78:
+    if beats[2] + dur * 0.03 < t <= t_end:
         kk = ease((t - beats[2] - dur * 0.03) / (dur * 0.10))
         dim((pts[3][0] - W * 0.010, pts[3][1] + H * 0.098),
             (pts[2][0] + W * 0.010, pts[2][1] + H * 0.098), kk, LABELS[2], (0, H * 0.026))
@@ -457,10 +472,15 @@ def main() -> int:
     ap.add_argument("--dur", type=float, default=5.0)
     ap.add_argument("--fps", type=int, default=30, help="跟成片一致（talking-head-v1 是 30）")
     ap.add_argument("--size", default="1080x1920")
+    ap.add_argument("--marks", default="",
+                    help="词级节拍：逗号分隔的**成数**（0.2,0.39,0.42,0.74），由 ASR 字级时间戳算出来。"
+                         "空着就用脚本自己的默认比例——那样画面换形态的那一帧跟台词对不上。")
     ap.add_argument("--probe", action="store_true",
                     help="只量亮度剖面，不出片：每个场景都要「越演越有东西」，"
                          "结尾比中间空就是节拍写错了（视觉模型判不了这个）")
     a = ap.parse_args()
+    global MARKS
+    MARKS = [float(x) for x in a.marks.replace(" ", "").split(",") if x] if a.marks else []
     W, H = (int(x) for x in a.size.lower().split("x"))
     if a.probe:
         # 判据只有两条，都是「真看出来过」的病：

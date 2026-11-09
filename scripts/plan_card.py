@@ -73,8 +73,11 @@ def _cards(proj: Path) -> dict[int, dict]:
 
 
 def _events(proj: Path) -> list[dict]:
+    """上一次渲染落下的音效点。跟 cards.json 同一条规矩：比时间轴旧就当没有。"""
     p = proj / "out" / "sfx.json"
-    return json.loads(p.read_text()).get("events") or [] if p.exists() else []
+    if not p.exists() or p.stat().st_mtime < (proj / "timeline.json").stat().st_mtime:
+        return []
+    return json.loads(p.read_text()).get("events") or []
 
 
 def build(proj: Path, root: Path) -> str:
@@ -103,6 +106,14 @@ def build(proj: Path, root: Path) -> str:
     A("| # | 秒 | 说什么（原话） | 画面 | 大字 / 代码画面 |")
     A("|---|---|---|---|---|")
     t0 = 0.0
+    n_card = sum(1 for e in tl["elements"] if e.get("card"))
+    scene_rows = []
+    scenes_p = proj / "scenes.json"
+    scene_specs = {}
+    if scenes_p.exists():
+        for x in (json.loads(scenes_p.read_text()).get("scenes") or []):
+            if x.get("scene"):
+                scene_specs[str(x["scene"])] = x
     for e in tl["elements"]:
         if e.get("track") == "overlay":
             continue
@@ -121,26 +132,37 @@ def build(proj: Path, root: Path) -> str:
         elif vis:
             vis = f"B-roll（{Path(str(vis)).name[-16:]}）"
         extra = []
-        # 大字可能写在 timeline 的格子里，也可能是渲染时才算出来的 cards.json。
+        # cards.json 只在**比时间轴新**时才可信：它是上一次渲染的产物，剪切一改，
+    # 里面的「第几格 / 哪一秒 / 哪张卡」全都过期。照抄会让方案上出现早就不存在的
+    # 大字（实测：格子拆过之后还列着上一版的「油漆是原料」）。
+    cards_m = proj / "out" / "cards.json"
+    if cards_m.exists() and cards_m.stat().st_mtime < (proj / "timeline.json").stat().st_mtime:
+        cards = {}
+    # 大字可能写在 timeline 的格子里，也可能是渲染时才算出来的 cards.json。
         # cards.json 里的 el 是空的（卡片是渲的时候才算的），所以要按时间窗口兜一层。
         for c in cards.get(int(e["n"]), []):
             extra.append(f"大字「{c.get('text')}」")
         if not extra and e.get("card"):
             extra.append(f"大字「{e['card'].get('text')}」")
         if e.get("kind") == "gen":
-            extra.append("代码画面（非卡片）")
+            nm = (e.get("props") or {}).get("scene")
+            extra.append(f"代码画面：{nm}" if nm else "代码画面（非卡片）")
+            scene_rows.append((t0 - d, t0, e))
         A(f"| {e['n']} | {span} | {said} | {vis} | {'；'.join(extra) or '—'} |")
     A("")
-    scenes_p = proj / "scenes.json"
-    if scenes_p.exists():
-        sc = json.loads(scenes_p.read_text())
+    # 代码画面这一节**必须从时间轴取位置**：以前是照抄 scenes.json 里手写的 at/dur，
+    # 结果片子改过一轮之后，方案上写的位置和片子里真正的位置对不上（差到十秒以外）。
+    if scene_rows:
         A("## 代码画的画面（不是字卡，是画面自己在讲故事）")
         A("")
-        A("| 秒 | 画什么 | 演的是哪句话 | 状态 |")
-        A("|---|---|---|---|")
-        for x in sc.get("scenes") or []:
-            A(f"| {x.get('at')}–{round(float(x.get('at', 0)) + float(x.get('dur', 0)), 1)} "
-              f"| {x.get('what')} | {x.get('for')} | {x.get('status', '待做')} |")
+        A("| 秒 | 格 | 演什么 | 演的是哪句话 | 样片 |")
+        A("|---|---|---|---|---|")
+        for a0, b0, e in scene_rows:
+            nm = str((e.get("props") or {}).get("scene") or "")
+            spec = scene_specs.get(nm) or {}
+            A(f"| {a0:.1f}–{b0:.1f} | #{e['n']} | {spec.get('what') or nm} "
+              f"| {e.get('why') or spec.get('for') or '—'} "
+              f"| {a0:.1f}s 起 · {spec.get('status') or '已接进时间轴'} |")
         A("")
     A("## 包装")
     A("")
@@ -150,8 +172,23 @@ def build(proj: Path, root: Path) -> str:
       "不带标点，一个呼吸组一条。")
     A(f"- 大字：{emph.get('keyword_color', '—')}，顶边 {emph.get('top_h', '—')}H，"
       f"锚在某一个词上、晚 {100}ms 出场。")
-    A(f"- 垫乐：代码合成（`bgm_gen.py`），−28 LUFS 垫底，人声 12:1 压住。")
-    A(f"- 音效：{len(sfx)} 处，跟着每张字卡/代码画面入场；混音前先给人声让 90ms 位。")
+    bgm_j = proj / "bgm.json"
+    if bgm_j.exists():
+        try:
+            b = json.loads(bgm_j.read_text())
+        except json.JSONDecodeError:
+            b = {}
+        A(f"- 垫乐：CC0 库《{b.get('title') or '待挑'}》（{b.get('mood') or '—'} 情绪），"
+          "先归一到 −28 LUFS，再让人声侧链压住。")
+    else:
+        A("- 垫乐：从 CC0 库按情绪挑（`cc0_lib.pick_bgm`），−28 LUFS 垫底，人声侧链压住。")
+    n_gen = sum(1 for e in tl["elements"]
+                if e.get("kind") == "gen" and e.get("track") != "overlay")
+    if sfx:
+        A(f"- 音效：{len(sfx)} 处，跟着每张字卡/代码画面入场；混音前先给人声让 90ms 位。")
+    else:
+        A(f"- 音效：跟着每张卡和每处代码画面自动挂（预估 {n_card + n_gen} 处），"
+          "精确时刻渲完由 `out/sfx.json` 给出；混音前先给人声让 90ms 位。")
     A("")
     if sfx:
         A("音效点：" + "、".join(f"{e['t']:.1f}s {e.get('name')}" for e in sfx[:12]))

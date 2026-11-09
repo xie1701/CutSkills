@@ -140,6 +140,20 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                         out.append(("error", f"#{n} {tpl} props.{k} {len(v)} 字，上限 {lim}"))
                 if el.get("source") != "generated":
                     out.append(("error", f"#{n} 是代码生成的，source 必须写 generated"))
+                if tpl == "scene":
+                    from gen_scene import SCENES
+                    nm = str(props.get("scene") or "")
+                    if nm not in SCENES:
+                        out.append(("error", f"#{n} 的场景「{nm}」没有实现"
+                                             f"（{'/'.join(sorted(SCENES))}）"))
+                    # 整屏换画面时声音必须接上：剪辑上「换画面」是可以的，
+                    # 「换画面顺手把人声弄没了」不是——实测撞出过 3 秒哑段。
+                    if not el.get("audio"):
+                        out.append(("error", f"#{n} 是整屏代码画面，但没给 audio："
+                                             f"这几秒会没有声音"))
+                    if el.get("track") == "overlay":
+                        out.append(("warning", f"#{n} scene 写在 overlay 上没用："
+                                               f"场景是整屏位图，只能走 video 轨"))
 
         elif kind == "silence":
             if d > 2.5:

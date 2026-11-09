@@ -109,6 +109,7 @@ def build_board(proj: Path, lib: Path, *, title: str | None = None) -> dict:
         blocks_by_el.setdefault(int(b.get("el") or 0), []).append(b)
     cards = (load_json(proj / "out" / "cards.json") or load_json(proj / "cards.json") or {}).get("cards") or []
     scenes = (load_json(proj / "scenes.json") or {}).get("scenes") or []
+    scene_specs = {str(x["scene"]): x for x in scenes if x.get("scene")}
     brief = load_json(proj / "brief.json") or {}
     thesis = load_json(proj / "thesis.json") or {}
     index = load_json(lib / "_cutskills" / "index.json") or {}
@@ -164,7 +165,18 @@ def build_board(proj: Path, lib: Path, *, title: str | None = None) -> dict:
 
         # 落在这一镜里的卡 / 代码画面 / 叠加层
         mine = [c for c in cards if t0 - 0.02 <= float(c.get("start") or 0) < t0 + dur - 0.02]
-        my_scenes = [s for s in scenes if t0 - 0.02 <= float(s.get("at") or 0) < t0 + dur - 0.02]
+        # 代码画面**以时间轴为准**：scenes.json 里手写的 at 是排期时的意图，
+        # 一旦真接进 timeline.json（`template: scene`），位置由格子自己说了算。
+        # 还在按 scenes.json 的 at 去匹配，会出现「看板上标的秒数和片子里差十秒」。
+        if kind == "gen" and str(el.get("template") or "") == "scene":
+            nm = str((el.get("props") or {}).get("scene") or "")
+            spec = scene_specs.get(nm) or {}
+            my_scenes = [{"at": t0, "dur": dur, "scene": nm,
+                          "what": spec.get("what") or nm,
+                          "for": spec.get("for") or el.get("why") or "",
+                          "sample": spec.get("sample") or ""}]
+        else:
+            my_scenes = []
         my_ov = [o for o in ov_rows if t0 - 0.02 <= o["t0"] < t0 + dur - 0.02]
 
         if kind == "gen":
@@ -214,7 +226,7 @@ def build_board(proj: Path, lib: Path, *, title: str | None = None) -> dict:
         if mine:
             d_bits.append("大字：" + "、".join(str(c.get('text')) for c in mine))
         for s in my_scenes:
-            d_bits.append(f"代码画面（待接入）：「{s.get('what')}」——{s.get('for')}")
+            d_bits.append(f"代码画面：「{s.get('what')}」——{s.get('for')}")
         d = "；".join(d_bits)
 
         # 音效：只在卡上场时打；其余切点不出声（这也是诚实信息）
