@@ -237,6 +237,19 @@ GEN_CSS = """
 .gen ol { list-style:none; width:100%; display:flex; flex-direction:column; gap:26px; }
 .gen ol li { display:flex; gap:26px; align-items:baseline; }
 .gen ol li b { font-family:"SC-Big",sans-serif; color:#F6EB34; }
+.gen .fcol { display:flex; flex-direction:column; gap:34px; width:100%; align-items:flex-start; }
+.gen .fnode { display:flex; align-items:center; gap:24px; position:relative; }
+.gen .fnode .dot { width:26px; height:26px; border-radius:50%; background:#F6EB34; flex:0 0 26px;
+                   box-shadow:0 0 0 6px rgba(246,235,52,0.16); }
+.gen .fnode::after { content:""; position:absolute; left:12px; top:26px; width:2px; height:34px;
+                     background:linear-gradient(180deg,rgba(246,235,52,.55),rgba(246,235,52,0));
+                     transform-origin:top; }
+.gen .fnode:last-child::after { display:none; }
+.gen .lstack { display:flex; flex-direction:column; gap:12px; width:100%; }
+.gen .layer { border-radius:14px; padding:26px 26px; text-align:left; color:#fff;
+              background:linear-gradient(160deg,rgba(255,255,255,0.16),rgba(255,255,255,0.07));
+              border:1px solid rgba(255,255,255,0.10); }
+.gen .layer .ltxt { font-family:"SC-Sub",sans-serif; font-weight:600; }
 .gen-ov { inset:auto 56px auto 56px; top:50%; transform:translateY(-50%);
           background:rgba(14,12,10,0.88); border-radius:26px; padding:64px 48px;
           box-shadow:0 24px 60px rgba(0,0,0,0.55); backdrop-filter:blur(2px); }
@@ -284,6 +297,33 @@ def gen_html(el: dict, H: int, total: float = 0.0) -> str:
     elif tpl == "chapter":
         body = (f'<div class="chn" style="font-size:{int(H * 0.19)}px">{esc(p.get("n"))}</div>'
                 f'<div class="big" style="font-size:{int(H * 0.042)}px;margin-top:18px">{esc(p.get("title"))}</div>')
+    elif tpl in ("flow", "layers"):
+        items = p.get("items") or []
+        if tpl == "flow":
+            rows = "".join(
+                f'<div class="fnode" data-i="{i}"><span class="dot"></span>'
+                f'<span class="ftxt" style="font-size:{int(H * 0.030)}px">{esc(t)}</span></div>'
+                for i, t in enumerate(items))
+            body = ((f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-bottom:34px">'
+                     f'{esc(p.get("title"))}</div>' if p.get("title") else "")
+                    + f'<div class="fcol">{rows}</div>'
+                    + (f'<div class="sm" style="font-size:{int(H * 0.022)}px;margin-top:30px;'
+                       f'opacity:.75">{esc(p.get("foot"))}</div>' if p.get("foot") else ""))
+        else:
+            # 剖面：从下往上叠，最底下一层先出现（讲「基层」这种东西时，顺序就是内容）。
+            # 注意这里必须先建 list 再 reversed——之前是对拼好的字符串做 split("</div>")，
+            # 结果标签全丢，后面那格不算渲出来还被塞进坏结构里（实测 6s 之后整屏黑）。
+            rows = [
+                f'<div class="layer" data-i="{i}"><div class="sm" style="font-size:{int(H * 0.020)}px;'
+                f'opacity:.72;margin-bottom:8px">{"面层" if i == len(items) - 1 else ("中层" if i else "基层")}</div>'
+                f'<div class="ltxt" style="font-size:{int(H * 0.028)}px">{esc(t)}</div></div>'
+                for i, t in enumerate(items)
+            ]
+            body = ((f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-bottom:34px">'
+                     f'{esc(p.get("title"))}</div>' if p.get("title") else "")
+                    + '<div class="lstack">' + "".join(reversed(rows)) + '</div>'
+                    + (f'<div class="sm" style="font-size:{int(H * 0.022)}px;margin-top:30px;'
+                       f'opacity:.75">{esc(p.get("foot"))}</div>' if p.get("foot") else ""))
     elif tpl == "chart":
         bars = p.get("bars") or []
         top = max([float(b.get("value") or 0) for b in bars] + [1.0])
@@ -432,7 +472,7 @@ def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
 
 # ------------------------------------------------------------------ 卡片
 
-def card_windows(segs, lib, chars_cache, style):
+def card_windows(segs, lib, chars_cache, style, amap=None):
     """EDL 的 card → (text, start, end, kind)。
 
     大字什么时候出不由我们拍板，由这句话什么时候被说出来决定：`on` 写这类词里的
@@ -440,6 +480,14 @@ def card_windows(segs, lib, chars_cache, style):
     """
     emph = style.get("emphasis") or {}
     hold = emph.get("hold_s") or style.get("hold_pair") or [1.0, 1.5]
+    # 音频层：每段里每个块的「重音点」= 块内能量峰值。大字该落在这儿。
+    # 以前大字落在「段首 + 0.6s」，实测离重音 486ms——看着就是「字比话慢半拍」。
+    peaks_of: dict[int, list[float]] = {}
+    for b in ((amap or {}).get("blocks") or []):
+        if b.get("is_filler") or b.get("peak_at") is None:
+            continue
+        peaks_of.setdefault(int(b["el"]), []).append(
+            round(float(b["t"]) + (float(b["peak_at"]) - float(b["src_start"])), 3))
     h0, h1 = float(hold[0]), float(hold[1])
     cards = []
     idc = (style.get("_id_card") or None)
@@ -457,7 +505,13 @@ def card_windows(segs, lib, chars_cache, style):
             # 悄悄当空卡渲出去会得到一个空的大字 div，所以明确跳过并说一声。
             print(f"  ！段 {s['n']} 卡的类型「{kind}」HTML 链路不支持，跳过", file=sys.stderr)
             continue
-        start = round(s["_start"] + (float(c["at"]) if isinstance(c.get("at"), (int, float)) else 0.6), 3)
+        if isinstance(c.get("at"), (int, float)) and not peaks_of:
+            start = round(s["_start"] + float(c["at"]), 3)
+        else:
+            # 没写 at 就找最近的块内重音点，提前 0.12s 起（字要比声音早一点点才不显慢）
+            cand = [p_ for p_ in peaks_of.get(int(s["n"]), [])
+                    if s["_start"] - 0.05 <= p_ <= s["_start"] + s.get("_dur_q", 9) + 0.05]
+            start = round(max(s["_start"] + 0.2, (min(cand) if cand else s["_start"] + 0.6) - 0.12), 3)
         d = max(h0, min(float(c.get("dur") or h1), h1))
         on = str(c.get("on") or "").strip()
         aid = (s.get("audio") or {}).get("asset") or s["asset"]
@@ -552,9 +606,17 @@ document.querySelectorAll(".idcard > span").forEach((el, i) => {{
 }});
 // 代码生成的整屏：淡入 + 上移，撤场只降透明。不许有布局动画——
 // 整屏的文本量比字幕大得多，一缩放就糊。
+// 生成元素的子件按顺序进场：一句一条，不是一屏同时亮
 document.querySelectorAll(".gen").forEach((c) => {{
   const t = parseFloat(c.dataset.start);
   const d = parseFloat(c.dataset.duration);
+  const kids = c.querySelectorAll(".col, ol li, .bar, .chn, blockquote, .num, .fnode, .layer");
+  kids.forEach((k, i) => {{
+    tl.set(k, {{ opacity: 0, y: 18 }}, t);          // 轮到之前必须是不可见，否则一开场全亮
+    tl.fromTo(k, {{ opacity: 0, y: 18 }},
+      {{ opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
+         immediateRender: false }}, t + 0.12 + i * Math.min(0.34, Math.max(0.12, (d - 0.5) / Math.max(1, kids.length))));
+  }});
   tl.fromTo(c, {{ opacity: 0, y: 24 }},
     {{ opacity: 1, y: 0, duration: 0.32, ease: "power2.out", immediateRender: false }}, t);
   if (d > 0.8) {{
@@ -666,6 +728,35 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 
 # ------------------------------------------------------------------ 主流程
 
+def mix_bgm(film: Path, bgm: Path, dst: Path, total: float) -> int:
+    """把 BGM 垫到人声下面。
+
+    两步的顺序是硬规则：**先归一 BGM 到 -24 LUFS，再用人声去压它**。
+    以前反过来（先混再归一），音效和 BGM 全被归一器抹平，实测 whoosh 只涨 1–3 dB。
+    """
+    band = film.with_name("_bgm_norm.wav")
+    r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(bgm), "-af",
+                        "loudnorm=I=-24:TP=-2:LRA=11", "-ar", "48000", "-ac", "2", str(band)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return 1
+    fc = ("[1:a]atrim=0:" + f"{total:.3f}" + ",asetpts=N/SR/TB[bg];"
+          "[bg][0:a]sidechaincompress=threshold=0.03:ratio=8:attack=10:"
+          "release=300:makeup=1[bgd];"
+          "[0:a][bgd]amix=inputs=2:duration=first:normalize=0[mix]")
+    r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(film),
+                        "-stream_loop", "-1", "-i", str(band),
+                        "-filter_complex", fc, "-map", "0:v:0", "-map", "[mix]",
+                        "-c:v", "copy", "-ar", "48000", "-ac", "2", str(dst)],
+                       capture_output=True, text=True)
+    band.unlink(missing_ok=True)
+    if r.returncode != 0 or not dst.exists():
+        return 1
+    # 只 map 音频会把视频丢掉（实测出片 1.9MB，画幅 0×0）——所以这里再验一次有没有画面
+    info = probe(dst)
+    return 0 if info.get("w") else 1
+
+
 def measure_audio(path: Path) -> tuple[float, float]:
     r = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
@@ -751,6 +842,8 @@ def main():
     ap.add_argument("--grade", default=None, help="CSS filter，例：saturate(1.5) contrast(1.1)")
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
     ap.add_argument("--no-loudnorm", action="store_true")
+    ap.add_argument("--bgm", default=None, help="BGM 文件；给 auto 就用项目里的 bgm.wav")
+    ap.add_argument("--bgm-mood", default="warm", choices=["warm", "minimal", "tense", "hopeful"])
     ap.add_argument("--reuse-raw", action="store_true",
                     help="复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染）")
     ap.add_argument("--hdr", dest="sdr", action="store_false",
@@ -861,7 +954,14 @@ def main():
     for c in caps:
         c["end"] = min(round(c["end"], 3), total)
 
-    cards = card_windows(active, lib, chars_cache, style)
+    amap = None
+    amp = proj / "audio-map.json"
+    if amp.exists():
+        try:
+            amap = json.loads(amp.read_text())
+        except json.JSONDecodeError:
+            amap = None
+    cards = card_windows(active, lib, chars_cache, style, amap=amap)
 
     # 大字放人物背后：给这些段做一层带 alpha 的人像，叠在卡上面、字幕下面。
     # 层级：底(全画幅) → 卡 → 人像(透明背景) → 字幕。
@@ -999,6 +1099,36 @@ def main():
             raw = fgd
         else:
             print("  ！抠像层没贴上，成片不带大字在人物背后", file=sys.stderr)
+
+    # 5.8) BGM：先归一，再让人声压住它
+    bgm_p = None
+    if a.bgm == "auto":
+        cand = proj / "bgm.wav"
+        if not cand.exists():
+            subprocess.run([sys.executable, str(Path(__file__).with_name("bgm_gen.py")),
+                            "--project", str(proj), "--mood", a.bgm_mood], check=False)
+        bgm_p = cand if cand.exists() else None
+    elif a.bgm:
+        bgm_p = Path(a.bgm).expanduser()
+        # 版权风险只提示、不阻断（Jerry 2026-11-09 定：给风险，但别拦着干活）
+        synth_made = (bgm_p.exists() and bgm_p.name == "bgm.wav")
+        if not synth_made:
+            print(f"  ⚠ BGM 用的是外部文件「{bgm_p.name}」：发布前自己确认授权，"
+                  f"商用平台的版权识别会盯这一段。风险我记进 decisions.md，不拦你。",
+                  file=sys.stderr)
+            try:
+                from log_decision import append_row
+                append_row(proj, said=f"BGM 指定外部文件：{bgm_p.name}",
+                           did="按指定混入；版权风险已提示，未做授权核验", verdict="pending")
+            except Exception:
+                pass
+    if bgm_p and bgm_p.exists():
+        bed = proj / "out" / "_hf_bed.mp4"
+        if mix_bgm(raw, bgm_p, bed, total) == 0:
+            raw = bed
+            print(f"  BGM {bgm_p.name}（-24 LUFS 归一后由人声压住）")
+        else:
+            print("  ！BGM 没混上，成片不带垫乐", file=sys.stderr)
 
     # 6) 响度：成片必须落在样式包给的值上（本机 hyperframes 混完是 -20 LUFS 左右）
     dst = proj / "out" / "film-hf.mp4"

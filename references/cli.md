@@ -276,6 +276,25 @@
 
 ## 其他
 
+### `arrange.py`
+*CutSkills · 结构方案：把「倒不倒序」交给人选，而不是我替他定。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--choose` | — |
+| `--show` | 开关 |
+
+### `audio_map.py`
+*CutSkills · 音频层：把一条片的声音切成「块」，块是所有时间安排的基准。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--out` | — |
+| `--show` | 开关 |
+
 ### `bench.py`
 *CutSkills · 产线基准：量「产出变得可重复」这件事本身，不量这一条片好不好。*
 
@@ -286,6 +305,17 @@
 | `--plan` | 默认用项目里的 plan.json |
 | `--render-only` | 只量渲染+验收（改一段的返工成本） |
 | `--show` | 只打印历史 |
+
+### `bgm_gen.py`
+*CutSkills · 代码合成 BGM：按需求/观点的情绪出一段垫乐，不用去翻素材库。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | — |
+| `--mood` | （默认 'warm'） |
+| `--dur` | 秒；默认取 timeline 片长 |
+| `--out` | — |
+| `--moods` | 开关 |
 
 ### `brief.py`
 *CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
@@ -469,6 +499,8 @@
 | `--grade` | CSS filter，例：saturate(1.5) contrast(1.1) |
 | `--no-render` | 只生成 HTML 并 lint |
 | `--no-loudnorm` | 开关 |
+| `--bgm` | BGM 文件；给 auto 就用项目里的 bgm.wav |
+| `--bgm-mood` | （默认 'warm'） |
 | `--reuse-raw` | 复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染） |
 | `--hdr` | 按 HDR 出片（本机 ffmpeg 无 zscale，文字层会整片丢失，不建议） |
 | `--fg-layer` | 抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要（默认 'ffmpeg'） |
@@ -505,6 +537,17 @@
 | `--out` | **必填**　输出 JSON 路径 |
 | `--transcript` | 可选：SRT/VTT/JSON 转写；不给就自动找同名字幕或 _cutskills/index.json |
 | `--json-only` | 不打印人类可读的表 |
+
+### `sync_check.py`
+*CutSkills · 声画同步裁判：Audio-First 唯一能算的那三个数。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--map` | — |
+| `--timeline` | — |
+| `--tolerance` | （默认 TOL_MS） |
+| `--json` | 开关 |
 
 ### `timeline.py`
 *CutSkills · plan.json + brief.json → timeline.json（元素时间轴 v4）。*

@@ -49,7 +49,9 @@ source scripts/runtime.sh env                       # 依赖全在这，任务�
 # 1 入口：四格 + 片长三档（30 秒系列 / 60–90 秒口播 / 自定）+ 风格挑一个
 python3 scripts/brief.py --project <项目>            # 交互；--set 可非交互，--show 看现状
 
-# 2 理解：先出 3 秒钩子的候选，再谈整条
+# 2 理解：先出音频块（声音是时间基准），再出 3 秒钩子的候选
+python3 scripts/audio_map.py --project <项目>        # 声音切块：半句/气口/重音，带能量与填充词
+python3 scripts/arrange.py --project <项目>          # 四套结构方案挑一个（原顺序/结论前置/现场切入/倒序）
 python3 scripts/skeleton.py --video <参考片> --out <项目>/skeleton.json   # 节拍骨架
 python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候选 → hooks/，逐个 3 秒渲出来
 # 怎么测、几个人看算过：[references/hook-test.md](references/hook-test.md)
@@ -59,19 +61,32 @@ python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
 python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由
 
 # 4 成型：渲 → 验 → 良率卡
-python3 scripts/render_hf.py --project <项目> --extractor own --quality looks
+python3 scripts/bgm_gen.py --project <项目> --mood warm     # 先出垫乐（渲染时 auto 也会自动调）
+python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
+python3 scripts/sync_check.py --project <项目>              # 声画同步率/断章率/大字偏移
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
 
 # 横向：加任何新能力之前先跑回归，别把上周的片弄坏
 python3 scripts/golden.py
 ```
 
+### 第 4 层的另一半：声音是时间轴的主人
+
+画面事件不按秒摆，按**音频块**摆。`audio_map.py` 把声音切成半句级块并给出重音点，
+`sync_check.py` 量三个数：同步率（视觉事件落在词边界 −152ms~+40ms 的比例，≥85%）、
+断章率（一口气里被切刀的比例，≤15%）、大字偏移（大字 vs 重音，≤120ms）。
+
+这三条不是自我感觉——2026-11-09 一上来就量出「切点永远慢 120ms」「大字慢 486ms」
+「对比屏压错位置 810ms」，三个都改完才转绿。细节与阈值来由见
+[references/audio-first.md](references/audio-first.md)。
+
 ### 第 3 层的关键：一格可以是「造出来的」
 
 `timeline.json` 的每一格带 `kind`（`clip` / `image` / `gen` / `silence`）和 `track`（`video` / `overlay`）。
-`gen` 是代码画的整屏（7 个模板：keyword / compare / number / steps / quote / chapter / chart），
-参数化、字数有上限、时长有下限——低于下限宁可不放。
+`gen` 是代码画的整屏，9 个模板：文字类 keyword / compare / number / steps / quote / chapter / chart，
+**动画类 flow（工序流程，节点逐个亮起）/ layers（剖面，从下往上叠）**——后两个顶替库里没有的 B-roll。
+参数化、字数有上限、时长有下限，子件按顺序逐条进场（不是一屏同时亮）。
 
 `track: overlay` 是**盖在口播上**的造法：不占时间、不换画面、声音不断。
 为什么需要这一档：整屏滑屏要吃掉 4 秒旁白，而口播片里没有 4 秒是空的。

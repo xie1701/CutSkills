@@ -194,7 +194,10 @@ def build_cues(segments: list[dict], index_by_id: dict, chars_cache: dict,
         # 2026-11-07 踩过：一句 phrase 只要和窗口沾边就被整句收进字幕，于是成片把
         # 「进口的艺术」「相当相当」剪掉了、字幕却还留着——声音是对的，字是错的，
         # 而 D 段只数字幕条数，全绿。这一条只能按字的时间戳裁。
-        items = [it for it in items if s_in - 0.06 <= it[1] < s_out - 0.01]
+        # 收字窗口必须和 build_edl 算 evidence 的窗口**逐字一致**（`ain-0.02 ~ aout-0.02`）。
+        # 敢差 40ms 就会出这种事：字幕上留着「那么因为有不同的需」，成片里这句已经被剪掉——
+        # 声音对了、条数对了、时长对了，只有读字幕的人才看得出。
+        items = [it for it in items if s_in - 0.02 <= it[1] < s_out - 0.02]
 
         seg_start = seg["_start"]
         dur = seg.get("_dur_q") or seg["_dur"]
@@ -208,7 +211,10 @@ def build_cues(segments: list[dict], index_by_id: dict, chars_cache: dict,
             b = min(dur, buf[-1][2] - s_in) + seg_start
             txt = "".join(t for t, _, _ in buf).strip()
             if txt and b > a:
-                cues.append({"start": round(a, 3), "end": round(b, 3), "text": txt})
+                # 带上这条字幕出自哪一格（seg 的 n）。验收靠它核对归属，
+                # 不靠「时间段落在谁身上」——两段用同一支素材时，按时间找宿主会找错。
+                cues.append({"start": round(a, 3), "end": round(b, 3), "text": txt,
+                             "el": seg.get("n")})
             buf = []
 
         for idx2, it in enumerate(items):

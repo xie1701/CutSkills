@@ -50,11 +50,17 @@ GEN_TEMPLATES = {
                 "props": {"text": 24, "who": 8}, "required": ["text"]},
     "chapter": {"min_dur": 1.8, "max_dur": 4.0,
                 "props": {"n": 3, "title": 8}, "required": ["n", "title"]},
+    # 下面两个是**会动的画面**，不是文字卡：库里没有对应实拍时，它们顶替 B-roll。
+    "flow":    {"min_dur": 4.0, "max_dur": 9.0,
+                "props": {"title": 12, "items": None, "foot": 16}, "required": ["items"]},
+    "layers":  {"min_dur": 3.5, "max_dur": 8.0,
+                "props": {"title": 12, "items": None, "foot": 16}, "required": ["items"]},
     "chart":   {"min_dur": 3.0, "max_dur": 8.0,
                 "props": {"title": 12, "bars": None, "unit": 6}, "required": ["bars"]},
 }
 
 KINDS = {"clip", "image", "gen", "silence"}
+PAD_IN, PAD_OUT = 0.03, 0.05
 
 
 # ---------------------------------------------------------------- 读取
@@ -213,7 +219,8 @@ _TRIM_LIB: Path | None = None
 
 def build_timeline(lib: Path, plan, *, brief: dict | None = None, style: dict | None = None,
                    skeleton: dict | None = None, style_name: str = "talking-head-v1",
-                   fill: bool = False, fit: bool = False) -> tuple[dict, list[tuple[str, str]]]:
+                   fill: bool = False, fit: bool = False,
+                   amap: dict | None = None) -> tuple[dict, list[tuple[str, str]]]:
     style = style or {}
     problems: list[tuple[str, str]] = []
     segs_in, beat_titles = split_plan(plan)
@@ -241,7 +248,10 @@ def build_timeline(lib: Path, plan, *, brief: dict | None = None, style: dict | 
         clip_plan.append(q)
     sub_plan = {"segments": clip_plan,
                 "beats": [{"n": n, "title": t} for n, t in (beat_titles or {}).items()]}
-    edl, probs = build_edl(lib, sub_plan)
+    # padding 会直接把切点推离词边界：原来 0.06+0.09 让每个切点差 120ms，
+    # 声画同步裁判一上来就量出来了（81% vs 需要 85%）。Audio-First 下切点必须贴着气口，
+    # 所以这里只留够防爆音的量。
+    edl, probs = build_edl(lib, sub_plan, pad_in=PAD_IN, pad_out=PAD_OUT)
     problems += probs
     clip_segs = iter(edl["segments"])
 
@@ -304,6 +314,19 @@ def build_timeline(lib: Path, plan, *, brief: dict | None = None, style: dict | 
         _TRIM_LIB = lib
         elements, notes = fit_skeleton(elements, duration_bands(skeleton, style))
         _TRIM_LIB = None
+
+    # 声音说了算：overlay 卡片的入场时间贴着音频块的重音点（没有音频层时才用 plan 的 at）
+    if amap:
+        peaks = [round(float(b["t"]) + (float(b["peak_at"]) - float(b["src_start"])), 3)
+                 for b in (amap.get("blocks") or [])
+                 if b.get("peak_at") is not None and not b.get("is_filler")]
+        for el in elements:
+            if el.get("track") != "overlay" or not peaks:
+                continue
+            want = float(el.get("at") or 0.0)
+            near = min(peaks, key=lambda p_: abs(p_ - want))
+            if abs(near - want) <= 1.5:
+                el["at"] = round(max(0.0, near - 0.12), 3)
 
     for i, el in enumerate(elements, 1):
         el["n"] = i
@@ -413,8 +436,10 @@ def main() -> int:
         plan = load_json(plan_path)
         if not plan:
             raise SystemExit(f"没有 plan.json：{plan_path}")
+        amap = load_json(proj / "audio-map.json")
         tl, problems = build_timeline(lib, plan, brief=brief, style=style, skeleton=skeleton,
-                                      style_name=style_name, fill=a.fill, fit=a.fit_skeleton)
+                                      style_name=style_name, fill=a.fill, fit=a.fit_skeleton,
+                                      amap=amap)
         tl["slug"] = proj.name
 
     problems += quick_check(tl)

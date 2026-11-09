@@ -57,6 +57,38 @@ def black_runs(path: Path) -> list[float]:
     return out
 
 
+def load_timeline_or_edl(proj: Path) -> dict:
+    """返回 `{segments: [...], style_pack}` 这种统一形状。
+
+    timeline.json（v4）的每一格带 kind；edl.json（v2）只有 clip。验收只关心
+    「第几秒到第几秒是什么画面、说了什么」，所以这里把两种都摊成 segments，
+    并且把 gen / silence 也放进去（它们占时间，会让后面的窗口整体位移）。
+    """
+    tp = proj / "timeline.json"
+    if tp.exists():
+        tl = json.loads(tp.read_text())
+        segs, t = [], 0.0
+        for el in tl.get("elements") or []:
+            if el.get("track") == "overlay":
+                # overlay **不占时间轴**：这里给它零长度。给成 dur 的话，
+                # 后面所有段的窗口会整体后移 4 秒，字幕归属全错（实测 3 条误报）。
+                segs.append({"n": el["n"], "kind": "overlay", "medium": "overlay",
+                             "in": t, "out": t, "evidence": "", "why": el.get("why", ""),
+                             "_overlay": True})
+                continue
+            d = (round(float(el["out"]) - float(el["in"]), 3) if el.get("kind") == "clip"
+                 else float(el.get("dur") or 0))
+            segs.append({"n": el["n"], "kind": el.get("kind"), "medium": el.get("medium") or el.get("kind"),
+                         "asset": el.get("asset"), "in": float(el.get("in") or 0),
+                         "out": float(el.get("in") or 0) + d, "dur": d,
+                         "evidence": el.get("evidence", ""), "why": el.get("why", ""),
+                         "audio": el.get("audio"), "card": el.get("card")})
+            t = round(t + d, 3)
+        return {"segments": segs, "beats": tl.get("beats") or [],
+                "style_pack": tl.get("style_pack"), "duration_s": t, "_src": "timeline"}
+    return {**json.loads((proj / "edl.json").read_text()), "_src": "edl"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
@@ -65,7 +97,10 @@ def main() -> int:
                     help="成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4）")
     a = ap.parse_args()
     proj = Path(a.project).expanduser().resolve()
-    edl = json.loads((proj / "edl.json").read_text())
+    # 真值源优先 timeline.json（v4）。读 edl.json 的话，片段窗口会和成片对不上——
+    # 实测：换了 padding 之后成片 78.6s、edl 还写着 79.0s，字幕归属整片错位，
+    # 报「10 条字幕文字对不上声音」，其实声音和字幕都对，是核对用的窗口是旧的。
+    edl = load_timeline_or_edl(proj)
     if a.style:
         style_path = Path(a.style).expanduser()
     else:
@@ -216,7 +251,7 @@ def main() -> int:
                 "green" if lo > 0.008 else "red",
                 "" if lo > 0.008 else "subs.json 有字幕，但画面上看不到——滤镜没生效")
 
-    fin = json.loads((proj / "edl.json").read_text())
+    fin = load_timeline_or_edl(proj)
     cards_meta = {}
     if (proj / "out" / "cards.json").exists():
         try:
@@ -349,9 +384,12 @@ def main() -> int:
             return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", t or "")
 
         strays = []
+        by_n = {s_["n"]: s_ for _, _, s_ in wins}
         for c in cues:
-            host = next((s_ for a_, b_, s_ in wins
-                         if a_ - 0.05 <= c["start"] < b_), None)
+            host = by_n.get(c.get("el")) if c.get("el") is not None else None
+            if host is None:
+                host = next((s_ for a_, b_, s_ in wins
+                             if a_ - 0.05 <= c["start"] < b_), None)
             if not host:
                 continue
             ev = _bare(host.get("evidence") or "")

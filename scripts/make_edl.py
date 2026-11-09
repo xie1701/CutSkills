@@ -167,7 +167,9 @@ def build_edl(lib: Path, plan, index: dict | None = None, *,
         else:
             ph = (index.get(src, {}).get("transcript") or {}).get("phrases") or []
             text = "".join(x["text"] for x in ph if x["end"] > ain + 0.05 and x["start"] < aout - 0.05)
-        seg["evidence"] = text[:80]
+        # evidence 是「这段到底说了哪些字」，验收拿它核对字幕归属。
+        # 以前截到 80 字，长段落的最后一条字幕就会「对不上」——不是字幕错，是证据被截断了。
+        seg["evidence"] = text[:400]
         seg["chars"] = len(text)
         if beat is not None:
             seg["beat"] = beat
