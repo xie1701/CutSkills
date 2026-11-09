@@ -738,6 +738,17 @@ def infer_beats(dur: float, cuts: list[float], transcript: list[dict],
 
         beats.append({"start": round(a, 2), "end": round(b, 2), "kind": kind, "why": why})
 
+    # 相邻同类合并。不合并会出「… payoff | payoff」这种两段连读——不是剪辑上有两个收束，
+    # 只是中间恰好有一刀被当成了分界。
+    merged: list[dict] = []
+    for b_ in beats:
+        if merged and merged[-1]["kind"] == b_["kind"]:
+            merged[-1]["end"] = b_["end"]
+            merged[-1]["why"] = merged[-1]["why"].rstrip("。") + "；后半段同类，已合并"
+        else:
+            merged.append(dict(b_))
+    beats = merged
+
     note = ("beats 是推断：边界来自 "
             + ("转写里的信号词" if transcript else "切点密度（没有找到转写）")
             + (" + 切点密度突变" if shift else "")
