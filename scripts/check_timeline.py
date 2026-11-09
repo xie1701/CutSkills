@@ -123,15 +123,21 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                     if props.get(k) in (None, "", []):
                         out.append(("error", f"#{n} {tpl} 缺必填 props.{k}"))
                 for k, lim in (spec.get("props") or {}).items():
-                    if lim is None or props.get(k) is None:
+                    v = props.get(k)
+                    if v is None:
                         continue
-                    v = props[k]
+                    if isinstance(lim, dict):          # 嵌套结构：{"title": 6, "value": 10}
+                        if isinstance(v, dict):
+                            for kk, sub_lim in lim.items():
+                                vv = v.get(kk)
+                                if isinstance(vv, str) and len(vv) > int(sub_lim):
+                                    out.append(("error",
+                                                f"#{n} {tpl} props.{k}.{kk} {len(vv)} 字，上限 {sub_lim}"))
+                        continue
+                    if lim is None:
+                        continue
                     if isinstance(v, str) and len(v) > int(lim):
                         out.append(("error", f"#{n} {tpl} props.{k} {len(v)} 字，上限 {lim}"))
-                    if isinstance(v, dict):
-                        for kk, vv in v.items():
-                            if isinstance(vv, str) and len(vv) > int(lim):
-                                out.append(("error", f"#{n} {tpl} props.{k}.{kk} {len(vv)} 字，上限 {lim}"))
                 if el.get("source") != "generated":
                     out.append(("error", f"#{n} 是代码生成的，source 必须写 generated"))
 
@@ -140,7 +146,11 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                 out.append(("warning", f"#{n} 空 {d:.1f}s，超过 2.5s 会以为是卡住了"))
 
     # ---- 全片级
-    total = float(tl.get("duration_s") or sum(element_dur(e) for e in els))
+    seq_total = round(sum(element_dur(e) for e in els if e.get("track") != "overlay"), 3)
+    total = float(tl.get("duration_s") or seq_total)
+    if tl.get("duration_s") is not None and abs(seq_total - total) > 0.1:
+        out.append(("error", f"duration_s 写的是 {total:.2f}s，各格加起来 {seq_total:.2f}s"
+                             f"——时间轴被改过但总长没跟着改"))
     # overlay 那一格是盖在口播上的，不吃时间也不该算进「生成物占比」
     gen_s = sum(element_dur(e) for e in els
                 if e.get("kind") in ("gen", "silence") and e.get("track") != "overlay")

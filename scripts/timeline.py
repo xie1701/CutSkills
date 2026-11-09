@@ -34,8 +34,13 @@ ROLES = {"setup", "claim", "evidence", "warrant", "turn", "payoff"}
 GEN_TEMPLATES = {
     "keyword": {"min_dur": 2.0, "max_dur": 6.0,
                 "props": {"text": 6, "sub": 12, "color": None}, "required": ["text"]},
+    # left/right 是嵌套结构，限额写在字典里：{"title": 6, "value": 10}
     "compare": {"min_dur": 4.0, "max_dur": 8.0,
-                "props": {"left": None, "right": None, "note": 18, "title": 10},
+                # value 上限 12：「同品牌·同工艺·含基层」正好 11 字，这是这句话最短的写法。
+                # 超过 12 字就会在栏里折两行，字号得往下降，两栏就不等重了。
+                "props": {"left": {"title": 6, "value": 12},
+                          "right": {"title": 6, "value": 12},
+                          "note": 18, "title": 10},
                 "required": ["left", "right"]},
     "number":  {"min_dur": 3.0, "max_dur": 6.0,
                 "props": {"value": 6, "label": 14, "unit": 4}, "required": ["value", "label"]},
