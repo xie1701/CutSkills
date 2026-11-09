@@ -6,9 +6,10 @@
 
   ① 同步率    视觉事件（换镜、卡片入场）落在**词/气口边界 ±80ms** 内的比例
   ② 断章率    一口气里被切了几刀（块内部有换镜 = 断章），>1 刀算过切
-  ③ 大字偏移  卡片出现时间 vs 该句**重音点**（块内能量峰值）的偏移
+  ③ 卡片锚词  卡片出现时间 vs 它锚定的那个**词的起点**：必须晚 0~120ms（声音在前）
 
-阈值先按行业经验给：同步率 ≥85%、断章率 ≤15%、大字偏移 ≤120ms。
+阈值：同步率 ≥85%、断章率 ≤25%（参考片自己 24%，见 references/audio-first.md）、
+卡片锚词晚 0~120ms（声音先到，画面跟）。
 **这三个数没有用你的素材校准过**（见 references/audio-first.md 的校准记录）。
 
 用法：
@@ -24,7 +25,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TOL_MS = 80
 PASS_SYNC = 0.85
-PASS_CUT = 0.15
+PASS_CUT = 0.25    # 参考片自己 24%：切在重音上是常态，不是毛病
+PASS_LAG_MS = 120    # 卡片允许比锚定的词晚多少：只许晚，不许早
 PASS_KW_MS = 120
 
 
@@ -94,51 +96,42 @@ def main() -> int:
             broken.append({"block": b["id"], "text": b["text"], "cuts": cuts})
     cut_rate = inside / len(blocks) if blocks else 0.0
 
-    # ③ 大字偏移：卡片该落在重音上，不是落在段首
+    # ③ 卡片锚词：卡片必须**晚于**它锚定的那个词出现，0~120ms。
+    # 原来这条是「大字 vs 重音点，允许 ±120ms」——方向是反的：提前出现就是抢拍。
     cards = (load(proj / "out" / "cards.json") or {}).get("cards") or []
-    kw_all = [c for c in cards if c.get("kind") != "idcard"]
-    # 为了不和 overlay 卡片抢同一秒而主动挪后的大字，单列一栏：
-    # 它不是「没对上」，是「让开了」，拿它算平均偏移等于自己骗自己。
-    kw = [c for c in kw_all if not c.get("deferred_to")]
+    kw_all = [c for c in cards if c.get("kind") != "idcard" and c.get("anchor_t") is not None]
+    kw = [c for c in kw_all if not c.get("deferred_to")]        # 让位给 overlay 的不算
     deferred = [c for c in kw_all if c.get("deferred_to")]
-    offs = []
-    for c in kw:
-        st = float(c["start"])
-        cand = [b for b in blocks if b["t"] - 0.4 <= st <= b["t"] + b["dur"] + 0.4]
-        if not cand:
-            continue
-        b = min(cand, key=lambda b: abs(b["t"] - st))
-        peak = b["t"] + (float(b.get("peak_at") or b["t"]) - float(b["src_start"]))
-        offs.append({"card": c.get("text", "")[:10], "start": round(st, 2),
-                     "peak": round(peak, 2), "off_ms": round((st - peak) * 1000)})
-    mean_off = round(sum(abs(o["off_ms"]) for o in offs) / len(offs)) if offs else None
-    dnote = []
-    for c in deferred:
-        st = float(c["start"])
-        cand = [b for b in blocks if b["t"] - 0.4 <= st <= b["t"] + b["dur"] + 0.4]
-        peak = None
-        if cand:
-            b = min(cand, key=lambda b: abs(b["t"] - st))
-            peak = round(b["t"] + (float(b.get("peak_at") or b["t"]) - float(b["src_start"])), 2)
-        dnote.append({"card": str(c.get("text", ""))[:10], "start": round(st, 2),
-                      "peak": peak, "reason": f"让给 overlay 卡至 {c['deferred_to']}s"})
 
-    # 一张可量的卡都没有时，这一栏判「不适用」（None）而不是「没过」：
-    # 全片只有一块大字、并且它为了给对比屏让位挪后了，这不是偏移失败。
-    kw_state = ("na" if (not offs and deferred) else
-                ("pass" if (mean_off is not None and mean_off <= PASS_KW_MS) else "fail"))
+    def lag_of(c) -> int:
+        return int(round((float(c["start"]) - float(c["anchor_t"])) * 1000))
+
+    lags = [lag_of(c) for c in kw]
+    ok_lag = [x for x in lags if 0 <= x <= PASS_LAG_MS]
+    mean_lag = round(sum(lags) / len(lags)) if lags else None
+    dnote = [{"card": str(c.get("text", ""))[:10], "start": round(float(c["start"]), 2),
+              "lag_ms": lag_of(c), "reason": f"让给 overlay 卡至 {c['deferred_to']}s"}
+             for c in deferred]
+    rows_card = [{"card": str(c.get("text", ""))[:12], "anchor": c.get("anchor_word"),
+                  "lag_ms": lag_of(c), "pass": 0 <= lag_of(c) <= PASS_LAG_MS}
+                 for c in kw]
+
+    # 一张可量的卡都没有时判「不适用」，不是「没过」：全片只有一块卡、
+    # 且它为了给对比屏让位主动挪后了，那不是抢拍失败。
+    kw_state = ("na" if (not lags and deferred) else
+                ("pass" if (lags and len(ok_lag) == len(lags)) else "fail"))
     verdict = {
         "sync_rate": {"value": round(sync, 3), "pass": sync >= PASS_SYNC, "need": PASS_SYNC},
         "cut_inside_rate": {"value": round(cut_rate, 3), "pass": cut_rate <= PASS_CUT, "need": PASS_CUT},
-        "keyword_offset_ms": {"value": mean_off, "state": kw_state, "need": PASS_KW_MS,
-                              "deferred": len(deferred)},
+        "card_lag_ms": {"value": mean_lag, "state": kw_state, "need": [0, PASS_LAG_MS],
+                        "deferred": len(deferred), "cards": rows_card},
     }
     ok = all(v["pass"] for v in verdict.values() if "pass" in v)
 
     rep = {"events": len(ev), "blocks": len(blocks), "tolerance_ms": a.tolerance,
            "verdict": verdict, "ok": ok,
            "worst": sorted(rows, key=lambda r: -r["dev_ms"])[:5],
-           "broken": broken[:5], "keyword": offs[:6]}
+           "broken": broken[:5], "cards": rows_card}
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=1))
     else:
@@ -148,22 +141,23 @@ def main() -> int:
         print(f"断章率　：{cut_rate:.0%}（{inside}/{len(blocks)} 口气里被切了刀，"
               f"需要 ≤{PASS_CUT:.0%}）{'✅' if verdict['cut_inside_rate']['pass'] else '✗'}")
         if kw_state == "na":
-            print(f"大字偏移：不适用（{len(deferred)} 块大字让位给 overlay 卡，"
-                  f"没有可量的卡）")
-        elif mean_off is None:
-            print("大字偏移：没有大字卡，不适用")
+            print(f"卡片锚词：不适用（{len(deferred)} 块卡让位给 overlay，没有可量的卡）")
+        elif mean_lag is None:
+            print("卡片锚词：没有可量的卡片（卡上没写 on 也没有重音点）")
         else:
-            print(f"大字偏移：{mean_off}ms（离重音点，需要 ≤{PASS_KW_MS}ms）"
+            print(f"卡片锚词：平均晚 {mean_lag}ms（要求 0~{PASS_LAG_MS}ms，声音先到）"
                   f"{'✅' if kw_state == 'pass' else '✗'}")
         for r in rep["worst"][:3]:
             print(f"  · {r['t']:6.2f}s {r['kind']:<7}{r['label'][:10]:<10} 差 {r['dev_ms']}ms")
         for b in broken[:3]:
             print(f"  · 断章：{b['text'][:12]}（{len(b['cuts'])} 刀 @ "
                   f"{', '.join(f'{c:.2f}' for c in b['cuts'])}）")
-        for o in offs[:3]:
-            print(f"  · 大字「{o['card']}」{o['start']}s vs 重音 {o['peak']}s → {o['off_ms']:+}ms")
+        for o in rows_card[:5]:
+            w = f"锚「{o['anchor']}」" if o.get("anchor") else "锚重音点"
+            print(f"  · 卡「{o['card']}」{w} 晚 {o['lag_ms']}ms"
+                  f"{'' if o['pass'] else ' ✗'}")
         for d in dnote:
-            print(f"  · 大字「{d['card']}」{d['start']}s（{d['reason']}，重音 {d['peak']}s）——不计入偏移")
+            print(f"  · 大字「{d['card']}」{d['start']}s（{d['reason']}，晚 {d['lag_ms']}ms）——不计入偏移")
         print(f"结论：{'过' if ok else '没过'}")
     return 0 if ok else 1
 

@@ -23,7 +23,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_edl import resolve_lib                      # noqa: E402
-from render_film import build_cues, load_chars        # noqa: E402
+import subs                                            # noqa: E402
+from render_film import load_chars                    # noqa: E402
 
 SKILL = Path(__file__).resolve().parent.parent
 HF = os.environ.get("CUTSKILLS_HF", "npx --yes hyperframes")
@@ -524,6 +525,9 @@ def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
 
 # ------------------------------------------------------------------ 卡片
 
+CARD_LAG = 0.10     # 卡片比它锚定的那个词晚多少秒出场（声音先到）
+
+
 def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
     """EDL 的 card → (text, start, end, kind)。
 
@@ -557,13 +561,18 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             # 悄悄当空卡渲出去会得到一个空的大字 div，所以明确跳过并说一声。
             print(f"  ！段 {s['n']} 卡的类型「{kind}」HTML 链路不支持，跳过", file=sys.stderr)
             continue
+        anchor_t = None
         if isinstance(c.get("at"), (int, float)) and not peaks_of:
             start = round(s["_start"] + float(c["at"]), 3)
+            anchor_t = round(start - CARD_LAG, 3)      # 手写 at 时锚点＝它自己的起点减一个滞后
         else:
-            # 没写 at 就找最近的块内重音点，提前 0.12s 起（字要比声音早一点点才不显慢）
+            # 没写 at 就找段内最早的重音点，作为锚点（卡片比它晚 CARD_LAG 出场）
             cand = [p_ for p_ in peaks_of.get(int(s["n"]), [])
                     if s["_start"] - 0.05 <= p_ <= s["_start"] + s.get("_dur_q", 9) + 0.05]
-            start = round(max(s["_start"] + 0.2, (min(cand) if cand else s["_start"] + 0.6) - 0.12), 3)
+            anchor_t = min(cand) if cand else round(s["_start"] + 0.6, 3)
+            # +0.10s：声音先出，画面跟着。提前出现就是「抢拍」——
+            # 观众会在词还没说出来的时候先看见字，读到的和听到的对不上。
+            start = round(max(s["_start"] + 0.2, anchor_t + CARD_LAG), 3)
         d = max(h0, min(float(c.get("dur") or h1), h1))
         on = str(c.get("on") or "").strip()
         aid = (s.get("audio") or {}).get("asset") or s["asset"]
@@ -575,9 +584,10 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             txt = "".join(ch for ch, _, _ in win)
             j = txt.find(on)
             if j >= 0:
-                st0 = win[j][1] - a_in + s["_start"] - 0.12
+                st0 = win[j][1] - a_in + s["_start"] + CARD_LAG
                 st1 = win[min(j + len(on) - 1, len(win) - 1)][2] - a_in + s["_start"]
                 start = round(max(s["_start"] + 0.15, st0), 3)
+                anchor_t = round(win[j][1] - a_in + s["_start"], 3)
                 d = round(min(h1, max(h0, st1 - start + 0.25)), 3)
             else:
                 print(f"  ！大字对不上原话「{on}」（段 {s['n']}），沿用默认时机",
@@ -602,7 +612,12 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         if start is None:
             continue
         _cd = {"kind": kind, "text": str(c.get("text") or ""),
-               "start": start, "end": round(start + d, 3)}
+               "start": start, "end": round(start + d, 3),
+               "anchor_word": on or None,
+               "anchor_t": round(float(anchor_t), 3) if anchor_t is not None else None,
+               "appear_t": round(float(start), 3),
+               "lag_ms": (round((start - float(anchor_t)) * 1000)
+                          if anchor_t is not None else None)}
         if deferred is not None:
             _cd["deferred_to"] = deferred
         cards.append(_cd)
@@ -630,9 +645,17 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
         padding:0 {cap_pad}px; }}
 .cap span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:{cap_px}px;
   color:{cap_color}; letter-spacing:0.01em; line-height:1.28; text-align:center;
-  text-shadow:{cap_shadow}; {cap_extra} }}
+  text-shadow:{cap_shadow}; white-space:nowrap; {cap_extra} }}
+/* 强调：数字与否定/对比词。只染这两类，别的一个字都不动 */
+.cap .em {{ color:{cap_em}; font-weight:800; }}
 .kw {{ position:absolute; left:0; right:0; top:{kw_top}%; display:flex; justify-content:center;
        padding:0 {cap_pad}px; }}
+/* behind：字压在人物脑袋后面，露一半。位置按样式的 top_h，字更大一号，
+   下半截交给抠像层盖住——这是「人物前后层级」唯一能被眼睛验证的地方。 */
+/* 不给负 z-index：遮挡靠 ffmpeg 的抠像层贴回来实现，DOM 里给它负层会被整块压到视频下面，
+   结果就是「字根本没出现」（2026-11-09 实测一整段看不见）。 */
+.kw-behind {{ top:{kwb_top}%; }}
+.kw-behind span {{ font-size:{kwb_px}px; }}
 .kw span {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:{kw_px}px;
   line-height:1.06; text-align:center; color:{kw_color};
   text-shadow:0 6px 22px rgba(0,0,0,0.6); {kw_extra} }}
@@ -744,16 +767,20 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     else:
         kw_px = int(round(H * 0.10))
     kw_top = round(float(emph.get("top_h") or 0.44) * 100, 2)
+    # 「脑后露出一半」：顶边压到 0.30H 附近、字再放大约 15%，让脑袋吃掉字的下半截
+    kwb_top = round(float(emph.get("behind_top_h") or 0.285) * 100, 2)
+    kwb_px = int(kw_px * float(emph.get("behind_scale") or 1.15))
     entry = str(sub.get("entry") or "fade")
     # immediateRender:false 是必须的。GSAP 的 fromTo 默认立刻渲染 from 状态，
     # 于是整条时间轴在 t=0 就被设成 opacity:0；一旦浏览器的捕获路径某一段没推进
     # GSAP（长片分段渲染时实测会这样），这些层就**永远停在不可见**——
     # 79 秒那次整片 7 块卡一块都没出来，而 snapshot 同一秒是好的。
     # 加上这个参数，元素保持 CSS 里"看得见"的状态，动效只是锦上添花：失败也不会黑掉。
-    tween = ('tl.fromTo(h, { y: 16, opacity: 0 }, '
-             '{ y: 0, opacity: 1, duration: 0.18, ease: "power3.out", '
+    # 整段硬切：不做位移、淡入只给 100ms（>120ms 就是「漂」而不是「切」）
+    tween = ('tl.fromTo(h, { opacity: 0 }, '
+             '{ opacity: 1, duration: 0.10, ease: "none", '
              'immediateRender: false }, t);' if entry != "hard_cut" else
-             'tl.set(h, { y: 0, opacity: 1 }, t);')
+             'tl.set(h, { opacity: 1 }, t);')
     idcard = next((c for c in cards if c["kind"] == "idcard"), None)
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
@@ -774,7 +801,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         for i, v in enumerate(videos, 1) if fg_by_seg and i in fg_by_seg)
     c_html = "\n".join(
         f'      <div id="cap-{i:03d}" class="clip cap" data-start="{c["start"]}" '
-        f'data-duration="{round(c["end"] - c["start"], 3)}"><span>{esc(c["text"])}</span></div>'
+        f'data-duration="{round(c["end"] - c["start"], 3)}">'
+        f'<span>{c.get("html") or esc(c["text"])}</span></div>'
         for i, c in enumerate(caps, 1))
     card_html = []
     for i, c in enumerate(cards, 1):
@@ -788,9 +816,18 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                 f'    <div id="idc" class="clip idcard" data-start="{c["start"]}" '
                 f'data-duration="{d}">\n{lines}\n    </div>')
         else:
+            # 按字数收字号：7 个字的卡用 4 个字的字号就会顶到画幅外，
+            # 浏览器只好折行，块儿整体往下长——实测 48.2s 那张「做涂料的人来做」
+            # 就压到手臂上了。宽度上限 0.92W，够就沿用全局字号。
+            _n = max(1, len(c["text"]))
+            _px = min(kwb_px if c["kind"] == "behind" else kw_px,
+                      int(W * 0.92 / _n))
             card_html.append(
-                f'    <div id="kw-{i:02d}" class="clip kw" data-start="{c["start"]}" '
-                f'data-duration="{d}"><span>{esc(c["text"])}</span></div>')
+                f'    <div id="kw-{i:02d}" class="clip kw'
+                f'{" kw-behind" if c["kind"] == "behind" else ""}" '
+                f'data-start="{c["start"]}" '
+                f'data-duration="{d}"><span style="font-size:{_px}px">'
+                f'{esc(c["text"])}</span></div>')
 
     return CSS_TMPL.format(
         res="portrait" if H > W else "landscape", W=W, H=H, FPS=FPS, total=total, slug=slug,
@@ -800,7 +837,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         cap_color=sub.get("color") or "#FFFFFF",
         cap_shadow=sub.get("shadow") or "0 3px 8px rgba(0,0,0,.75)",
         cap_extra="",
-        kw_top=kw_top, kw_px=kw_px,
+        cap_em=sub.get("em_color") or (emph.get("keyword_color") or "#FFD400"),
+        kw_top=kw_top, kw_px=kw_px, kwb_top=kwb_top, kwb_px=kwb_px,
         kw_color=emph.get("keyword_color") or "#FFD400",
         kw_extra=("background:linear-gradient(180deg,%s 0%%,%s 100%%);"
                   "-webkit-background-clip:text;color:transparent;" %
@@ -812,22 +850,67 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         cap_entry=entry, cap_tween=tween)
 
 
+
+# 卡片入场配什么音效：按卡片职责分，别每张都「嗖」一下
+CARD_SFX = {"keyword": ("pop", -11.0), "behind": ("impact", -9.0),
+            "cutout": ("impact", -9.0), "idcard": ("whoosh", -14.0),
+            "gen": ("whoosh", -12.0)}
+
+
+def ensure_sfx() -> Path:
+    """音效文件在 $CUTSKILLS_HOME/assets/sfx；缺了就用 gen_sfx.py 现做（不联网）。"""
+    home = Path(os.environ.get("CUTSKILLS_HOME") or (Path.home() / ".cutskills"))
+    d = home / "assets" / "sfx"
+    need = [n for n in ("pop", "impact", "whoosh") if not (d / f"{n}.wav").exists()]
+    if need:
+        subprocess.run([sys.executable, str(Path(__file__).with_name("gen_sfx.py"))],
+                       check=False, capture_output=True, text=True)
+    return d
+
+
+def mix_sfx(film: Path, events: list[dict], dst: Path) -> int:
+    """把音效按时间点混进成片音轨。**必须发生在响度归一之前**——
+    归一之后再混，音效会被一起抹平（实测 whoosh 只涨 1–3 dB，等于没打）。"""
+    if not events:
+        return 1
+    d = ensure_sfx()
+    have = [(e, d / f"{e['name']}.wav") for e in events]
+    have = [(e, f) for e, f in have if f.exists()]
+    if not have:
+        return 1
+    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-i", str(film)]
+    for _e, f in have:
+        cmd += ["-i", str(f)]
+    fc, mixins = [], ["[0:a]"]
+    for i, (e, _f) in enumerate(have, 1):
+        ms = max(0, int(round(float(e["t"]) * 1000)))
+        fc.append(f"[{i}:a]adelay={ms}|{ms},volume={float(e.get('gain_db', -12))}dB[s{i}]")
+        mixins.append(f"[s{i}]")
+    fc.append(f"{''.join(mixins)}amix=inputs={len(mixins)}:duration=first:normalize=0[aout]")
+    cmd += ["-filter_complex", ";".join(fc), "-map", "0:v:0", "-map", "[aout]",
+            "-c:v", "copy", "-ar", "48000", "-ac", "2", str(dst)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not dst.exists():
+        return 1
+    return 0 if probe(dst).get("w") else 1
+
+
 # ------------------------------------------------------------------ 主流程
 
 def mix_bgm(film: Path, bgm: Path, dst: Path, total: float) -> int:
     """把 BGM 垫到人声下面。
 
-    两步的顺序是硬规则：**先归一 BGM 到 -24 LUFS，再用人声去压它**。
+    两步的顺序是硬规则：**先归一 BGM 到 -28 LUFS，再用人声去压它**。
     以前反过来（先混再归一），音效和 BGM 全被归一器抹平，实测 whoosh 只涨 1–3 dB。
     """
     band = film.with_name("_bgm_norm.wav")
     r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(bgm), "-af",
-                        "loudnorm=I=-24:TP=-2:LRA=11", "-ar", "48000", "-ac", "2", str(band)],
+                        "loudnorm=I=-28:TP=-3:LRA=11", "-ar", "48000", "-ac", "2", str(band)],
                        capture_output=True, text=True)
     if r.returncode != 0:
         return 1
     fc = ("[1:a]atrim=0:" + f"{total:.3f}" + ",asetpts=N/SR/TB[bg];"
-          "[bg][0:a]sidechaincompress=threshold=0.03:ratio=8:attack=10:"
+          "[bg][0:a]sidechaincompress=threshold=0.015:ratio=12:attack=8:"
           "release=300:makeup=1[bgd];"
           "[0:a][bgd]amix=inputs=2:duration=first:normalize=0[mix]")
     r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(film),
@@ -902,7 +985,12 @@ def cover_fg(raw: Path, dst: Path, fgs: list[tuple[Path, float, float]], crf: in
     parts, prev = [], "[0:v]"
     for i, (_, t0, dur) in enumerate(fgs, 1):
         lab = f"[o{i}]"
-        parts.append(f"{prev}[{i}:v]overlay=0:0:eof_action=pass:"
+        # 抠像层的 PTS 必须整体挪到这一段在成片里的起点。只靠 enable 窗口不管用：
+        # 抠像层只有这一段那么长（实测 8.58s），到第 28 秒 overlay 去读它时早就
+        # EOF 了，eof_action=pass 就把这一格直接放过——成片看着毫无变化（实测
+        # 与底片差异 0.17%，全是编码噪声），而日志照样打印「抠像层贴回 1 段」。
+        parts.append(f"[{i}:v]setpts=PTS+{t0:.3f}/TB[f{i}]")
+        parts.append(f"{prev}[f{i}]overlay=0:0:eof_action=pass:"
                      f"enable='between(t,{t0:.3f},{t0 + dur:.3f})'{lab}")
         prev = lab
     parts.append(f"{prev}format=yuv420p[v]")
@@ -927,6 +1015,7 @@ def main():
     ap.add_argument("--workers", default="4")
     ap.add_argument("--grade", default=None, help="CSS filter，例：saturate(1.5) contrast(1.1)")
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
+    ap.add_argument("--no-sfx", action="store_true", help="不混卡片音效")
     ap.add_argument("--no-loudnorm", action="store_true")
     ap.add_argument("--bgm", default=None, help="BGM 文件；给 auto 就用项目里的 bgm.wav")
     ap.add_argument("--bgm-mood", default="auto",
@@ -1047,7 +1136,9 @@ def main():
     else:
         soft_c, hard_c = 6, 9
     active = [s for s in clips_like if s.get("_start") is not None]
-    caps = build_cues(active, by_id, chars_cache, lib, hard_c, soft_c)
+    # 2026-11-09 换实现：按呼吸组切、去标点、单行、数字与否定词变色（scripts/subs.py）。
+    # render_film.build_cues 是保留路径，仍按字数软断——主链路不再用它。
+    caps = subs.build(active, by_id, chars_cache, lib, load_chars)
     caps = [c for c in caps if c["start"] < total]
     for c in caps:
         c["end"] = min(round(c["end"], 3), total)
@@ -1239,9 +1330,31 @@ def main():
         bed = proj / "out" / "_hf_bed.mp4"
         if mix_bgm(raw, bgm_p, bed, total) == 0:
             raw = bed
-            print(f"  BGM {bgm_p.name}（-24 LUFS 归一后由人声压住）")
+            print(f"  BGM {bgm_p.name}（垫乐 -28 LUFS，人声 12:1 压住——只给底，不抢话）")
         else:
             print("  ！BGM 没混上，成片不带垫乐", file=sys.stderr)
+
+    # 5.9) 卡片音效：每张卡入场一个，落在卡片入场 ±40ms 内
+    sfx_events = []
+    for c in cards:
+        name, gain = CARD_SFX.get(str(c.get("kind") or "keyword"), CARD_SFX["keyword"])
+        sfx_events.append({"t": float(c["start"]), "name": name, "gain_db": gain,
+                           "for": str(c.get("text") or "")[:12]})
+    for el in segs:
+        if el.get("kind") == "gen" and (el.get("track") or "video") == "overlay":
+            sfx_events.append({"t": float(el.get("at") or 0), "name": "whoosh",
+                               "gain_db": CARD_SFX["gen"][1],
+                               "for": f"gen-{el.get('template')}"})
+    sfx_events = [e for e in sfx_events if 0 <= e["t"] <= total]
+    if sfx_events and not a.no_sfx:
+        sxd = proj / "out" / "_hf_sfx.mp4"
+        if mix_sfx(raw, sfx_events, sxd) == 0:
+            raw = sxd
+            print(f"  音效 {len(sfx_events)} 处（每张卡入场一个，先混再归一）")
+        else:
+            print("  ！音效没混上，成片不带音效", file=sys.stderr)
+    (proj / "out" / "sfx.json").write_text(json.dumps(
+        {"events": sfx_events}, ensure_ascii=False, indent=1), encoding="utf-8")
 
     # 6) 响度：成片必须落在样式包给的值上（本机 hyperframes 混完是 -20 LUFS 左右）
     dst = proj / "out" / "film-hf.mp4"

@@ -161,9 +161,14 @@ def to_style(pack: dict, W: int, H: int, FPS: int) -> dict:
     variant = (pack.get("variant_yield_to_footage") or {}) if sub.get("band_center_h") else {}
     band = float(sub.get("band_center_h") or variant.get("band_center_h") or 0.86)
     glyph = float(sub.get("glyph_h_ratio") or variant.get("glyph_h_ratio") or 0.045)
-    chars = sub.get("chars_per_line") or [8, 12]
+    chars = sub.get("chars_per_line") or [
+        int(sub.get("chars_soft") or 8),
+        int(sub.get("max_chars_per_line") or 12),
+    ]
     if isinstance(chars, list):
-        soft, hard = int(chars[0]), min(int(chars[0]) + 3, int(chars[-1]))
+        # hard 就是模板写的上限，别再被 soft+3 压回去（曾把 14 压成 11，
+        # 于是字幕明明合规也被判黄）。
+        soft, hard = int(chars[0]), int(chars[-1])
     else:
         soft = hard = int(chars)
 

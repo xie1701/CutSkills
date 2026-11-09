@@ -67,7 +67,8 @@ python3 scripts/bgm_gen.py --project <项目> --mood auto     # 按 brief 挑情
 python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频：谱质心 <350Hz 就是闷
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
-python3 scripts/sync_check.py --project <项目>              # 声画同步率/断章率/大字偏移
+python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
+python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/单行 10–14 字/强调色/硬切
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
@@ -94,6 +95,9 @@ python3 scripts/golden.py
 细节、数字与阈值来由见 [references/audio-first.md](references/audio-first.md)。
 
 观点怎么先定下来（主张 → 证据 → 缺口 → 要不要倒序）见 [references/thesis.md](references/thesis.md)。
+卡片为什么「只许晚不许早」、大字怎么压到人物脑后关、每张卡配什么音效，见
+[references/audio-first.md](references/audio-first.md)；字幕五条规矩与实现见
+[references/subtitle-rules.md](references/subtitle-rules.md)。
 
 ### 第 3 层的关键：一格可以是「造出来的」
 

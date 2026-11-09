@@ -287,10 +287,28 @@ def main() -> int:
                 continue
             kind = str(c.get("kind") or "card")
             if kind in ("keyword", "behind", "cutout"):
-                share = color_share(im, kw_hex, (0, int(H * 0.28), W, int(H * 0.76)))
-                add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
-                    "green" if share > 0.004 else "red",
-                    "" if share > 0.004 else
+                # 只在窗口中点取一帧会撞上入场动画的半路（擦显才到一半、字刚出来三分一），
+                # 实测同一块字中点 0.02%、往后 0.1s 就 0.13%——一帧定生死会寃红。
+                # 取窗口内的三帧取最大值：只要曾经完整上过屏，就算它上了。
+                share = 0.0
+                for frac in (0.35, 0.6, 0.85):
+                    tt = min(dur - 0.05, a_ + (b_ - a_) * frac)
+                    im_ = frame_at(tt, f"card{c.get('el')}{frac}", "RGB")
+                    if im_ is None:
+                        continue
+                    share = max(share, color_share(
+                        im_, kw_hex, (0, int(H * 0.28), W, int(H * 0.76))))
+                if im_ is None:
+                    continue
+                # behind 卡是故意被人挡住的，可见墨迹天然远少于 keyword：
+                # 实测同一块字，keyword 在 0.4% 上下，behind 只剩 0.13%（人挡住大半）。
+                # 拿 keyword 的门槛要求 behind 只会永远报红；这里只判「字确实在画面上」，
+                # 遮挡多少交给成片看，不假装能从一个数里量出来。
+                floor = 0.0008 if kind in ("behind", "cutout") else 0.004
+                label = "大字烧进画面（可见部分）" if floor < 0.004 else "大字烧进画面"
+                add(label, f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
+                    "green" if share > floor else "red",
+                    "" if share > floor else
                     f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
             elif kind == "idcard":
                 whites = color_share(im, "#FFFFFF", (0, 0, W, int(H * 0.42)), tol=40)
@@ -317,9 +335,10 @@ def main() -> int:
                 if kind in ("keyword", "behind", "cutout"):
                     share = color_share(im, kw_hex,
                                         (0, int(H * 0.30), W, int(H * 0.74)))
+                    floor = 0.0008 if kind in ("behind", "cutout") else 0.004
                     add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
-                        "green" if share > 0.004 else "red",
-                        "" if share > 0.004 else
+                        "green" if share > floor else "red",
+                        "" if share > floor else
                         f"EDL 里有大字「{card.get('text')}」，画面 {kw_hex} 色几乎为零")
                 else:
                     px = list(im.crop((0, 760, W, 1040)).getdata())

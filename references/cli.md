@@ -340,6 +340,14 @@
 | `--tolerance-from` | 反推：要多宽的窗口才能让这支片自己达到这个同步率 |
 | `--json` | 开关 |
 
+### `check_subs.py`
+*CutSkills · 字幕裁判：去标点 / 呼吸组 / 单行宽度 / 强调色 / 硬切。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--json` | 开关 |
+
 ### `check_timeline.py`
 *CutSkills · 校验 timeline.json（v4 元素时间轴）。*
 
@@ -513,6 +521,7 @@
 | `--workers` | （默认 '4'） |
 | `--grade` | CSS filter，例：saturate(1.5) contrast(1.1) |
 | `--no-render` | 只生成 HTML 并 lint |
+| `--no-sfx` | 不混卡片音效 |
 | `--no-loudnorm` | 开关 |
 | `--bgm` | BGM 文件；给 auto 就用项目里的 bgm.wav |
 | `--bgm-mood` | auto＝按 brief 里讲的事挑情绪（默认）；也可指定（默认 'auto'） |
@@ -552,6 +561,11 @@
 | `--out` | **必填**　输出 JSON 路径 |
 | `--transcript` | 可选：SRT/VTT/JSON 转写；不给就自动找同名字幕或 _cutskills/index.json |
 | `--json-only` | 不打印人类可读的表 |
+
+### `subs.py`
+*CutSkills · 字幕：按呼吸组切、去标点、单行、强调词变色。*
+
+（无参数）
 
 ### `sync_check.py`
 *CutSkills · 声画同步裁判：Audio-First 唯一能算的那三个数。*

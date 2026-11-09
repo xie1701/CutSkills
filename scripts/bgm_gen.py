@@ -48,27 +48,27 @@ MOODS = {
               "root": 196.00,                       # G3：人声基频区上方，不跟口播抢
               "chords": [[0, 4, 7, 12], [7, 11, 14, 19], [9, 12, 16, 19], [5, 9, 12, 17]],
               "bpm": 96, "pulse": [0, 2], "sparkle": 12,
-              "levels": {"pad": 0.34, "pluck": 0.13, "bass": 0.12}},
+              "levels": {"pad": 0.34, "pluck": 0.14, "bass": 0.09, "bell": 0.09}},
     "warm": {"label": "暖 · 轻",
              "root": 174.61,
              "chords": [[0, 4, 7, 12], [5, 9, 12, 16], [7, 11, 14, 19], [0, 4, 7, 12]],
              "bpm": 84, "pulse": [0], "sparkle": 12,
-             "levels": {"pad": 0.36, "pluck": 0.11, "bass": 0.13}},
+             "levels": {"pad": 0.36, "pluck": 0.12, "bass": 0.10, "bell": 0.08}},
     "minimal": {"label": "极简 · 稳",
                 "root": 146.83,
                 "chords": [[0, 7, 12], [0, 7, 10, 15]],
                 "bpm": 88, "pulse": [0], "sparkle": 12,
-                "levels": {"pad": 0.30, "pluck": 0.07, "bass": 0.10}},
+                "levels": {"pad": 0.30, "pluck": 0.08, "bass": 0.08, "bell": 0.07}},
     "tense": {"label": "低音 · 紧（拆穿/风险才用）",
               "root": 110.00,
               "chords": [[0, 1, 7], [0, 1, 6]],
               "bpm": 100, "pulse": [0, 1.5], "sparkle": 0,
-              "levels": {"pad": 0.26, "pluck": 0.12, "bass": 0.20}},
+              "levels": {"pad": 0.26, "pluck": 0.12, "bass": 0.20, "bell": 0.0}},
     "hopeful": {"label": "明亮 · 上行",
                 "root": 220.00,
                 "chords": [[0, 4, 7, 12], [2, 7, 11, 14], [4, 9, 12, 16], [0, 4, 7, 12]],
                 "bpm": 96, "pulse": [0, 1, 2, 3], "sparkle": 12,
-                "levels": {"pad": 0.28, "pluck": 0.18, "bass": 0.10}},
+                "levels": {"pad": 0.28, "pluck": 0.19, "bass": 0.08, "bell": 0.11}},
 }
 DEFAULT_MOOD = "clear"
 
@@ -92,19 +92,46 @@ def auto_mood(text: str) -> tuple[str, str]:
     return DEFAULT_MOOD, "需求里没有明显的情绪词，用默认的「讲清楚」"
 
 
+# 每条层的频段整形曲线：(频率Hz, 增益dB)。FFT 上改增益，等价于一段线性相位 EQ。
+# 为什么必须分层做：第一版把所有层混进一条再处理，150–400Hz 占了 36–46% 的能量——
+# 那正是口播男声的主体频段，垫乐压在这里，听感就是「闷、糊、人声不突出」。
+SHAPES = {
+    "pad": [(60, -48), (120, -26), (200, -22), (300, -12), (450, 0), (900, 0),
+            (2000, -2), (4000, -6), (8000, -14)],
+    "bass": [(0, 0), (110, 0), (150, -8), (220, -26), (400, -60)],
+    "pluck": [(0, -40), (350, -20), (600, 0), (3000, 0), (6000, -8)],
+    "bell": [(0, -30), (1200, -6), (2000, 0), (5000, 0), (9000, -10)],
+}
+
+
+def shape(x, points) -> "object":
+    """按 (频率, dB) 折线在频域改增益。FFT 一次性算完，不吃 CPU。"""
+    import numpy as np
+    n = len(x)
+    pad = 1 << 14                                  # 频域相乘会有循环卷积，垫一段空白隔开
+    xx = np.concatenate([x, np.zeros(pad, dtype="float32")])
+    spec = np.fft.rfft(xx)
+    fr = np.fft.rfftfreq(len(xx), 1 / SR)
+    pts = sorted(points)
+    freqs = np.array([max(20.0, p[0]) for p in pts])
+    gains = np.array([p[1] for p in pts])
+    curve = np.interp(np.clip(fr, freqs[0], freqs[-1]), freqs, gains)
+    return np.fft.irfft(spec * (10 ** (curve / 20)), n=len(xx))[:n].astype("float32")
+
+
 def synth(mood: str, dur: float) -> list[float]:
     import numpy as np
     m = MOODS[mood]
     n = int(SR * dur)
     t = np.arange(n) / SR
-    out = np.zeros(n, dtype="float32")
+    layers = {k: np.zeros(n, dtype="float32") for k in ("pad", "bass", "pluck", "bell")}
 
-    def note(freq: float, start: float, length: float, gain: float, shape: str = "pad") -> None:
+    def note(freq: float, start: float, length: float, gain: float, kind: str = "pad") -> None:
         a, b = int(start * SR), int(min(dur, start + length) * SR)
         if b <= a or gain <= 0:
             return
         tt = np.arange(b - a) / SR
-        if shape == "pad":
+        if kind == "pad":
             # 三角波的四次谐波叠加：多加 4/5 次谐波是为了把谱质心抬到人耳敏感的区间，
             # 第一版只有 1/2/3 次，量出来 165Hz——那是低频嗡嗡，不是垫乐。
             w = (np.sin(2 * np.pi * freq * tt) * 0.55
@@ -113,15 +140,19 @@ def synth(mood: str, dur: float) -> list[float]:
                  + np.sin(2 * np.pi * freq * 4 * tt) * 0.05
                  + np.sin(2 * np.pi * freq * 5 * tt) * 0.03)
             env = np.minimum(1.0, tt / 0.45) * np.minimum(1.0, (length - tt) / 0.7)
-        elif shape == "pluck":                   # 高八度的短拨：给节奏一个「点」，不占低频
+        elif kind == "pluck":                   # 高八度的短拨：给节奏一个「点」，不占低频
             w = (np.sin(2 * np.pi * freq * tt) * 0.8
                  + np.sin(2 * np.pi * freq * 2 * tt) * 0.25
                  + np.sin(2 * np.pi * freq * 3 * tt) * 0.10)
             env = np.minimum(1.0, tt / 0.008) * np.exp(-tt * 5.5)
+        elif kind == "bell":                     # 高八度的铃：只为了「亮」，声音很小
+            w = (np.sin(2 * np.pi * freq * tt) * 0.6
+                 + np.sin(2 * np.pi * freq * 2.76 * tt) * 0.25)
+            env = np.minimum(1.0, tt / 0.004) * np.exp(-tt * 2.2)
         else:                                    # bass：只做点缀，不铺底
             w = np.sin(2 * np.pi * freq * tt) + 0.12 * np.sin(2 * np.pi * freq * 2 * tt)
             env = np.minimum(1.0, tt / 0.2) * np.exp(-tt * 1.4)
-        out[a:b] += (w * env * gain).astype("float32")
+        layers[kind][a:b] += (w * env * gain).astype("float32")
 
     bar = 60.0 / m["bpm"] * 4
     beat = bar / 4
@@ -134,23 +165,20 @@ def synth(mood: str, dur: float) -> list[float]:
         # 低音只在小节线下来一下，长度不到一拍——垫底成持续音就会变闷。
         note(m["root"] / 2, i * bar, beat * 0.9, m["levels"]["bass"], "bass")
         sp = m.get("sparkle") or 0
+        # 每小节第一拍补一颗高八度铃：给「亮」，不占中频
+        note(m["root"] * 4, i * bar, 1.2, m["levels"].get("bell", 0.0), "bell")
         for k in m.get("pulse") or []:
             note(m["root"] * 2 ** (sp / 12), i * bar + k * beat, 0.45,
                  m["levels"]["pluck"], "pluck")
         i += 1
 
-    # 80Hz 高通（一阶）：砍掉次低频的「嗡嗡」，别的都留着。
-    rc = 1.0 / (2 * 3.141592653589793 * 80.0)
-    alpha = rc / (rc + 1.0 / SR)
-    hp = np.empty_like(out)
-    prev_in = 0.0
-    prev_out = 0.0
-    for j in range(n):
-        x = float(out[j])
-        y = alpha * (prev_out + x - prev_in)
-        hp[j] = y
-        prev_in, prev_out = x, y
-    out = hp
+    # 各层先按自己的频段整形，再混——这样「泥」是构造出来的，不是事后 EQ 修出来的
+    out = np.zeros(n, dtype="float32")
+    for k, buf in layers.items():
+        if not np.any(buf):
+            continue
+        out += shape(buf, SHAPES[k])          # 层内增益已经乘过了，这里只整形再相加
+    out = shape(out, [(0, 0), (2500, 0), (3500, 3), (9000, 2), (16000, -4)])
     # 轻微的呼吸起伏：0.1 Hz 慢摆，避免整段一样平
     out *= (0.94 + 0.06 * np.sin(2 * np.pi * 0.1 * t)).astype("float32")
     peak = float(np.max(np.abs(out))) or 1.0
@@ -173,6 +201,7 @@ def analyze(path: Path) -> int:
     fr = np.fft.rfftfreq(seg, 1 / sr)
     tot = spec.sum() or 1.0
     low = spec[fr < 120].sum() / tot
+    mud = spec[(fr >= 150) & (fr < 400)].sum() / tot     # 口播男声的主体频段
     high = spec[fr >= 1000].sum() / tot
     centroid = float((spec * fr).sum() / tot)
     rms = float(np.sqrt((a ** 2).mean()))
@@ -183,12 +212,14 @@ def analyze(path: Path) -> int:
     print(f"{path.name}：{len(a)/sr:.1f}s")
     print(f"  谱质心 {centroid:.0f} Hz{'✅' if ok_cen else '✗'}（350–1000，低于 350 就闷）")
     print(f"  ≤120Hz 占比 {low:.3f}{'✅' if ok_low else '✗'}（≤0.20）")
+    print(f"  150–400Hz「泥」{mud:.3f}{'✅' if mud <= 0.20 else '✗'}（≤0.20：这段是口播男声的主频，"
+          f"垫乐压在这里就是闷）")
     print(f"  ≥1kHz 占比 {high:.3f}{'✅' if high >= 0.05 else '✗'}（≥0.05 才有「亮」）")
     print(f"  RMS {20*np.log10(max(rms, 1e-9)):.1f} dBFS")
     if not ok_low:
         print("  提示：低频这么重只有一种正当理由——你在用 tense（拆穿/风险）。"
               "讲清楚、讲道理、讲故事都别用它。")
-    return 0 if (ok_low and ok_cen) else 1
+    return 0 if (ok_low and ok_cen and mud <= 0.20) else 1
 
 
 def write_wav(path: Path, samples: list[float]) -> None:
