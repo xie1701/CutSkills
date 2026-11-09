@@ -140,7 +140,7 @@ def probe_color(path: Path) -> dict:
 
 def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
                 crf: int = 16, W: int = 1080, H: int = 1920,
-                grade: str = "") -> None:
+                grade: str = "", aud: tuple[Path, float, float] | None = None) -> None:
     """自己切一段：HDR 走 zscale 色调映射，旋转由 ffmpeg 自动应用。
 
     `-ss` 放在 `-i` 前面（快，从关键帧起解到位置再丢），`-t` 给时长。
@@ -161,12 +161,23 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
     if grade:
         vf.append(grade)
     vf.append(f"fps={fps}")
-    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{t0:.3f}", "-i", str(src),
-           "-t", f"{t1 - t0:.3f}", "-vf", ",".join(vf),
-           "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
-           "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
-           "-color_trc", "bt709", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-           "-movflags", "+faststart", str(dst)]
+    # **声音可以从另一支素材来**（`audio` 字段）。这是整条链路最容易被忽略的一层：
+    # B-roll 的画面是打磨机，声音必须是他的口播，不是打磨机的环境声。
+    # 以前 HTML 链路没做这件事，结果整片 B-roll 段只剩环境声 + 字幕——
+    # Jerry 一看片就发现了（「只有字幕和原 B-roll 片段的声音」）。
+    dur = round(t1 - t0, 3)
+    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{t0:.3f}", "-i", str(src)]
+    if aud:
+        a_src, a0, _a1 = aud
+        cmd += ["-ss", f"{a0:.3f}", "-i", str(a_src)]
+    cmd += ["-t", f"{dur:.3f}", "-vf", ",".join(vf),
+            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+            "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
+            "-color_trc", "bt709"]
+    if aud:
+        cmd += ["-map", "0:v:0", "-map", "1:a:0", "-shortest"]
+    cmd += ["-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-movflags", "+faststart", str(dst)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not dst.exists():
         raise SystemExit(f"切片失败：{src.name} {t0}-{t1}\n{(r.stderr or '')[-900:]}")
@@ -348,9 +359,15 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
         if not src.exists():
             raise SystemExit(f"素材不存在：{src}")
         use_own = extractor == "own" or (extractor == "auto" and has_zscale())
+        aud = None
+        a = seg.get("audio") or {}
+        if a.get("asset") and (a["asset"] != aid or float(a.get("in", 0)) != float(seg["in"])):
+            a_src = lib / a["asset"]
+            if a_src.exists():
+                aud = (a_src, float(a.get("in") or 0), float(a.get("out") or 0))
         if use_own:
             extract_own(src, float(seg["in"]), float(seg["out"]), dst,
-                        W=int(W), H=int(H), fps=int(FPS), grade=grade or "")
+                        W=int(W), H=int(H), fps=int(FPS), grade=grade or "", aud=aud)
         else:
             r = subprocess.run(
                 [*HF.split(), "measure", "extract", str(src),

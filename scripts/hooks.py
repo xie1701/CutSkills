@@ -55,21 +55,35 @@ def pick_conclusion(plan: dict | None, index: dict) -> dict | None:
 
 
 def pick_scene(index: dict) -> dict | None:
-    """B 现场切入：找一段 must-use、有运动、时长够的 B-roll。"""
-    best = None
+    """B 现场切入：找一段**单主体、有动作、够长**的 must-use 画面。
+
+    第一版只看「动作描述多长」，结果挑到一段固定机位中景——前景一个人在翻手机、
+    背景人字梯上还有一个人。Jerry 的原话是「人太多比较混乱」。所以这里改成按
+    可拍性打分：人少、景别近、有真实动作，三条都算分，人多扣分。
+    """
+    MOVE = ("打磨", "倒料", "摊料", "刮平", "喷涂", "搅拌", "切割", "滚涂", "除尘", "上墙")
+    best: tuple[float, dict] | None = None
     for rec in index.values():
         for sg in rec.get("l2") or rec.get("segments") or []:
             if sg.get("grade") != "must-use" or not sg.get("action"):
                 continue
             span = float(sg.get("out", 0)) - float(sg.get("in", 0))
-            if span < 1.6:
+            if span < 3.0:
                 continue
-            score = len(str(sg.get("action"))) + (2 if sg.get("shot") in ("detail", "close") else 0)
-            if not best or score > best[0]:
+            people = sg.get("people") or []
+            score = 0.0
+            score += 3.0 if len(people) <= 1 else (0.0 if len(people) == 2 else -2.0)
+            score += {"detail": 2.5, "close": 2.0, "pov": 1.5}.get(str(sg.get("shot")), 0.0)
+            score += 2.0 if any(w in str(sg.get("action")) for w in MOVE) else 0.0
+            if "固定机位" in str(sg.get("summary") or ""):
+                score -= 1.0
+            score += min(1.5, span / 6)
+            if best is None or score > best[0]:
                 best = (score, {"kind": "clip", "asset": rec["id"], "in": float(sg["in"]),
-                                "out": round(float(sg["in"]) + min(HOOK_MAX_S, span), 3),
+                                "out": round(float(sg["in"]) + min(5.8, span), 3),
                                 "medium": "broll", "source": "library",
-                                "why": "现场切入：先给最硬的画面，人后出"})
+                                "why": f"现场切入：{len(people)} 人 · {sg.get('shot')} · "
+                                       f"{str(sg.get('action'))[:18]}"})
     return best[1] if best else None
 
 
@@ -86,7 +100,7 @@ def pick_gen(brief: dict) -> dict:
             "why": "反差提问：把观众现在的想法直接打在画面上，制造「说的就是我」"}
 
 
-def build(proj: Path, lib: Path, index: dict) -> dict:
+def build(proj: Path, lib: Path, index: dict, keep_chosen: str | None = None) -> dict:
     brief = load(proj / "brief.json") or {}
     plan = load(proj / "plan.json")
     cands = []
@@ -109,7 +123,7 @@ def build(proj: Path, lib: Path, index: dict) -> dict:
         c["duration_s"] = total
     return {"version": 1, "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             "basis": {k: brief.get(k) for k in ("audience", "audience_present_state", "change")},
-            "candidates": cands, "chosen": None}
+            "candidates": cands, "chosen": keep_chosen}
 
 
 def render_one(proj: Path, lib: Path, cand: dict, style: str) -> Path | None:
@@ -188,7 +202,9 @@ def main() -> int:
         raise SystemExit("先跑 brief.py：钩子要对着「他现在信什么」做，不然三个候选都在猜")
     style = a.style or brief.get("style_pack") or "talking-head-v1"
 
-    h = build(proj, lib, idx)
+    # 重跑候选不许把已定的选择冲掉——冲掉了 decisions.md 说「定 B」、hooks.json 说空，
+    # 良率卡就会撒谎说「没做 A/B」。
+    h = build(proj, lib, idx, keep_chosen=(load(hp) or {}).get("chosen"))
     hp.write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"前 3 秒候选 {len(h['candidates'])} 个 → {hp}")
     for c in h["candidates"]:

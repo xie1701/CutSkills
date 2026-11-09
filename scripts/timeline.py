@@ -225,7 +225,20 @@ def build_timeline(lib: Path, plan, *, brief: dict | None = None, style: dict | 
         index = {}
 
     # 1) 能进 build_edl 的（有素材、有进出的）先走老算法：吸附字界、留 padding、相邻让位。
-    clip_plan = [p for p in segs_in if kind_of(p) == "clip"]
+    clip_plan = []
+    for p in segs_in:
+        if kind_of(p) != "clip":
+            continue
+        q = dict(p)
+        # v4 写的是嵌套 `audio: {asset,in,out}`，build_edl 认的是摊平的
+        # `audio_asset / audio_in / audio_out`（v2 约定）。这里只做一次翻译，
+        # 不让两套写法在同一个仓库里并存——否则每加一种元素都要翻译一遍。
+        a = q.pop("audio", None)
+        if isinstance(a, dict) and a.get("asset"):
+            q.setdefault("audio_asset", a["asset"])
+            q.setdefault("audio_in", a.get("in"))
+            q.setdefault("audio_out", a.get("out"))
+        clip_plan.append(q)
     sub_plan = {"segments": clip_plan,
                 "beats": [{"n": n, "title": t} for n, t in (beat_titles or {}).items()]}
     edl, probs = build_edl(lib, sub_plan)

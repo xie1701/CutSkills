@@ -120,15 +120,19 @@ def verdict(v: dict, tl: dict, blind: dict | None, hook: dict | None) -> tuple[s
         bad.append("缺 warrant（只说证据不说理）")
     if blind and not blind.get("passed"):
         bad.append("盲测没过（读者说不出同一句话）")
-    if hook and not hook.get("passed"):
+    if hook and hook.get("passed") is False:
         bad.append("前 3 秒 A/B 没过")
+    elif hook and hook.get("chosen") and hook.get("passed") is None:
+        bad.append(f"前 3 秒选了 {hook['chosen']}，但没真人验过（只能算「看着还行」）")
     if not blind:
         bad.append("没做盲测")
-    if not hook:
+    if not hook or (not hook.get("chosen") and hook.get("passed") is None):
         bad.append("没做前 3 秒 A/B")
     if not bad:
         return "可发", []
-    severe = bool(v.get("red")) or (blind and not blind.get("passed")) or (hook and not hook.get("passed"))
+    severe = (bool(v.get("red"))
+              or bool(blind and not blind.get("passed"))
+              or bool(hook and hook.get("passed") is False))
     return ("不可发" if severe else "可发但记着"), bad
 
 
@@ -158,7 +162,8 @@ def main() -> int:
         "form": {k: verify.get(k) for k in ("green", "yellow", "red")},
         "timeline": tl, "subs": subs,
         "blind": {"passed": blind.get("passed"), "agree": blind.get("agree")} if blind else None,
-        "hook": {"passed": hook.get("passed"), "winner": hook.get("winner")} if hook else None,
+        "hook": ({"passed": hook.get("passed"), "winner": hook.get("chosen") or hook.get("winner")}
+                 if hook else None),
         "gaps": gaps_count(proj), "decisions": decisions_count(proj),
     }
 
@@ -186,7 +191,9 @@ def main() -> int:
            f" · 生成物 {tl.get('gen_ratio', 0):.0%} |" if tl else "| 结构 | 没有 timeline.json |",
            f"| 字幕 | {subs.get('cues', '—')} 条 · 均 {subs.get('avg_chars', '—')} 字 |",
            f"| 盲测 | {'过' if (blind or {}).get('passed') else ('没过' if blind else '没做')} |",
-           f"| 前 3 秒 A/B | {'过' if (hook or {}).get('passed') else ('没过' if hook else '没做')} |",
+           f"| 前 3 秒 A/B | " + ("过" if (hook or {}).get("passed") else
+                                ("没过" if (hook or {}).get("passed") is False else
+                                 (f"选了 {hook['chosen']}，未验" if (hook or {}).get("chosen") else "没做"))) + " |",
            f"| 内容缺口 | {card['gaps']} 条待补 |",
            f"| 人工决定 | {card['decisions']} 条 |", ""]
     if prev:
