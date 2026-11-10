@@ -1,0 +1,82 @@
+# 包装包 · 五子系统（subtitle / mg / fx / frame / look）+ tokens
+# 换包装只换这个文件，不许动 plans/ 与 timeline 的时间。
+name: P3-dark
+label: 暗调 · 大字即字幕
+canvas:
+  width: 1080
+  height: 1920
+  fps: 30
+grade: dark_punch
+subtitle:
+  font: NotoSansSC-SemiBold
+  size_px: 88
+  weight: ExtraBold
+  color: '#F5F7FA'
+  shadow: 0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9)
+  center_y_px: 1294
+  safe_bottom_px: 300
+  max_chars_per_line: 14
+  hold_min_s: 0.75
+  hold_max_s: 2.4
+  density_per_min:
+  - 45
+  - 58
+  entry: hard_cut
+  colorize_emphasis: false
+emphasis:
+  font: NotoSansSC-Black
+  grammars:
+  - big_keyword
+  - strikethrough
+  - quote
+  keyword_color: '#39D0C4'
+  negation_color: '#FF6B4A'
+  big_keyword_px:
+  - 133
+  - 304
+  fit_width: 0.82
+  top_h: 0.3
+  max_one_action_per_caption: true
+shots:
+  talking_median_s: 2.4
+  max_single_shot_s: 12
+  medium_change_within_s: 40
+sfx:
+  density_per_min:
+  - 3
+  - 7
+  placement: on_cut_only
+  tolerance_frames: 2
+  bgm: none_or_very_low
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  cut_fade_ms: 30
+  duck_db: 12
+card:
+  bottom_edge_max_px: 1080
+tokens:
+  palette:
+    ground: '#0B0C0E'
+    ink: '#F5F7FA'
+    accent: '#39D0C4'
+    accent2: '#FF6B4A'
+  type:
+    display: NotoSansSC-Black
+    body: NotoSansSC-Regular
+  radius: 2
+  stroke: 1
+  shadow: glow
+subtitle_system:
+  id: none
+  desc: 无字幕层：大字即字幕，每屏 ≤10 字、单排、停留 ≥1.2s
+  max_chars: 10
+  hold_min_s: 1.2
+fx:
+- morph_carry
+- sweep
+- particles
+frame:
+  id: full-pip
+  desc: 全屏代码画面，人物右下 PiP（B 轴默认版式）
+look_notes: 暗调：近黑底、单强调色、无字幕层（大字即字幕）。每屏 ≤10 字、单排、停留 ≥1.2s，适合强观点、短句节奏。

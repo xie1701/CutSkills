@@ -145,7 +145,7 @@
       "suits": "实拍为主、温暖真实的产品/施工内容",
       "needs": "素材本身色调不崩（我们要做削波检查）",
       "caveat": "跟「高级感」拉不开差距；同一批片连出 5 条会显得像模板",
-      "preview": null,
+      "preview": "styles/previews/P1-warm.jpg",
       "status": "ready"
     },
     {
@@ -179,7 +179,7 @@
       "suits": "品牌、设计、文化类；需要「有人味儿」的时候",
       "needs": "双语字幕要人工校一遍英文（机器翻的不上片）",
       "caveat": "实拍画面要降饱和才跟纸底合得上，暖调素材会发灰",
-      "preview": null,
+      "preview": "styles/previews/P2-paper.jpg",
       "status": "planned"
     },
     {
@@ -214,7 +214,7 @@
       "suits": "知识、科技、抽象概念；也适合 B 轴剧情场景",
       "needs": "每句话都要能压到 10 字以内（原文长就得改写）；实拍素材要有可压暗的余地",
       "caveat": "最冒险的一套：没有字幕层，读不清就全盘失守；观众静音看会很吃力",
-      "preview": null,
+      "preview": "styles/previews/P3-dark.jpg",
       "status": "planned"
     }
   ]

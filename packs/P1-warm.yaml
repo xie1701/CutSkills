@@ -1,0 +1,80 @@
+# 包装包 · 五子系统（subtitle / mg / fx / frame / look）+ tokens
+# 换包装只换这个文件，不许动 plans/ 与 timeline 的时间。
+name: P1-warm
+label: 暖实拍（现行）
+canvas:
+  width: 1080
+  height: 1920
+  fps: 30
+grade: warm_high_sat
+subtitle:
+  font: NotoSansSC-SemiBold
+  size_px: 80
+  weight: ExtraBold
+  color: '#FFFFFF'
+  shadow: 0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9)
+  center_y_px: 1294
+  safe_bottom_px: 300
+  max_chars_per_line: 14
+  hold_min_s: 0.75
+  hold_max_s: 2.4
+  density_per_min:
+  - 45
+  - 58
+  entry: hard_cut
+  colorize_emphasis: false
+emphasis:
+  font: NotoSansSC-Black
+  grammars:
+  - big_keyword
+  - strikethrough
+  - quote
+  keyword_color: '#F6EB34'
+  negation_color: '#C1121F'
+  big_keyword_px:
+  - 133
+  - 304
+  fit_width: 0.7
+  top_h: 0.3
+  max_one_action_per_caption: true
+shots:
+  talking_median_s: 2.4
+  max_single_shot_s: 12
+  medium_change_within_s: 40
+sfx:
+  density_per_min:
+  - 3
+  - 7
+  placement: on_cut_only
+  tolerance_frames: 2
+  bgm: none_or_very_low
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  cut_fade_ms: 30
+  duck_db: 12
+card:
+  bottom_edge_max_px: 1080
+tokens:
+  palette:
+    ground: '#1A1410'
+    ink: '#FFFFFF'
+    accent: '#F6EB34'
+    accent2: '#C1121F'
+  type:
+    display: NotoSansSC-Black
+    body: NotoSansSC-SemiBold
+  radius: 18
+  stroke: 0
+  shadow: soft-down
+fx:
+- hard_cut
+- nudge_in
+- cover_fg
+frame:
+  id: full
+  desc: 全屏口播，卡在上三分之一
+subtitle_system:
+  id: single-line
+  desc: 单行 80px、无标点、硬切
+look_notes: 现行基线：黑底暖金、思源黑体、单行白字幕、大字在脑后。取自 20 支参考片的中位观感——暖、实、不抢话。

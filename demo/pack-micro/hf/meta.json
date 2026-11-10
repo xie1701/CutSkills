@@ -1,0 +1,15 @@
+{
+ "from": "timeline.json",
+ "style": "P3-dark",
+ "elements": 2,
+ "clips": 0,
+ "gen": 2,
+ "total_s": 6.0,
+ "captions": 0,
+ "cards": 0,
+ "fonts": {
+  "sub": "NotoSansSC-SemiBold.ttf",
+  "big": "NotoSansSC-Black.ttf"
+ },
+ "engine": "hyperframes"
+}

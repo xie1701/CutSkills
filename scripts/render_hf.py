@@ -105,6 +105,10 @@ GRADE = {
     # 一项，是 contrast 1.10 + gamma 0.85 把亮度压下去之后**相对彩度被进一步放大**。
     # 参考片同口径：S均 0.485 / p90 0.840 / luma 0.421；这条链落在 0.501 / 0.770 / 0.444。
     "warm_high_sat": "eq=saturation=0.90:contrast=1.00:gamma=0.94:brightness=-0.040",
+    # 纸感：低饱和、稍亮、对比略降（纸底要亮，画面要退到纸后面）
+    "paper_neutral": "eq=saturation=0.72:contrast=0.96:gamma=1.04:brightness=0.020",
+    # 暗调：压暗、抬对比、保住高光（暗底单强调色，画面要沉下去）
+    "dark_punch": "eq=saturation=0.86:contrast=1.12:gamma=0.86:brightness=-0.070",
 }
 
 # HLG / PQ → 场景线性（npl=100 是把 100% 白当参考）→ hable 压到 SDR 亮度 → bt709。
@@ -225,41 +229,42 @@ def el_dur(el: dict) -> float:
 
 GEN_CSS = """
 .gen { position:absolute; inset:0; display:flex; flex-direction:column;
-       justify-content:center; align-items:center; background:#14110f; color:#fff;
+       justify-content:center; align-items:center; background:var(--ground,#14110f); color:var(--ink,#fff);
        padding:0 88px; text-align:center; }
 .gen .big { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.04;
             letter-spacing:0.01em; }
 .gen .sm { font-family:"SC-Sub",sans-serif; font-weight:600; line-height:1.4;
-           color:rgba(255,255,255,0.82); }
+           color:var(--ink,#fff); opacity:0.78; }
 .gen .cols { display:flex; width:100%; gap:40px; align-items:stretch; }
 .gen .col { flex:1; display:flex; flex-direction:column; justify-content:center;
-            gap:18px; padding:48px 24px; border-radius:18px; background:rgba(255,255,255,0.06); }
-.gen .col.hi { background:rgba(246,235,52,0.14); outline:2px solid rgba(246,235,52,0.55); }
+            gap:18px; padding:48px 24px; border-radius:var(--radius,18px);
+            background:color-mix(in srgb, var(--ink,#fff) 8%, transparent); }
+.gen .col.hi { outline:var(--stroke,2px) solid var(--accent,#F6EB34); outline-offset:0; }
 .gen .row { display:flex; align-items:baseline; gap:26px; width:100%; }
-.gen .bar { height:38px; border-radius:6px; background:#F6EB34; }
-.gen .chn { font-family:"SC-Big",sans-serif; font-weight:900; color:#F6EB34;
+.gen .bar { height:38px; border-radius:var(--radius,6px); background:var(--accent,#F6EB34); }
+.gen .chn { font-family:"SC-Big",sans-serif; font-weight:900; color:var(--accent,#F6EB34);
             opacity:0.92; line-height:1; }
-.gen .num { font-family:"SC-Big",sans-serif; font-weight:900; color:#F6EB34; line-height:1; }
+.gen .num { font-family:"SC-Big",sans-serif; font-weight:900; color:var(--accent,#F6EB34); line-height:1; }
 .gen blockquote { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.3; }
 .gen cite { font-family:"SC-Sub",sans-serif; font-style:normal; opacity:0.7; }
 .gen ol { list-style:none; width:100%; display:flex; flex-direction:column; gap:26px; }
 .gen ol li { display:flex; gap:26px; align-items:baseline; }
-.gen ol li b { font-family:"SC-Big",sans-serif; color:#F6EB34; }
+.gen ol li b { font-family:"SC-Big",sans-serif; color:var(--accent,#F6EB34); }
 .gen .fcol { display:flex; flex-direction:column; gap:34px; width:100%; align-items:flex-start; }
 .gen .fnode { display:flex; align-items:center; gap:24px; position:relative; }
-.gen .fnode .dot { width:26px; height:26px; border-radius:50%; background:#F6EB34; flex:0 0 26px;
-                   box-shadow:0 0 0 6px rgba(246,235,52,0.16); }
+.gen .fnode .dot { width:26px; height:26px; border-radius:50%; background:var(--accent,#F6EB34);
+                   flex:0 0 26px; box-shadow:0 0 0 6px rgba(246,235,52,0.16); }
 .gen .fnode::after { content:""; position:absolute; left:12px; top:26px; width:2px; height:34px;
-                     background:linear-gradient(180deg,rgba(246,235,52,.55),rgba(246,235,52,0));
+                     background:var(--accent,#F6EB34); opacity:.32;
                      transform-origin:top; }
 .gen .fnode:last-child::after { display:none; }
 .gen .lstack { display:flex; flex-direction:column; gap:12px; width:100%; }
-.gen .layer { border-radius:14px; padding:26px 26px; text-align:left; color:#fff;
+.gen .layer { border-radius:var(--radius,14px); padding:26px 26px; text-align:left; color:var(--ink,#fff);
               background:linear-gradient(160deg,rgba(255,255,255,0.16),rgba(255,255,255,0.07));
               border:1px solid rgba(255,255,255,0.10); }
 .gen .layer .ltxt { font-family:"SC-Sub",sans-serif; font-weight:600; }
 .gen-ov { inset:auto 56px auto 56px; top:50%; transform:translateY(-50%);
-          background:rgba(14,12,10,0.88); border-radius:26px; padding:64px 48px;
+          background:var(--ground,#0e0c0a); opacity:.94; border-radius:var(--radius,26px); padding:64px 48px;
           box-shadow:0 24px 60px rgba(0,0,0,0.55); backdrop-filter:blur(2px); }
 """
 
@@ -718,6 +723,9 @@ CSS_TMPL = """<!doctype html>
 <title>{slug}</title>
 <!-- 由 scripts/render_hf.py 从 edl.json 生成；改剪辑去改 EDL，别手改这个文件 -->
 <style>
+/* 包装 token → CSS 变量。只有一条规矩：变量只喂「穿什么」，不喂「什么时候」。
+   代码画出来的格子（.gen）以前颜色是写死的 #F6EB34，换包不换脸——那是假的换装。 */
+:root {{ {pack_vars} }}
 @font-face {{ font-family: "SC-Sub"; src: url("assets/fonts/{fr}"); font-weight: 600; }}
 @font-face {{ font-family: "SC-Big"; src: url("assets/fonts/{fb}"); font-weight: 900; }}
 * {{ margin:0; padding:0; box-sizing:border-box; }}
@@ -869,6 +877,17 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
              'immediateRender: false }, t);' if entry != "hard_cut" else
              'tl.set(h, { opacity: 1 }, t);')
     idcard = next((c for c in cards if c["kind"] == "idcard"), None)
+    # 包装 token → CSS 变量串。缺省值取 warming 那套（P1），所以老样式包不写 tokens 也照跑。
+    _tk = style.get("tokens") or {}
+    _pal = _tk.get("palette") or {}
+    pack_vars = " ".join([
+        f"--ground:{_pal.get('ground') or '#1A1410'};",
+        f"--ink:{_pal.get('ink') or '#FFFFFF'};",
+        f"--accent:{_pal.get('accent') or emph.get('keyword_color') or '#F6EB34'};",
+        f"--accent2:{_pal.get('accent2') or '#C1121F'};",
+        f"--radius:{int(_tk.get('radius') or 18)}px;",
+        f"--stroke:{max(1, int(_tk.get('stroke') or 2))}px;",
+    ])
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
 
@@ -942,7 +961,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                   "-webkit-background-clip:text;color:transparent;" %
                   tuple((emph.get("gradient") or ["#FFE53B", "#FFB000"])[:2])
                   if emph.get("gradient") else ""),
-        idc_x=idc_x, idc_y=idc_y,
+        pack_vars=pack_vars, idc_x=idc_x, idc_y=idc_y,
         videos=v_html, caps=c_html, cards="\n".join(card_html), fg=fg_html,
         s_html=s_html, a_html=a_html,
         gens="\n".join(gens or []), gen_css=GEN_CSS,
@@ -1212,10 +1231,15 @@ def main():
     lib = resolve_lib(proj, a.library)
     elements, tl_src = load_elements(proj)
 
-    name = a.style or json.loads((proj / ("timeline.json" if tl_src == "timeline.json"
-                                           else "edl.json")).read_text()).get("style_pack") \
-        or "talking-head-v1"
-    style_path = SKILL / "styles" / f"{name}.yaml"
+    # 三正交里的「包装」：timeline.pack → packs/<id>.yaml；老项目没有 pack 就退回 styles/<style_pack>.yaml。
+    # 这条顺序很重要——包装换了只换分层参数，**不许碰时间**（判据 41：换 look 切点序列不变）。
+    tl_doc = json.loads((proj / ("timeline.json" if tl_src == "timeline.json"
+                                 else "edl.json")).read_text())
+    pack_id = str(tl_doc.get("pack") or "").strip()
+    name = a.style or (pack_id if pack_id and (SKILL / "packs" / f"{pack_id}.yaml").exists()
+                       else None) or tl_doc.get("style_pack") or "talking-head-v1"
+    style_path = (SKILL / "packs" / f"{name}.yaml") if (SKILL / "packs" / f"{name}.yaml").exists() \
+        else (SKILL / "styles" / f"{name}.yaml")
     if not style_path.exists():
         raise SystemExit(f"样式包不存在：{style_path}")
     style = yaml.safe_load(style_path.read_text())

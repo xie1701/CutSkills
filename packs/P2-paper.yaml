@@ -1,0 +1,82 @@
+# 包装包 · 五子系统（subtitle / mg / fx / frame / look）+ tokens
+# 换包装只换这个文件，不许动 plans/ 与 timeline 的时间。
+name: P2-paper
+label: 纸感 · 双语双行
+canvas:
+  width: 1080
+  height: 1920
+  fps: 30
+grade: paper_neutral
+subtitle:
+  font: NotoSerifSC-Regular
+  size_px: 72
+  weight: ExtraBold
+  color: '#1F1B16'
+  shadow: 0 1px 0 rgba(255,255,255,.6)
+  center_y_px: 1294
+  safe_bottom_px: 300
+  max_chars_per_line: 14
+  hold_min_s: 0.75
+  hold_max_s: 2.4
+  density_per_min:
+  - 45
+  - 58
+  entry: hard_cut
+  colorize_emphasis: false
+emphasis:
+  font: NotoSerifSC-Bold
+  grammars:
+  - big_keyword
+  - strikethrough
+  - quote
+  keyword_color: '#B4552D'
+  negation_color: '#8C2F1E'
+  big_keyword_px:
+  - 133
+  - 304
+  fit_width: 0.7
+  top_h: 0.3
+  max_one_action_per_caption: true
+shots:
+  talking_median_s: 2.4
+  max_single_shot_s: 12
+  medium_change_within_s: 40
+sfx:
+  density_per_min:
+  - 3
+  - 7
+  placement: on_cut_only
+  tolerance_frames: 2
+  bgm: none_or_very_low
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  cut_fade_ms: 30
+  duck_db: 12
+card:
+  bottom_edge_max_px: 1080
+tokens:
+  palette:
+    ground: '#F2EDE3'
+    ink: '#1F1B16'
+    accent: '#B4552D'
+    accent2: '#4A6B57'
+  type:
+    display: NotoSerifSC-Bold
+    body: NotoSerifSC-Regular
+  radius: 6
+  stroke: 2
+  shadow: none
+subtitle_system:
+  id: bilingual
+  desc: 中文主行 72px + 英文小字 34px，两行固定高度
+  en_size_px: 34
+  en_color: '#6B635A'
+fx:
+- page_turn
+- note_drop
+- hard_cut
+frame:
+  id: split
+  desc: 图文双栏：左画面右卡（竖屏下改为上画面下卡）
+look_notes: 纸感：米白纸底、深墨字、宋体、双语双行。同一条口播换成「一页纸」的气质，适合解释型、资料型内容。

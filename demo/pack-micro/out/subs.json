@@ -1,0 +1,15 @@
+{
+ "cues": [],
+ "band": [
+  1034,
+  1554
+ ],
+ "font": "NotoSansSC-SemiBold",
+ "size": 88,
+ "overflow": [],
+ "speech_chars": 0,
+ "avg_chars": 0,
+ "chars_per_s": 0,
+ "colorize": false,
+ "engine": "hyperframes"
+}

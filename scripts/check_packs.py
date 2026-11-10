@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""CutSkills · 包装包裁判：三套「衣服」的合同测试。
+
+包装包（`packs/*.yaml`）是三个正交维度里的第二个。它只许决定**穿什么**，
+不许决定**骨架**。这条约束不靠自觉，靠两个检查：
+
+  ① 结构合法 —— 必填 token 齐、字体在盘上、`grade` 在 GRADE 表里、
+     `subtitle_system.id` 在枚举里、`fx` 是认得的原语。
+  ② 不含时间字段 —— 递归扫，出现 `tempo / cut / dur / beat / plan / 时间` 一类键
+     直接判红。包装包一旦能改时间，「换 look 不动切点」就是句空话。
+
+再加一条**渲染级**证据（`--project` 给了才跑）：把同一份时间轴分别按每个包
+渲一次 HTML（`--no-render`，不跑浏览器），从产物里把视频轨每格的
+`data-start / data-duration` 抽出来，逐包比对——序列必须**完全一致**。
+
+用法：
+  check_packs.py                      # 只查结构
+  check_packs.py --project demo/pack-micro --library <素材库>   # 连切点一起查
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+SUBTITLE_SYSTEMS = {"single-line", "bilingual", "none"}
+KNOWN_FX = {
+    "hard_cut", "nudge_in", "cover_fg", "page_turn", "note_drop", "wipe",
+    "type_on", "count_up", "draw_line", "blur_in", "shake", "none",
+}
+# 方案里点了名、代码还没做的原语。声明可以先行，但必须显形——不能像以前那样
+# 「fx 里写了什么」和「片子会做什么」是两件互不相干的事。
+PLANNED_FX = {"morph_carry", "sweep", "particles"}
+# 这些键名一出现就说明包装包伸到骨架里去了
+TIMING_KEYS = {
+    "tempo", "tempos", "band", "target_median_s", "cv_min", "cut", "cuts",
+    "cut_s", "dur", "duration", "duration_s", "beat", "beats", "shot_logic",
+    "plan", "plans", "spacing", "hold_s", "start", "end",
+}
+# 例外：帧率是画布属性，不是切点。画布 30fps 和「第几秒切」是两回事。
+TIMING_EXEMPT = {"canvas.fps"}
+FONT_DIR = Path.home() / "Library" / "Fonts"
+HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def walk_keys(obj, path="") -> list[tuple[str, str]]:
+    out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            out.append((f"{path}.{k}" if path else str(k), str(k)))
+            out += walk_keys(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            out += walk_keys(v, f"{path}[{i}]")
+    return out
+
+
+def check_schema(pid: str, pack: dict, grades: set[str]) -> tuple[list[str], list[str]]:
+    err, warn = [], []
+
+    def need(cond, msg):
+        if not cond:
+            err.append(msg)
+
+    need(pack.get("id") in (None, pid) or str(pack.get("id")) == pid,
+         f"id 写的是 {pack.get('id')}，但文件名是 {pid}")
+
+    tok = pack.get("tokens") or {}
+    need(bool(tok), "没有 tokens（palette / type / radius / stroke / shadow）")
+    pal = tok.get("palette") or {}
+    for k in ("ground", "ink", "accent"):
+        need(k in pal, f"tokens.palette 缺 {k}")
+        if k in pal:
+            need(bool(HEX_RE.match(str(pal[k]))), f"tokens.palette.{k} 不是 #RRGGBB：{pal[k]}")
+    typ = tok.get("type") or {}
+    for k in ("display", "body"):
+        need(k in typ, f"tokens.type 缺 {k}")
+        if k in typ:
+            f = FONT_DIR / f"{typ[k]}.ttf"
+            need(f.exists(), f"字体不在盘上：{f}")
+    need("radius" in tok, "tokens 缺 radius")
+    need("stroke" in tok, "tokens 缺 stroke")
+
+    sy = pack.get("subtitle_system") or {}
+    sid = sy.get("id") if isinstance(sy, dict) else sy
+    need(sid in SUBTITLE_SYSTEMS, f"subtitle_system 不认识：{sid}（可选 {sorted(SUBTITLE_SYSTEMS)}）")
+
+    fx = pack.get("fx") or []
+    bad_fx = [x for x in fx if x not in KNOWN_FX | PLANNED_FX]
+    need(not bad_fx, f"fx 里有不认识的原语：{bad_fx}")
+    planned = [x for x in fx if x in PLANNED_FX]
+    if planned:
+        warn.append(f"fx 里这几个还没做：{planned}（声明先行，但那几样效果现在不会发生）")
+
+    g = pack.get("grade")
+    if g:
+        need(g in grades, f"grade={g} 不在 render_hf.GRADE 里（可选 {sorted(grades)}）")
+
+    # ② 时间字段
+    hits = [(p, k) for p, k in walk_keys(pack) if k in TIMING_KEYS and p not in TIMING_EXEMPT]
+    need(not hits, "包装包里混进了时间字段（包装不许动切点）：" + "、".join(f"{p}" for p, _ in hits[:5]))
+
+    # 提示级：这套包靠什么活
+    if sid == "none" and not (pack.get("emphasis") or {}).get("big_keyword_px"):
+        warn.append("字幕系统是 none，但没给大字尺寸——等于什么字都没有")
+    if not pack.get("look_notes"):
+        warn.append("没写 look_notes：后面的人不知道这套包为什么这么配色")
+    return err, warn
+
+
+VID_RE = re.compile(r'<div class="([^"]*)"[^>]*?data-start="([\d.]+)"[^>]*?data-duration="([\d.]+)"')
+
+
+def cut_list(html: str) -> list[tuple[float, float]]:
+    """视频轨每格的 (start, dur)。只认带 clip 的格：字幕/卡片层本来就该随包变。"""
+    out = []
+    for cls, st, du in VID_RE.findall(html):
+        toks = cls.split()
+        if "clip" in toks:
+            out.append((round(float(st), 3), round(float(du), 3)))
+    return out
+
+
+def render_cuts(project: Path, pack: str, library: str | None) -> list[tuple[float, float]] | None:
+    cmd = [sys.executable, str(ROOT / "scripts" / "render_hf.py"),
+           "--project", str(project), "--style", pack, "--no-render", "--force"]
+    if library:
+        cmd += ["--library", library]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  {pack} 渲 HTML 失败：\n" + "\n".join((r.stdout + r.stderr).splitlines()[-6:]))
+        return None
+    idx = project / "hf" / "index.html"
+    if not idx.exists():
+        print(f"  {pack} 没找到 {idx}")
+        return None
+    return cut_list(idx.read_text())
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--packs", nargs="*", default=None)
+    ap.add_argument("--project", default=None, help="给了就顺手验「换 look 不动切点」")
+    ap.add_argument("--library", default=None)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from render_hf import GRADE  # noqa: E402
+
+    files = ([ROOT / "packs" / f"{p}.yaml" for p in a.packs] if a.packs
+             else sorted((ROOT / "packs").glob("*.yaml")))
+    report, ok = {}, True
+    for f in files:
+        if not f.exists():
+            print(f"没有 {f}")
+            ok = False
+            continue
+        pid = f.stem
+        pack = yaml.safe_load(f.read_text()) or {}
+        err, warn = check_schema(pid, pack, set(GRADE))
+        ok &= not err
+        report[pid] = {"error": err, "warning": warn,
+                       "subtitle_system": (pack.get("subtitle_system") or {}).get("id")
+                       if isinstance(pack.get("subtitle_system"), dict) else pack.get("subtitle_system"),
+                       "grade": pack.get("grade"), "fx": pack.get("fx") or []}
+        mark = "✅" if not err else "✗"
+        print(f"{mark} {pid}  字幕体系 {report[pid]['subtitle_system']} · "
+              f"调色 {pack.get('grade') or '不调'} · fx {'/'.join(pack.get('fx') or []) or '无'}")
+        for e in err:
+            print(f"    ✗ {e}")
+        for w in warn:
+            print(f"    ! {w}")
+
+    # ② 渲染级：同一份时间轴，逐包比切点
+    if a.project:
+        proj = Path(a.project).expanduser().resolve()
+        base = None
+        print(f"\n换 look 不动切点（{proj.name}）：")
+        for pid in report:
+            cuts = render_cuts(proj, pid, a.library)
+            if cuts is None:
+                ok = False
+                continue
+            if base is None:
+                base = cuts
+                print(f"  基准 {pid}：{len(cuts)} 格 " + " ".join(f"{s:.2f}+{d:.2f}" for s, d in cuts[:4])
+                      + (" …" if len(cuts) > 4 else ""))
+                continue
+            same = cuts == base
+            ok &= same
+            print(f"  {'✅' if same else '✗'} {pid}：{len(cuts)} 格"
+                  + ("" if same else f"，和基准不一样：{cuts[:4]}"))
+            report[pid]["cuts_match"] = same
+
+    if a.json:
+        print(json.dumps(report, ensure_ascii=False, indent=1))
+    print(f"\n结论：{'过' if ok else '没过'}")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
