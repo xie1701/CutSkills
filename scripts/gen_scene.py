@@ -198,10 +198,16 @@ def _text_at(d: ImageDraw.ImageDraw, W: int, H: int, text: str, xf: float, yf: f
     d.text((xf * W - tw / 2 - bb[0], yf * H - th / 2 - bb[1]), text, font=f, fill=fill)
 
 
-def _plaster(d: ImageDraw.ImageDraw, W: int, H: int, box, alpha: int) -> None:
-    """竖着的抹痕——墙是人一刀一刀抹出来的，横纹会被人读成地板。"""
+def _plaster(d: ImageDraw.ImageDraw, W: int, H: int, box, alpha: int,
+             prog: float = 1.0) -> None:
+    """竖着的抹痕——墙是人一刀一刀抹出来的，横纹会被人读成地板。
+
+    prog：抹到几成。一次全出来等于「已经抹好了」，画面就少了一半的意思——
+    上墙这件事的本体是**一刀一刀覆盖过去**。
+    """
     x0, y0, x1, y1 = box
     n = 26
+    n = max(1, int(round(n * min(1.0, max(0.0, prog)))))
     for j in range(n):
         x = x0 + (x1 - x0) * (j + 0.5) / n
         wob = math.sin(j * 2.7) * (x1 - x0) * 0.004
@@ -444,7 +450,179 @@ def scene_measure(t: float, W: int, H: int, dur: float) -> Image.Image:
     return im
 
 
-SCENES = {"phase": scene_phase, "pour": scene_pour, "measure": scene_measure}
+# ---------------------------------------------------------------- 四原语
+# 前三支场景各是一部片一个函数，谁也复用不了谁。P3 把它们拆成四样可组合的东西：
+#
+#   subject    谁在变——**同一块几何体**，id 恒定，从第一幕活到最后一幕
+#   state      变成什么——一组外观（填充色 / 粗糙度 / 光泽 / 标签）
+#   transition 怎么变——原地变（morph）/ 浇上去（pour）/ 干（dry）
+#   camera     镜头——**一条连续曲线**，从第一幕到最后不切、不回正
+#
+# 两个原语合起来就够演一件事，四个原语合起来能演一条线。承接通（「这一段像不像
+# PPT 翻页」）就是靠 subject 不变 + camera 连续天然成立的，不靠临时加转场。
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Subject:
+    id: str
+    quad: tuple = ((0.22, 0.24), (0.78, 0.24), (0.78, 0.62), (0.22, 0.62))
+
+    def px(self, W: int, H: int, cam: "Camera", k: float) -> list[tuple[float, float]]:
+        z, dy = cam.at(k)
+        out = []
+        for xf, yf in self.quad:
+            out.append((W * (0.5 + (xf - 0.5) * z), H * (0.5 + (yf - 0.5) * z + dy)))
+        return out
+
+
+@dataclass(frozen=True)
+class State:
+    name: str
+    fill: tuple
+    grain: float = 0.5       # 0..1 表面颗粒：石头粗、膏体细
+    gloss: float = 0.0       # 0..1 反光：干的东西不反光
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class Camera:
+    """一条连续曲线。zoom / dy 都是「从 k=0 到 k=1」的两端，中间 ease。
+
+    为什么不做运镜组合：一次推近只持续一句（这是 20 支参考片上量出来的），
+    连续场景里一句话就是 8 秒以上，所以一条曲线正好，切碎了反而像演习。
+    """
+    zoom: tuple = (1.0, 1.16)
+    dy: tuple = (0.0, 0.025)
+
+    def at(self, k: float) -> tuple[float, float]:
+        e = ease(k)
+        return (self.zoom[0] + (self.zoom[1] - self.zoom[0]) * e,
+                self.dy[0] + (self.dy[1] - self.dy[0]) * e)
+
+
+def _grain_alpha(st: State, t: float, i: int) -> int:
+    """颗粒是确定性的：同一帧永远同一颗，重渲能对上。"""
+    h = (i * 2654435761) % 1000 / 1000.0
+    wob = 0.5 + 0.5 * math.sin(t * 2.2 + h * 9.0)
+    return int(max(0, min(255, 150 * st.grain * (0.35 + 0.65 * wob))))
+
+
+def draw_subject(d: ImageDraw.ImageDraw, W: int, H: int, pts, st: State,
+                 t: float, *, plaster: float = 0.0,
+                 outline=(255, 255, 255, 26)) -> None:
+    d.polygon(pts, fill=(*st.fill, 255))
+    # 颗粒：只在面里撒，撒到外面就像噪点而不是材质
+    x0 = min(p[0] for p in pts); x1 = max(p[0] for p in pts)
+    y0 = min(p[1] for p in pts); y1 = max(p[1] for p in pts)
+    n = int(360 * st.grain * (x1 - x0) * (y1 - y0) / (W * H))
+    for i in range(n):
+        fx = ((i * 7919) % 997) / 997.0
+        fy = ((i * 6151) % 991) / 991.0
+        d.point((x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy), fill=(0, 0, 0, _grain_alpha(st, t, i)))
+    if plaster > 0:
+        _plaster(d, W, H, (x0, y0, x1, y1), 46, plaster)
+    if st.gloss > 0:
+        # 光泽：一条斜向亮带，位置随时间极慢地扫——停着不动会被看成画上去的
+        gw = (x1 - x0) * 0.55
+        gx = x0 + (x1 - x0) * (0.12 + 0.12 * math.sin(t * 0.9))
+        d.polygon([(gx, y0), (gx + gw, y0), (gx + gw * 0.55, y1), (gx - gw * 0.15, y1)],
+                  fill=(255, 255, 255, int(30 * st.gloss)))
+    d.line([*pts, pts[0]], fill=outline, width=2)
+
+
+def scene_lime(t: float, W: int, H: int, dur: float) -> Image.Image:
+    """一块石灰基艺术涂料的一生（B 轴第一支 demo）。
+
+    三幕，**同一块东西**：
+      一·出身   石灰石 ──煅烧──► 生石灰
+      二·变化   生石灰 ──消解·熟化──► 膏体
+      三·落点   膏体 ──上墙──► 成品
+    画的是**示意**不是工序录像：真实工序是石灰石→煅烧→消解→熟化→施工，
+    每一步的时长、温度、设备这里一律不画，免得画错当真。
+    """
+    m = marks((0.30, 0.62))
+    k = min(1.0, max(0.0, t / max(dur, 1e-6)))
+    cam = Camera(zoom=(1.0, 1.17), dy=(0.0, 0.03))
+    subj = Subject("lime-slab")
+
+    stone = State("石灰石", (128, 126, 120), grain=1.0, gloss=0.0, label="石灰石")
+    quicklime = State("生石灰", (222, 216, 198), grain=0.75, gloss=0.0, label="煅烧后：生石灰")
+    putty = State("膏体", (236, 232, 220), grain=0.22, gloss=0.55, label="消解·熟化：膏体")
+    wall = State("上墙", (240, 236, 226), grain=0.35, gloss=0.25, label="上墙")
+    done = State("成品", (232, 196, 96), grain=0.18, gloss=0.9, label="成品")
+
+    im = Image.fromarray(_backdrop(t, W, H, cy=0.43, glow=1.05), "RGB")
+    d = ImageDraw.Draw(im, "RGBA")
+    f_lab = font(FONT_BOLD, int(H * 0.026))
+    f_tag = font(FONT_SEMI, int(H * 0.019))
+
+    pts = subj.px(W, H, cam, k)
+    lab = stone.label
+    if t < dur * m[0]:                                   # 一幕：石头
+        st = stone
+        lab = stone.label
+    elif t < dur * m[1]:                                 # 二幕：煅烧 → 粉
+        kk = ease((t - dur * m[0]) / max(dur * (m[1] - m[0]), 1e-6))
+        st = State("→", _mix(stone.fill, quicklime.fill, kk),
+                   grain=stone.grain * (1 - kk) + quicklime.grain * kk,
+                   gloss=0.0, label=quicklime.label)
+        lab = stone.label if kk < 0.5 else quicklime.label
+    elif t < dur * (m[1] + 0.16):                        # 三幕前段：粉 → 膏（有液体滴下）
+        kk = ease((t - dur * m[1]) / max(dur * 0.16, 1e-6))
+        st = State("→", _mix(quicklime.fill, putty.fill, kk),
+                   grain=quicklime.grain * (1 - kk) + putty.grain * kk,
+                   gloss=putty.gloss * kk, label=putty.label)
+        lab = putty.label
+        for i in range(4):                              # 水滴：给「消解」一点物理
+            fx = 0.34 + 0.32 * (i / 3)
+            yy = pts[0][1] + (pts[3][1] - pts[0][1]) * (0.12 + 0.62 * kk) - i * 10
+            d.ellipse([W * fx - 5, yy - 7, W * fx + 5, yy + 7],
+                      fill=(120, 170, 215, int(200 * (1 - kk * 0.5))))
+    else:                                                # 三幕后段：上墙 → 成品
+        kk = ease((t - dur * (m[1] + 0.16)) / max(dur * (1 - m[1] - 0.16), 1e-6))
+        st = State("→", _mix(putty.fill, done.fill, ease(max(0.0, kk - 0.55) / 0.45)),
+                   grain=putty.grain * (1 - kk) + done.grain * kk,
+                   gloss=putty.gloss * (1 - kk) + done.gloss * kk,
+                   label=done.label)
+        lab = wall.label if kk < 0.55 else done.label
+
+    # 每一幕都得有一件**一直在动**的小东西，否则 12 秒里会有 3 秒完全静止——
+    # 视觉复核原话：「0.5s 和 4s 完全一样」。冻结不是靠加转场治的，是靠这个。
+    if t < dur * m[0]:                                   # 一幕：石屑在落
+        for i in range(14):
+            fx = 0.26 + 0.48 * (((i * 7919) % 997) / 997.0)
+            fy = ((t * 0.06 + i / 14.0) % 1.0) * 0.9 + 0.05
+            r = 2 + (i % 3)
+            d.ellipse([W * fx - r, H * fy - r, W * fx + r, H * fy + r],
+                      fill=(210, 205, 190, 70))
+    elif t < dur * m[1]:                                 # 二幕：煅烧的热在往上走
+        kk = ease((t - dur * m[0]) / max(dur * (m[1] - m[0]), 1e-6))
+        for i in range(18):
+            fx = 0.24 + 0.52 * (((i * 6151) % 991) / 991.0)
+            fy = 0.66 - ((t * 0.10 + i / 18.0) % 1.0) * 0.36
+            r = 2 + (i % 4)
+            a = int(150 * kk * (1 - (0.66 - fy) / 0.36))
+            d.ellipse([W * fx - r, H * fy - r, W * fx + r, H * fy + r],
+                      fill=(255, 150, 60, max(0, a)))
+
+    plaster_prog = 0.0
+    if lab == "上墙":
+        plaster_prog = 1.0
+    elif lab == "成品":
+        plaster_prog = 1.0
+    draw_subject(d, W, H, pts, st, t, plaster=plaster_prog)
+    _text_at(d, W, H, lab, 0.5, (min(p[1] for p in pts) / H) - 0.055, f_lab, (255, 255, 255, 232))
+    _text_at(d, W, H, "示意", 0.5, 0.905, f_tag, (255, 255, 255, 110))
+    # 进度：三幕的刻度，让人知道自己在一条线上而不是三张图
+    y = H * 0.945
+    d.line([W * 0.22, y, W * 0.78, y], fill=(255, 255, 255, 40), width=3)
+    d.line([W * 0.22, y, W * (0.22 + 0.56 * k), y], fill=(*SOLID, 190), width=5)
+    return im
+
+
+SCENES = {"phase": scene_phase, "pour": scene_pour,
+          "measure": scene_measure, "lime": scene_lime}
 
 
 def render(scene: str, out: Path, dur: float, fps: int, W: int, H: int) -> Path:

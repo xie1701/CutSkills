@@ -1,0 +1,7 @@
+  t= 0.00s  luma  57.7  bright 21.74%
+  t= 2.40s  luma  56.4  bright 22.49%
+  t= 4.80s  luma  67.8  bright 26.19%
+  t= 7.20s  luma  81.2  bright 26.84%
+  t= 9.60s  luma  96.0  bright 30.47% ←
+  t=12.00s  luma  81.5  bright 30.18%
+🟢 lime 收尾有东西（结尾 30.2% / 峰值 30.5%）
