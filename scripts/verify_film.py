@@ -85,7 +85,9 @@ def load_timeline_or_edl(proj: Path) -> dict:
                          "audio": el.get("audio"), "card": el.get("card")})
             t = round(t + d, 3)
         return {"segments": segs, "beats": tl.get("beats") or [],
-                "style_pack": tl.get("style_pack"), "duration_s": t, "_src": "timeline"}
+                "style_pack": tl.get("style_pack"), "duration_s": t, "_src": "timeline",
+                # v5：骨架与包装的 id 要一路带下来，验收才知道该拿哪个 band 对账
+                "plan": tl.get("plan"), "pack": tl.get("pack"), "axis": tl.get("axis") or "A"}
     return {**json.loads((proj / "edl.json").read_text()), "_src": "edl"}
 
 
@@ -544,6 +546,35 @@ def main() -> int:
     worst = max(worst, t - last)
     add("最长同介质连续", f"{worst:.1f}s", "green" if worst <= win else "yellow",
         f"目标 {win:.0f}s 内换一次")
+
+    # 节奏落档：画面变化中位与 CV 必须落在所选骨架的 band 内（references/rhythm-bands.md）。
+    # 为什么不用「口播镜头中位」代替：那量的是素材里的机位切换，这一格量的是**观众看到的换画面**。
+    # 我们 naming-01 两个数是 4.86s 和 1.27s——差四倍，因为它们根本不是一件事。
+    plan_id = str(edl.get("plan") or "").strip()
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import skeleton as _sk
+        _pf = Path(__file__).resolve().parent.parent / "plans" / f"{plan_id}.yaml"
+        _spec = yaml.safe_load(_pf.read_text()) if _pf.exists() else {}
+        _band = ((_spec.get("tempo") or {}).get("band") or [None, None])
+        _cvmin = float((_spec.get("tempo") or {}).get("cv_min") or 0.42)
+        _ci = _sk.probe(film)
+        _cuts = _sk.detect_cuts(film, _ci)
+        _st, _lens = _sk.cut_stats(_cuts, _ci["duration_s"])
+        _lens = [x for x in _lens if x > 0.05]
+        _med = statistics.median(_lens) if _lens else 0.0
+        _cv = (statistics.pstdev(_lens) / statistics.mean(_lens)) if len(_lens) > 1 else 0.0
+        _okband = bool(_band[0]) and (_band[0] - 1e-6 <= _med <= _band[1] + 1e-6)
+        _near = bool(_band[0]) and (abs(_med - (_band[0] + _band[1]) / 2) <= 0.5)
+        _lvl = "green" if _okband else ("yellow" if _near else "yellow")
+        _note = "" if _okband else (
+            "画面换得比这一档还快：减卡或减动效" if (_band[0] and _med < _band[0])
+            else "画面换得比这一档还慢：补微事件或加换介质")
+        add("节奏落档", f"中位 {_med:.2f}s · CV {_cv:.2f}（{plan_id or '未指定骨架'} "
+                        f"{_band[0]}–{_band[1]}s）", _lvl,
+            (_note + "；" if _note else "") + ("" if _cv >= _cvmin else f"CV < {_cvmin}：节奏太匀"))
+    except Exception as e:
+        add("节奏落档", "量不出", "yellow", str(e)[:60])
 
     # 黑帧
     bl = black_runs(film)

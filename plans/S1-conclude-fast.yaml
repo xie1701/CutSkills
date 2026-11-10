@@ -1,0 +1,33 @@
+# 剪辑方案 · 骨架与节奏（不是长相；长相在 packs/）
+id: S1-conclude-fast
+name: 结论先行 · 快
+one_line: 前 3 秒把结论摔出来，再回头补证据
+
+arc:                 # 叙事结构：每一段要干什么
+  - beat: hook
+    job: 结论
+    max_s: 4
+  - beat: claim
+    job: 三条证据
+    max_s: 30
+  - beat: turn
+    job: 反转（最容易被说服掉的那半步）
+    max_s: 10
+  - beat: payoff
+    job: 落点
+    max_s: 12
+
+tempo:
+  band: [1.9, 2.2]        # 画面变化中位必须落在这区间（references/rhythm-bands.md）
+  target_median_s: 2.05
+  cv_min: 0.42
+
+shot_logic:
+  jump_cut: dense          # dense / normal / sparse
+  punch_scale: [1.0, 1.08, 1.16]   # 同机位跳切时的推近倍率，一句内不重复
+  medium_change_within_s: 14
+  axis_rotate: every_2      # 每两格换一次 A/B
+
+axis_rule:
+  b_axis_when: [explain_mechanism, show_change]   # 什么时候让代码画面当叙事主体
+  b_axis_min_s: 8

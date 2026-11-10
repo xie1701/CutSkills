@@ -1,0 +1,32 @@
+id: S2-live-mid
+name: 现场切入 · 中
+one_line: 从手上的动作开始，边做边说
+
+arc:
+  - beat: hook
+    job: 现场动作（手上有东西在动）
+    max_s: 5
+  - beat: claim
+    job: 问题
+    max_s: 12
+  - beat: evidence
+    job: 机制（为什么会这样）
+    max_s: 30
+  - beat: payoff
+    job: 落点
+    max_s: 14
+
+tempo:
+  band: [2.2, 2.7]
+  target_median_s: 2.4
+  cv_min: 0.42
+
+shot_logic:
+  jump_cut: normal
+  punch_scale: [1.0, 1.06]
+  medium_change_within_s: 18
+  axis_rotate: by_process
+
+axis_rule:
+  b_axis_when: [show_change]
+  b_axis_min_s: 8

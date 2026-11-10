@@ -1,0 +1,32 @@
+id: S4-reverse-fast
+name: 倒叙 · 快
+one_line: 先给结果，再讲它是怎么来的
+
+arc:
+  - beat: hook
+    job: 结果（成品/效果）
+    max_s: 5
+  - beat: claim
+    job: 倒推第一步
+    max_s: 20
+  - beat: turn
+    job: 回到当下
+    max_s: 10
+  - beat: payoff
+    job: 落点（跟开头结果对上）
+    max_s: 12
+
+tempo:
+  band: [1.9, 2.2]
+  target_median_s: 2.05
+  cv_min: 0.42
+
+shot_logic:
+  jump_cut: dense
+  punch_scale: [1.0, 1.10]
+  medium_change_within_s: 12
+  axis_rotate: by_reverse_time
+
+axis_rule:
+  b_axis_when: [show_change, explain_mechanism]
+  b_axis_min_s: 8

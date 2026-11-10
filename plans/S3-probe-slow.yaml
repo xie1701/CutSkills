@@ -1,0 +1,32 @@
+id: S3-probe-slow
+name: 问题追踪 · 慢
+one_line: 先立一个问题，一路追因，最后给回答
+
+arc:
+  - beat: hook
+    job: 问题（让观众自己也想问）
+    max_s: 6
+  - beat: claim
+    job: 追因
+    max_s: 26
+  - beat: evidence
+    job: 三段证据
+    max_s: 34
+  - beat: payoff
+    job: 回答
+    max_s: 16
+
+tempo:
+  band: [2.7, 3.4]
+  target_median_s: 3.0
+  cv_min: 0.42
+
+shot_logic:
+  jump_cut: sparse
+  punch_scale: [1.0]
+  medium_change_within_s: 22
+  axis_rotate: only_evidence
+
+axis_rule:
+  b_axis_when: [explain_mechanism]
+  b_axis_min_s: 8
