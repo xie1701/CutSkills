@@ -31,6 +31,15 @@ ROLES = {"setup", "claim", "evidence", "warrant", "turn", "payoff"}
 # gen 模板表：**单一真值源**，check_timeline 直接 import 这里，不许各写一份。
 # min_dur 是下限不是建议——低于它观众读不完，宁可不放。
 # props 里数字是「字数上限」，None 表示自由文本。
+# 轴线（v5）：A = 代码画面服务论点；B = 代码连续场景为叙事主体（人物缩成 PiP）。
+AXES = {"A", "B"}
+# 画面卡的**支撑功能**（跟 role 的叙事角色是两条轴，别混）：
+#   evidence 出示来源 / explanation 讲因果 / calibration 给基准 / organization 分组排序 /
+#   action 指向下一步 / consequence 前因后果
+MG_ROLES = {"evidence", "explanation", "calibration", "organization", "action", "consequence"}
+# 需要「数字有出处」的模板：画面里出现可被当真的数值
+NUMERIC_TEMPLATES = {"number", "chart", "compare"}
+
 GEN_TEMPLATES = {
     "keyword": {"min_dur": 2.0, "max_dur": 6.0,
                 "props": {"text": 6, "sub": 12, "color": None}, "required": ["text"]},
@@ -347,7 +356,7 @@ def build_timeline(lib: Path, plan, *, brief: dict | None = None, style: dict | 
                       "roles": sorted({el.get("role") for el in own if el.get("role")})})
 
     tl = {
-        "version": 4,
+        "version": 5,
         "slug": None,
         "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "duration_s": total,

@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "note": "风格目录：给用户点的菜单，不是给代码读的配置。每项必须能回答『适合什么 / 需要什么 / 牺牲什么 / 长什么样』。preview 为空表示样例还没渲（status=planned）。",
+  "calibrated_on": {
+    "date": "2026-11-11",
+    "corpus": "20 支参考成片（67 分钟，五种形态）+ 我们自己三支",
+    "detail": "references/rhythm-bands.md"
+  },
+  "plans": [
+    {
+      "id": "S1-conclude-fast",
+      "name": "结论先行 · 快",
+      "one_line": "前 3 秒把结论摔出来，再回头补证据",
+      "arc": ["hook 结论", "证据 ×2–3", "turn 反转", "payoff 落点"],
+      "tempo": "fast",
+      "tempo_band": [1.9, 2.2],
+      "shot_logic": {"jump_cut": "密", "medium_change_s": 12, "axis_rotate": "每 2 格轮一次"},
+      "suits": "有强观点、要抢前 3 秒的片子",
+      "needs": "素材里至少有一句能当结论的话（否则结论只能靠代码画面说，可信度打折）",
+      "caveat": "前 3 秒信息密度高，观众跟不上就划走；片长通常比慢档短 10%",
+      "preview": null,
+      "status": "planned"
+    },
+    {
+      "id": "S2-live-mid",
+      "name": "现场切入 · 中",
+      "one_line": "从手上的动作开始，边做边说",
+      "arc": ["hook 现场动作", "问题", "机制", "payoff 落点"],
+      "tempo": "mid",
+      "tempo_band": [2.2, 2.7],
+      "shot_logic": {"jump_cut": "中", "medium_change_s": 18, "axis_rotate": "按工序轮换"},
+      "suits": "施工、手工、过程类素材（口播 + 空镜都能用）",
+      "needs": "有能拍到的动作镜头；纯展厅口播会显得空",
+      "caveat": "节奏不抢眼，靠内容本身；开头缺动作就退回 S1",
+      "preview": null,
+      "status": "default"
+    },
+    {
+      "id": "S3-probe-slow",
+      "name": "问题追踪 · 慢",
+      "one_line": "先立一个问题，一路追因，最后给回答",
+      "arc": ["hook 问题", "追因", "证据 ×3", "payoff 回答"],
+      "tempo": "slow",
+      "tempo_band": [2.7, 3.4],
+      "shot_logic": {"jump_cut": "疏", "medium_change_s": 22, "axis_rotate": "证据段才换"},
+      "suits": "认知类、需要观众消化的话题",
+      "needs": "素材里真有一个「问题」被说出来，不能是编的",
+      "caveat": "片长最长，平均比快档长 20%；短视频平台前 3 秒要另加钩子",
+      "preview": null,
+      "status": "planned"
+    },
+    {
+      "id": "S4-reverse-fast",
+      "name": "倒叙 · 快",
+      "one_line": "先给结果，再讲它是怎么来的",
+      "arc": ["hook 结果", "倒推", "回到当下", "payoff"],
+      "tempo": "fast",
+      "tempo_band": [1.9, 2.2],
+      "shot_logic": {"jump_cut": "密", "medium_change_s": 12, "axis_rotate": "按时间倒序轮换"},
+      "suits": "结果本身有画面冲击（成品、成品保护后的效果）",
+      "needs": "一个值得先看的「结果镜头」；没有就别用",
+      "caveat": "倒序会让因果难跟，字幕必须更直白",
+      "preview": null,
+      "status": "planned"
+    }
+  ],
+  "packs": [
+    {
+      "id": "P1-warm",
+      "name": "暖实拍",
+      "one_line": "现在这套：暖调实拍 + 单行白字幕 + 卡在上三分之一",
+      "subtitle_system": {"id": "single-line", "desc": "单行 80px、无标点、硬切"},
+      "mg_library": "cards-18",
+      "fx": ["硬切", "轻推", "抠像压人后"],
+      "frame": "full",
+      "look": {"palette": {"ground": "warm", "ink": "#FFFFFF", "accent": "#F6EB34"},
+               "type": {"display": "NotoSansSC-Black", "body": "NotoSansSC-SemiBold"},
+               "radius": 18, "stroke": 0, "shadow": "soft-down"},
+      "suits": "实拍为主、温暖真实的产品/施工内容",
+      "needs": "素材本身色调不崩（我们要做削波检查）",
+      "caveat": "跟「高级感」拉不开差距；同一批片连出 5 条会显得像模板",
+      "preview": null,
+      "status": "ready"
+    },
+    {
+      "id": "P2-paper",
+      "name": "纸感",
+      "one_line": "米白纸底 + 双语双行 + 纸卡批注",
+      "subtitle_system": {"id": "bilingual", "desc": "中文主行 + 英文小字，两行固定高度"},
+      "mg_library": "cards-18",
+      "fx": ["纸面翻页", "便签落位"],
+      "frame": "split",
+      "look": {"palette": {"ground": "#F2EDE3", "ink": "#1F1B16", "accent": "#B4552D"},
+               "type": {"display": "NotoSerifSC-Bold", "body": "NotoSerifSC-Regular"},
+               "radius": 6, "stroke": 2, "shadow": "none"},
+      "suits": "品牌、设计、文化类；需要「有人味儿」的时候",
+      "needs": "双语字幕要人工校一遍英文（机器翻的不上片）",
+      "caveat": "实拍画面要降饱和才跟纸底合得上，暖调素材会发灰",
+      "preview": null,
+      "status": "planned"
+    },
+    {
+      "id": "P3-dark",
+      "name": "暗调",
+      "one_line": "暗底单强调色，取消字幕层——大字就是字幕",
+      "subtitle_system": {"id": "none", "desc": "无字幕层；每屏大字 ≤10 字、单排、停留 ≥1.2s"},
+      "mg_library": "cards-18",
+      "fx": ["变形承接", "扫光", "粒子"],
+      "frame": "full-pip",
+      "look": {"palette": {"ground": "#0B0C0E", "ink": "#F5F7FA", "accent": "#39D0C4"},
+               "type": {"display": "NotoSansSC-Black", "body": "NotoSansSC-Regular"},
+               "radius": 2, "stroke": 1, "shadow": "glow"},
+      "suits": "知识、科技、抽象概念；也适合 B 轴剧情场景",
+      "needs": "每句话都要能压到 10 字以内（原文长就得改写）；实拍素材要有可压暗的余地",
+      "caveat": "最冒险的一套：没有字幕层，读不清就全盘失守；观众静音看会很吃力",
+      "preview": null,
+      "status": "planned"
+    }
+  ]
+}

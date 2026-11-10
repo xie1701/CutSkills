@@ -30,6 +30,7 @@ WIDE_TOL = 12             # 与 subs.MAX_CHARS 对齐：80px × 12 字 = 960 = 8
 WIDTH_BAND = (8, 14)
 TIGHT_GAP = 0.12          # 两条字幕贴得比这还近＝在同一口气里被切开了
 FADE_MAX = 0.12
+OVERLAP_EPS = 0.005       # 秒：小于这个算「相接」，允许
 
 
 def load(p: Path, default=None):
@@ -49,10 +50,33 @@ def main() -> int:
     cues = d.get("cues") or []
 
     punct = [c for c in cues if any(ch in PUNCT for ch in str(c.get("text") or ""))]
-    wide = [c for c in cues if len(str(c.get("text") or "")) > WIDE_TOL]
-    widths = sorted(len(str(c.get("text") or "")) for c in cues)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from subs import HAVE_JIEBA, word_bounds, display_units, MAX_UNITS  # noqa: E402
+
+    def _u(c) -> float:
+        return float(c.get("units") if c.get("units") is not None
+                     else display_units(str(c.get("text") or "")))
+
+    units = [_u(c) for c in cues]
+    wide = [c for c in cues if _u(c) > MAX_UNITS + 0.4]
+    widths = sorted(units)
     med = widths[len(widths) // 2] if widths else 0
     em = sum(1 for c in cues if "<span class" in str(c.get("html") or ""))
+
+    # 半开帧窗零重叠（2026-11-11）：字幕重叠是画面上**必然**看得见的错，
+    # 不该靠事后审计发现，也不该允许被 --force 越过。老 subs.json 没有 sf/ef，
+    # 先按秒判（等价），并提示重渲。
+    has_frames = all(isinstance(c.get("sf"), int) and isinstance(c.get("ef"), int) for c in cues) and bool(cues)
+    overlap = []
+    for prev, nxt in zip(cues, cues[1:]):
+        if has_frames:
+            if int(nxt["sf"]) < int(prev["ef"]):
+                overlap.append({"a": str(prev.get("text"))[:8], "b": str(nxt.get("text"))[:8],
+                                "frames": int(prev["ef"]) - int(nxt["sf"])})
+        elif float(nxt["start"]) < float(prev["end"]) - OVERLAP_EPS:
+            overlap.append({"a": str(prev.get("text"))[:8], "b": str(nxt.get("text"))[:8],
+                            "ms": round((float(prev["end"]) - float(nxt["start"])) * 1000)})
+    bad_frames = [c for c in cues if has_frames and int(c["ef"]) <= int(c["sf"])]
     # 变色是可以关的（Jerry 2026-11-09：「字幕的重点词变色还是取消」）。关了就要
     # 一条都没有——不能因为「规则没染上」也算过。
     colorize = bool(d.get("colorize", True))
@@ -61,7 +85,7 @@ def main() -> int:
     # 「墙面或者地面或者任何表」+「面的让他成为成品就」把「表面」劈成两半，
     # 而裁判报「断词 ✅」。判据得是：把两条接回去，切开的位置在不在词与词之间。
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from subs import HAVE_JIEBA, word_bounds  # noqa: E402
+    from subs import HAVE_JIEBA, word_bounds  # noqa: E402,F811
 
     tight = []
     for prev, nxt in zip(cues, cues[1:]):
@@ -98,10 +122,14 @@ def main() -> int:
 
     checks = {
         "punct": {"value": len(punct), "pass": not punct, "need": 0},
-        "over_wide": {"value": len(wide), "pass": not wide, "need": 0},
-        "width_median": {"value": med, "pass": WIDTH_BAND[0] <= med <= WIDTH_BAND[1],
+        "over_wide": {"value": len(wide), "pass": not wide, "need": f"<={MAX_UNITS} 单位"},
+        "width_median": {"value": round(med, 1), "pass": WIDTH_BAND[0] <= med <= WIDTH_BAND[1],
                          "need": WIDTH_BAND},
         "word_split": {"value": len(tight), "pass": not tight, "need": 0},
+        "overlap": {"value": len(overlap), "pass": not overlap, "need": 0},
+        # 老 subs.json 没有 sf/ef：缺数据不等于违规，标 stale 让它显形，但不判红。
+        "frames": {"value": len(bad_frames), "pass": not bad_frames,
+                   "need": "sf<ef（半开窗）", "stale": (not has_frames) and bool(cues)},
         "emphasis_cues": ({"value": em, "pass": em > 0, "need": ">0"} if colorize
                           else {"value": em, "pass": em == 0, "need": "=0（已取消变色）"}),
         "fade_s": {"value": fade, "pass": fade <= FADE_MAX, "need": f"<={FADE_MAX}"},
@@ -109,20 +137,24 @@ def main() -> int:
     ok = all(v["pass"] for v in checks.values())
     rep = {"cues": len(cues), "checks": checks, "ok": ok,
            "punct": [c.get("text") for c in punct[:5]],
-           "over_wide": [(c.get("text"), len(str(c.get("text") or ""))) for c in wide[:5]],
+           "over_wide": [(c.get("text"), _u(c)) for c in wide[:5]],
            "word_split": tight[:5],
+           "overlap": overlap[:5],
+           "frames": "✅ 半开帧窗" if has_frames else "老文件没有 sf/ef，重渲后生效",
            "widths": {"min": widths[0] if widths else 0, "max": widths[-1] if widths else 0,
-                      "median": med}}
+                      "median": round(med, 2), "unit": "汉字宽"}}
 
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=1))
         return 0 if ok else 1
 
-    print(f"字幕 {len(cues)} 条 · 宽度 中位 {med}（{widths[0] if widths else 0}–"
+    print(f"字幕 {len(cues)} 条 · 宽度 中位 {med:.1f} 单位（{widths[0] if widths else 0}–"
           f"{widths[-1] if widths else 0}）")
     print(f"  标点 0 处{'✅' if not punct else '✗ ' + str(len(punct))}")
-    print(f"  超宽（>{MAX_CHARS} 字）{'✅' if not wide else '✗ ' + str(len(wide))}")
+    print(f"  超宽（>{MAX_UNITS} 展示单位）{'✅' if not wide else '✗ ' + str(len(wide))}")
     print(f"  断词 {'✅' if not tight else '✗ ' + str(len(tight))}（贴着切的，像同一口气被劈开）")
+    print(f"  重叠 {'✅' if not overlap else '✗ ' + str(len(overlap))}"
+          f" · 帧窗 {'✅' if has_frames and not bad_frames else ('✗' if bad_frames else '老文件')}")
     _ok = (em > 0) if colorize else (em == 0)
     print(f"  强调色 {em} 条{'✅' if _ok else '✗'}{'' if colorize else '（已取消）'}"
           f" · 淡入 {fade:.2f}s{'✅' if fade <= FADE_MAX else '✗'}")

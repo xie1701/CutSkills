@@ -1346,7 +1346,7 @@ def main():
     # 重点词变色：Jerry 2026-11-09 取消（「字幕的重点词变色还是取消，不应该只作用于否定词和数字」）。
     # 样式里 subtitle.colorize_emphasis 控制；关掉之后一条字幕里一个字都不变色。
     colorize = bool(sub.get("colorize_emphasis", True))
-    caps = subs.build(active, by_id, chars_cache, lib, load_chars, colorize=colorize)
+    caps = subs.build(active, by_id, chars_cache, lib, load_chars, colorize=colorize, fps=FPS)
     caps = [c for c in caps if c["start"] < total]
     for c in caps:
         c["end"] = min(round(c["end"], 3), total)

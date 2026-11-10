@@ -211,9 +211,32 @@ def main() -> int:
     except (TypeError, ValueError):
         vdur = adur = 0.0
     if vdur and adur:
-        diff = abs(vdur - adur)
-        add("音画等长", f"{vdur:.2f}s / {adur:.2f}s", "green" if diff <= 0.2 else "red",
-            "" if diff <= 0.2 else f"差 {diff:.2f}s（画面多了或声音少了）")
+        diff = adur - vdur
+        # 方向有讲究（2026-11-11 标定）：20 支参考片里 13 支**声轨比画面长**（最大 +0.155s，
+        # 是编码器的尾部填充）；反过来「声轨短一截」才是事故——结尾静音、最后一个字被砍。
+        ok = -0.05 <= diff <= 0.25
+        add("音画等长", f"画面 {vdur:.2f}s / 声轨 {adur:.2f}s", "green" if ok else "red",
+            "" if ok else (f"声轨短 {-diff:.2f}s：最后一个字被砍或结尾静音" if diff < 0
+                           else f"声轨多出 {diff:.2f}s：尾巴拖了静音"))
+
+    # 流起点差：两条流**起点**不同步时，整片口型错位，而播放器不会报错。
+    # 只看起点，不看末点——末点不同只是尾部填充（参考片里 13/20 都长短不一）。
+    try:
+        vs0 = float(v.get("start_time") or 0)
+        as0 = float(aud.get("start_time") or 0)
+        tol = max(0.1, 2.0 / (fps_v or 30))
+        add("流起点差", f"{abs(vs0 - as0) * 1000:.0f} ms",
+            "green" if abs(vs0 - as0) <= tol else "red",
+            "" if abs(vs0 - as0) <= tol else f"超过 {tol * 1000:.0f} ms：整片口型会偏")
+    except (TypeError, ValueError):
+        add("流起点差", "读不到", "yellow", "ffprobe 没给 start_time")
+
+    # color tag：未标注的片子在手机上会被当另一个色彩空间解，看起来暗一半。
+    # 20 支参考片 18 支有、2 支缺——所以这是我们**自家的规矩**，不是行业普遍事实，只判黄。
+    _tags = [v.get("color_primaries"), v.get("color_transfer"), v.get("color_space")]
+    _ok = all(x == "bt709" for x in _tags)
+    add("color tag", " / ".join(str(x) for x in _tags), "green" if _ok else "yellow",
+        "" if _ok else "应为 bt709 ×3；缺标会让手机端智库发暗")
 
     # 叠加层到底烧进画面了没有：这一条是**看像素**，不是读 subs.json。
     # 2026-11-07 踩过：字幕/字卡的 JSON 都在，滤镜链也在命令里，但一张静止 PNG 的
@@ -526,6 +549,46 @@ def main() -> int:
     bl = black_runs(film)
     add("黑帧", f"{len(bl)} 段", "green" if not bl else "yellow",
         "" if not bl else "黑帧可能是刻意留白，也可能是渲染断了")
+
+    # 冻结（≥2s 画面完全不动）——只算**口播段**。
+    # 标定依据：20 支参考片里 7 支有 ≥2s 冻结（照片/空镜持有），全片判死会误杀三分之一的行业成品；
+    # 反过来口播画面冻住 2 秒 = 卡死或渲坏了，那是真事故。
+    _tw, _t = [], 0.0
+    for u in units:
+        if u.get("medium") == "talking":
+            _tw.append((_t, _t + float(u["dur"])))
+        _t += float(u["dur"])
+    _fd = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(film),
+               "-vf", "freezedetect=n=0.003:d=2", "-an", "-f", "null", "-"])
+    _fs = [float(x) for x in re.findall(r"freeze_start:\s*([0-9.]+)", _fd.stderr or "")]
+    _fe = [float(x) for x in re.findall(r"freeze_end:\s*([0-9.]+)", _fd.stderr or "")]
+    _freeze = list(zip(_fs, _fe + [dur] * (len(_fs) - len(_fe))))
+    _bad = [(s, e) for s, e in _freeze
+            if any(a0 <= (s + e) / 2 <= a1 for a0, a1 in _tw)]
+    add("冻结（口播段）", f"{len(_bad)} 处" + (f" · 最久 {max(e - s for s, e in _bad):.1f}s" if _bad else ""),
+        "yellow" if _bad else "green",
+        ("口播画面冻住，最早 " + f"{_bad[0][0]:.1f}s" ) if _bad else "空镜/静帧/片尾不计")
+
+    # 最暗 1 秒：全片偏暗或某段全黑，手机上看着像“没渲染”。
+    # 标定依据：20 支参考片平均亮度 p25 0.30 / p50 0.39，最暗 1s 最低可以到 0.001——
+    # 所以不拿“亮度区间”当门，只拿“平均值太暗”和“连续 1 秒几乎全黑”两个诊断。
+    try:
+        import numpy as np
+        lw = 320
+        lh = int(round(lw * H / max(1, W) / 2)) * 2
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(film),
+                              "-vf", f"fps=1,scale={lw}:{lh}", "-f", "rawvideo",
+                              "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        npx = lw * lh
+        if raw and npx and len(raw) >= npx:
+            a1 = np.frombuffer(raw[:len(raw) // npx * npx], dtype=np.uint8).reshape(-1, npx)
+            sec = a1.mean(axis=1) / 255.0
+            dark_at = int(sec.argmin())
+            lvl = "yellow" if (sec.mean() < 0.10 or sec.min() < 0.02) else "green"
+            add("亮度", f"均 {sec.mean():.2f} · 最暗 1s {sec.min():.2f}（{dark_at}s）", lvl,
+                "" if lvl == "green" else "接近全黑的段落会被平台当低质，也看不出画了什么")
+    except Exception as e:                      # 量不出来就说出来，不静默跳过
+        add("亮度", "量不出", "yellow", str(e)[:60])
 
     red = [r for r in rows if r[2] == "red"]
     yellow = [r for r in rows if r[2] == "yellow"]

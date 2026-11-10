@@ -35,6 +35,33 @@ HARD_MAX = 12             # 真上限：超过就必然出画，不再"宁可长
 MIN_CHARS = 7             # 少于这个字并且前后离得近就并进邻居（8 字一闪太快）
 TARGET_SOFT = 10          # 到这么多字、后面又有小停顿，就收口（凑成 10–14 的观感）
 
+# ── 展示单位（2026-11-11）────────────────────────────────────────────────
+# 过去按「字符数」算宽度，于是 `FESTOOL RO 150 FEQ` 这 18 个字符被当 18 字砍掉，
+# 而屏幕上根本装得下（18 个半角 ≈ 6 个汉字宽）。改成展示单位：
+# 中日韩/全角 = 1，半角可打印 ≈ 1/3，空白 = 0。
+# 注意：单位是**写作规则**，不是像素保证——真宽度仍由 verify_film 的「字幕最宽（像素）」
+# 和 check_subs 的估算宽判据兜。两条都不能省。
+MAX_UNITS = 12.0          # = MAX_CHARS 个汉字
+MIN_UNITS = 7.0
+TARGET_SOFT_UNITS = 10.0
+HARD_UNITS = 12.0
+HALF_W = 0.34             # 半角字符相对汉字宽度（实测思源黑体 0.32–0.36）
+
+
+def display_units(text: str) -> float:
+    """一行字的「展示宽度」，单位是汉字宽。"""
+    u = 0.0
+    for ch in str(text or ""):
+        if ch in " \u3000\t":
+            continue
+        u += 1.0 if ord(ch) > 0x2E7F else HALF_W
+    return round(u, 2)
+
+
+def est_width_px(text: str, size_px: float) -> float:
+    """估算渲染宽度（像素）。偏保守：汉字按 1em，半角按 0.34em。"""
+    return round(display_units(text) * float(size_px), 1)
+
 # 数字：阿拉伯数字连写、中文数词+量词
 NUM_RE = re.compile(
     r"(?:\d+(?:[.\-–~]\d+)?\s*(?:倍|个|年|月|天|秒|元|%|成|次|遍|种|款|公分|毫米|平米|平)?"
@@ -207,15 +234,15 @@ def regroup(items: list[tuple[str, float, float]]):
         buf.append(it)
         nxt = items[i + 1] if i + 1 < len(items) else None
         gap = (nxt[1] - it[2]) if nxt else 9.9
-        width = len("".join(t for t, _, _ in buf))
+        width = display_units("".join(t for t, _, _ in buf))
         if ch == SENTINEL:                    # 句子边界：够一段就断，别硬拼两句
             txt = "".join(t for t, _, _ in buf if t != SENTINEL)
             # 但 ASR 的句界会落在词中间（「…任何表」|「面的让他成为成品」）。
             # 这种边界不算数：把哨兵扔掉，让它跟后面的字一起走，宽度上限自然会管。
-            if not is_word_bound(txt) and len(txt) <= MAX_CHARS:
+            if not is_word_bound(txt) and display_units(txt) <= MAX_UNITS:
                 buf.pop()
                 continue
-            if len(txt) >= MIN_CHARS:
+            if display_units(txt) >= MIN_UNITS:
                 groups.append((buf, "pause"))
                 buf = []
             continue
@@ -238,16 +265,16 @@ def regroup(items: list[tuple[str, float, float]]):
                     k = max(cand)
                     groups.append((buf[:k], "pause"))
                     buf = buf[k:]
-                elif width >= HARD_MAX:
+                elif width >= HARD_UNITS:
                     # 真到上限：挑一个**词的边界**断（有分词器就按词典，没有才靠字表猜）
-                    best_k = choose_cut(buf, target=MAX_CHARS - 2)
+                    best_k = choose_cut(buf, target=int(MAX_UNITS) - 2)
                     if best_k:
                         groups.append((buf[:best_k], "pause"))
                         buf = buf[best_k:]
                     else:
                         groups.append((buf, "width"))
                         buf = []
-        elif width >= TARGET_SOFT and gap >= GAP_SPLIT:
+        elif width >= TARGET_SOFT_UNITS and gap >= GAP_SPLIT:
             groups.append((buf, "pause"))
             buf = []
     if buf:
@@ -257,7 +284,7 @@ def regroup(items: list[tuple[str, float, float]]):
     fixed: list[tuple[list[tuple[str, float, float]], str]] = []
     for g, why in groups:
         txt = "".join(t for t, _, _ in g)
-        if len(txt) <= MAX_CHARS + 2:
+        if display_units(txt) <= MAX_UNITS + 2:
             fixed.append((g, why))
             continue
         best_k = choose_cut(g)
@@ -271,9 +298,9 @@ def regroup(items: list[tuple[str, float, float]]):
     # 太短的并进邻居（3 个字闪一下，比没有字幕还差）
     merged: list[tuple[list[tuple[str, float, float]], str]] = []
     for g, why in groups:
-        w = len("".join(t for t, _, _ in g))
-        if merged and (w < MIN_CHARS or w <= 2) and \
-                len("".join(t for t, _, _ in merged[-1][0])) + w <= MAX_CHARS and \
+        w = display_units("".join(t for t, _, _ in g))
+        if merged and (w < MIN_UNITS or w <= 2) and \
+                display_units("".join(t for t, _, _ in merged[-1][0])) + w <= MAX_UNITS and \
                 g[0][1] - merged[-1][0][-1][2] < 0.55:
             merged[-1] = (merged[-1][0] + g, merged[-1][1])
         elif merged and w <= 3:
@@ -285,7 +312,7 @@ def regroup(items: list[tuple[str, float, float]]):
     # 只剩一个字的，无论多宽都塞回邻居：闪一个字比越界更糟
     final: list[tuple[list[tuple[str, float, float]], str]] = []
     for g, why in merged:
-        if len("".join(t for t, _, _ in g)) <= 1 and final:
+        if display_units("".join(t for t, _, _ in g)) <= 1 and final:
             final[-1] = (final[-1][0] + g, final[-1][1])
         else:
             final.append((g, why))
@@ -293,8 +320,12 @@ def regroup(items: list[tuple[str, float, float]]):
 
 
 def build(segments, index_by_id, chars_cache, lib, load_chars,
-          colorize: bool = True) -> list[dict]:
-    """`colorize=False` 时一个字都不变色（Jerry 2026-11-09：重点词变色取消）。"""
+          colorize: bool = True, fps: int = 30) -> list[dict]:
+    """`colorize=False` 时一个字都不变色（Jerry 2026-11-09：重点词变色取消）。
+
+    每条字幕带 `units`（展示单位）与 `sf/ef`（半开帧窗 [sf, ef)）。
+    帧窗是后面所有重叠/对齐判据的唯一口径——秒数保留只为向后兼容。
+    """
     cues: list[dict] = []
     lex = lexicon.load(Path(lib) / "_cutskills")
     for blk in _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
@@ -309,7 +340,8 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
                 continue
             cues.append({"start": round(a, 3), "end": round(b, 3), "text": text,
                          "html": emphasis_html(text) if colorize else None,
-                         "chars": len(text),
+                         "chars": len(text), "units": display_units(text),
+                         "sf": int(round(a * fps)), "ef": int(round(b * fps)),
                          "el": blk["el"], "break_after": why})
     cues.sort(key=lambda c: c["start"])
     # 相邻重叠：后一条推到前一条收口之后（硬切不留缝）
@@ -317,11 +349,22 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
     for c in cues:
         if out and c["start"] < out[-1]["end"] - 0.01:
             c["start"] = out[-1]["end"]
+            c["sf"] = int(round(c["start"] * fps))
             if c["end"] - c["start"] < 0.25:
                 out[-1]["end"] = max(out[-1]["end"], c["end"])
                 out[-1]["text"] += c["text"]
                 out[-1]["html"] = emphasis_html(out[-1]["text"]) if colorize else None
                 out[-1]["chars"] = len(out[-1]["text"])
+                out[-1]["units"] = display_units(out[-1]["text"])
+                out[-1]["ef"] = int(round(out[-1]["end"] * fps))
                 continue
         out.append(c)
+    # 帧窗收尾：必须 ef > sf，且相邻半开窗不相交（相接合法）
+    for i, c in enumerate(out):
+        if c["ef"] <= c["sf"]:
+            c["ef"] = c["sf"] + max(1, int(round((c["end"] - c["start"]) * fps)))
+        if i:
+            c["sf"] = max(c["sf"], out[i - 1]["ef"])
+            if c["ef"] <= c["sf"]:
+                c["ef"] = c["sf"] + 1
     return out

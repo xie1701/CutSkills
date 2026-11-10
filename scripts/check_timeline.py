@@ -18,11 +18,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from timeline import GEN_TEMPLATES, KINDS, element_dur  # noqa: E402
+from timeline import GEN_TEMPLATES, KINDS, element_dur, AXES, MG_ROLES, NUMERIC_TEMPLATES  # noqa: E402
 
 ROLES = {"setup", "claim", "evidence", "warrant", "turn", "payoff"}
 MEDIUMS = {"talking", "broll", "photo", "screen"}
 EPS = 0.02  # 时间轴连续性的容差（秒）。差过这个数就不是「同一个切点」了
+MICRO_GAP_MAX = 1.2   # 卡/场景在场这么久都没一次小变化，画面就是死的（标定：参考片 0.35–0.9s 一次）
+B_AXIS_MIN_S = 8.0    # B 轴连续场景的下限：短于 8s 装不下「谁/遇到什么/怎么变」
 
 # 套话。挖出来的是「说了等于没说」的话——写 why 时最容易滑进去的就是这类。
 VAGUE = re.compile(r"^(开场|过渡|转场|介绍|展示|说明|补充|衔接|画面|镜头|可用|不错|好看|"
@@ -41,6 +43,18 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
     els = tl.get("elements") or []
     if not els:
         return [("error", "一个元素都没有")]
+
+    # ---- v5 顶层字段（v4 全部缺省，向后兼容）
+    ver = int(tl.get("version") or 4)
+    if ver not in (4, 5):
+        out.append(("error", f"version {ver} 不认识（4 或 5）"))
+    axis_default = str(tl.get("axis") or "A")
+    if axis_default not in AXES:
+        out.append(("error", f"顶层 axis「{axis_default}」非法（{'/'.join(sorted(AXES))}）"))
+    for k in ("plan", "pack"):
+        v = tl.get(k)
+        if v is not None and (not isinstance(v, str) or not v.strip()):
+            out.append(("error", f"{k} 必须是字符串（骨架/包装的 id）"))
 
     prev_end = 0.0
     for el in els:
@@ -79,6 +93,47 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
         role = el.get("role")
         if role is not None and role not in ROLES:
             out.append(("error", f"#{n} role「{role}」不在约定值里"))
+
+        # ---- 轴线（v5）：B 轴是「代码连续场景当叙事主体」，有准入条件
+        ax = str(el.get("axis") or axis_default)
+        if ax not in AXES:
+            out.append(("error", f"#{n} axis「{ax}」非法（A/B）"))
+        elif ax == "B":
+            nar = el.get("narrative") or {}
+            miss = [k for k in ("subject", "turn", "change")
+                    if not str(nar.get(k) or "").strip()]
+            if miss:
+                _m = "/".join(miss)
+                out.append(("error", f"#{n} 是 B 轴，narrative 缺 {_m}"
+                                     f"（谁 / 遇到什么 / 怎么变）"))
+            if d < B_AXIS_MIN_S - 1e-6:
+                out.append(("error", f"#{n} B 轴只 {d:.1f}s，低于 {B_AXIS_MIN_S}s——"
+                                     f"装不下「谁/遇到什么/怎么变」"))
+            if kind != "gen":
+                out.append(("error", f"#{n} B 轴必须是 gen（代码画的连续场景），现在是 {kind}"))
+
+        # ---- 卡内微事件（v5）：一张卡/场景在场很久却一动不动，就是 PPT
+        micro = el.get("micro")
+        if micro is not None:
+            if not isinstance(micro, list):
+                out.append(("error", f"#{n} micro 必须是列表"))
+            else:
+                ts = []
+                for it in micro:
+                    try:
+                        ts.append(float((it or {}).get("t")))
+                    except (TypeError, ValueError):
+                        out.append(("error", f"#{n} micro 里有一项缺 t"))
+                bad = [t for t in ts if t < -1e-6 or t > d + 1e-6]
+                if bad:
+                    out.append(("error", f"#{n} micro 时刻 {bad[0]:.2f}s 不在 0–{d:.2f}s 内"))
+                seq = [0.0] + sorted(ts) + [d]
+                gap = max(b - a for a, b in zip(seq, seq[1:])) if len(seq) > 1 else d
+                if gap > MICRO_GAP_MAX:
+                    out.append(("warning", f"#{n} 有 {gap:.1f}s 没有任何画面变化"
+                                            f"（卡内微事件目标 ≤{MICRO_GAP_MAX}s 一次）"))
+        elif kind == "gen" and ver >= 5 and d > MICRO_GAP_MAX * 2:
+            out.append(("warning", f"#{n} {d:.1f}s 的 gen 没写 micro：整段画面是死的"))
 
         # ---- 分类校验
         if kind in ("clip", "image"):
@@ -140,6 +195,23 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                         out.append(("error", f"#{n} {tpl} props.{k} {len(v)} 字，上限 {lim}"))
                 if el.get("source") != "generated":
                     out.append(("error", f"#{n} 是代码生成的，source 必须写 generated"))
+
+                # ---- 数字纪律（v5）：画面里出现的数要么有出处，要么标明是示意。
+                # 模型写多少就是多少的年头结束在 2026-11-11：观众信不信，取决于这个数能不能被查。
+                if tpl in NUMERIC_TEMPLATES and ver >= 5:
+                    src = str(el.get("source_ref") or "").strip()
+                    approx = el.get("approx")
+                    if not src and approx is not True:
+                        out.append(("error", f"#{n} {tpl} 是数字卡，但没有 source_ref 也没写 approx: true"
+                                             f"——要么给出处，要么画面标「示意」"))
+
+                # ---- 支撑功能（v5）：这张卡在论证里干什么。跟 role 是两条轴：
+                # role 说「在论点的哪一步」，mg_role 说「这块图形解法了什么」。
+                mgr = el.get("mg_role")
+                if mgr is not None and mgr not in MG_ROLES:
+                    out.append(("error", f"#{n} mg_role「{mgr}」不在约定值里"))
+                elif mgr is None and ver >= 5 and tpl != "scene":
+                    out.append(("warning", f"#{n} gen 没写 mg_role：说不清这张卡在论证里干什么"))
                 if tpl == "scene":
                     from gen_scene import SCENES
                     nm = str(props.get("scene") or "")
@@ -195,6 +267,36 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
         worst = max(worst, last_switch)
     if worst > 40:
         out.append(("warning", f"最长 {worst:.0f}s 没有换介质（上限 40s）"))
+
+    # 承接通（结构判据，2026-11-11）：换介质/换模板的那一刻，必须有东西「活着变成下一个」。
+    # 观众看到的是「一张换一张」就是 PPT——这是四支片被真实否决时唯一分得开的判据。
+    # 在时间轴上判，不用等渲完：共享 = 同一素材延续 / 同一模板变形 / 都是口播（人还在）。
+    # 共享不了就显式写 hard_cut 理由（有意为之的硬切），否则报。
+    def _vis(e: dict) -> tuple:
+        k = e.get("kind")
+        if k == "clip":
+            return ("clip", e.get("asset"))
+        if k == "image":
+            return ("image", e.get("asset"))
+        if k == "gen":
+            return ("gen", e.get("template"))
+        return (k, None)
+
+    prev_v, prev_e = None, None
+    for e in els:
+        if e.get("track") == "overlay":
+            continue
+        v = _vis(e)
+        if prev_v is not None and v[0] != prev_v[0] or (prev_v is not None and v[1] != prev_v[1]):
+            shared = (v[0] == prev_v[0] and v[1] == prev_v[1]) or \
+                     (prev_e.get("medium") == e.get("medium") == "talking") or \
+                     (e.get("medium") == "talking" and prev_e.get("medium") == "talking")
+            if not shared and not str(e.get("hard_cut") or "").strip():
+                out.append(("warning",
+                            f"#{e.get('n')} 换到 {v[0]}/{v[1]}，和上一格 #{prev_e.get('n')} "
+                            f"（{prev_v[0]}/{prev_v[1]}）没有共享元素：像「一张换一张」。"
+                            f"要么做一个承接，要么写 hard_cut 说明为什么硬切"))
+        prev_v, prev_e = v, e
 
     return out
 
