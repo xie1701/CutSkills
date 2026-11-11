@@ -41,7 +41,7 @@ metadata:
 `paper-edit.md`、`gaps.md`、`verify-report.md`、`yield-card.md`、`decisions.md` 全是**视图**，
 从上面几个生成。视图能被手改，手改完和真值源不一致，整条流水线就开始撒谎——视图永远可以删掉重建。
 
-Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](references/timeline-schema.md) · [edl-schema.md](references/edl-schema.md)（v2，兼容）
+Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](references/timeline-schema.md) · [edl-schema.md](references/edl-schema.md)（v2，兼容；升级旧时间轴用 `scripts/schema_upgrade.py --project <slug> --write`）
 
 ## v4 主链路：一条命令一层
 
@@ -854,4 +854,14 @@ source scripts/runtime.sh env && scripts/runtime.sh install
 - [references/board-fusion.md](references/board-fusion.md) — **制作看板与 CutSkills 的融合规格**：三层、字段映射（timeline → BOARD）、三道接口、看板能做什么/做不了什么
 - [references/stranger-run-2026-11-07/卡点.md](references/stranger-run-2026-11-07/卡点.md) — 一个没参加过讨论的人照这份说明书跑一遍的卡点清单，以及为此改了什么。**下次大改文档后再找一个人跑一遍**，这是唯一能查出「你以为写清了」的裁判
 - [references/audit-a-b-2026-11-07.md](references/audit-a-b-2026-11-07.md) — A/B 段需求和实现的对账存档：41 条里哪些真做了、哪些只是写在纸上、为什么当时这么判
+- [references/rhythm-bands.md](references/rhythm-bands.md) — 四套骨架的节奏目标区间（S1–S4）与速度标定
+- [references/p3-2026-11-11.md](references/p3-2026-11-11.md) — P3-dark 包装设计备忘：大字即字幕、暗色调视觉与动效
+- [references/plan-v3-2026-11-11.md](references/plan-v3-2026-11-11.md) — 方案骨架 v3 设计
+- [references/capability-2026-11-10.md](references/capability-2026-11-10.md) — CutSkills 能力图谱
+- [references/benchmark-2026-11-10.md](references/benchmark-2026-11-10.md) — 六家开源/商用竞品拆解与融合借鉴清单
+- [references/fusion-plan-2026-11-10.md](references/fusion-plan-2026-11-10.md) — 制作看板与产线融合执行计划
+- [references/audit-2026-11-11-adversarial.md](references/audit-2026-11-11-adversarial.md) — 第一轮对抗式审查复盘（抓到的 10 处假与自证）
+- [references/fixes-2026-11-11.md](references/fixes-2026-11-11.md) — 第一轮审查后的修复与真实读数
+- [references/audit-2026-11-11-round2-adversarial.md](references/audit-2026-11-11-round2-adversarial.md) — 第二轮对抗式审查报告（抓到的 6 处假与自证）
+- [references/fixes-2026-11-11-round2.md](references/fixes-2026-11-11-round2.md) — 第二轮审查后的修复记录
 - [BRIEF.md](BRIEF.md) — 完整需求 v1.1（硬指标数字、版本切分、砍掉了什么及为什么）

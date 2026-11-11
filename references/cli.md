@@ -379,6 +379,16 @@
 | `--sfx` | — |
 | `--dur` | （默认 60.0） |
 
+### `check_packs.py`
+*CutSkills · 包装包裁判：三套「衣服」的合同测试。*
+
+| 参数 | 说明 |
+|---|---|
+| `--packs` | — |
+| `--project` | 给了就顺手验「换 look 不动切点」 |
+| `--library` | — |
+| `--json` | 开关 |
+
 ### `check_sfx.py`
 *音效到底听不听得见——量出来，别靠嘴说。*
 
@@ -621,7 +631,43 @@
 | `--force-extract` | 开关 |
 | `--shot-match` | 逐镜把亮度/白平衡往参考片拉（0=不做，1=全拉）。默认 0.7（默认 0.7） |
 | `--extractor` | auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract（默认 'auto'） |
+| `--overscan` | 切片比画布大几倍（默认 1.2）：跳切推近靠 CSS 放大，切片不留富余就会越推越糊。1.0 = 不留富余（默认 1.2） |
+| `--punch` | 口播长段拆镜（跳切推近）：默认开。关掉用 --no-punch |
+| `--no-punch` | 不拆镜：一条长口播就一个镜头，「口播镜头中位」会顶在 4.9s |
 | `--no-cutout` | 不做人物抠像层（大字会压在人前面） |
+
+### `render_style_preview.py`
+*CutSkills · 包装样张：用 token 画四张「同一条片不同层」的示意帧，30 秒出全套。*
+
+| 参数 | 说明 |
+|---|---|
+| `--pack` | **必填** |
+| `--out` | — |
+
+### `review_sheet.py`
+*CutSkills · 目判工具：把成片拆成「能看的一页」，逼人（和我）真的看图。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--film` | — |
+| `--all` | 一次出全套：总览 + 全片 24 帧 + 两版变体 |
+| `--sheet` | 全片均匀 N 帧拼一张 |
+| `--stills` | 原尺寸帧时刻 |
+| `--motion` | 转场区间 t0 t1 |
+| `--variants` | mute,subs-only |
+| `--cols` | （默认 5） |
+
+### `schema_upgrade.py`
+*CutSkills · timeline.json v4 → v5 迁移。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--timeline` | （默认 'timeline.json'） |
+| `--write` | 开关 |
+| `--plan` | — |
+| `--pack` | — |
 
 ### `selftest.py`
 *端到端自测：从零造一个小素材库，把 A→B→C→D 整条链跑一遍。*
@@ -660,6 +706,18 @@
 | `--project` | **必填** |
 | `--apply` | 真写回 timeline.json |
 | `--max-delta` | （默认 0.25） |
+
+### `style_menu.py`
+*CutSkills · 风格菜单：把 4 套剪法 + 3 套包装摆给用户点，而不是让他写配置。*
+
+| 参数 | 说明 |
+|---|---|
+| `--list` | 开关 |
+| `--paths` | 样例给出绝对路径（聊天里要发文件时用） |
+| `--bars` | 开关 |
+| `--show` | — |
+| `--choose` | — |
+| `--project` | — |
 
 ### `subs.py`
 *CutSkills · 字幕：按呼吸组切、去标点、单行、强调词变色。*

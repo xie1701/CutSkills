@@ -19,7 +19,7 @@
 | ② 理解 | 索引 / ASR / 词表 / 音块 / 骨架 | 新增**镜头可拍性**打分（同一素材几句台词能切几刀） | `index_assets.py` 派生、`audio_map.py` |
 | ③ 编排 | `timeline.json` v4（clip/image/gen/silence） | 加三样：`role` 六分类、`micro` 卡内微事件、`source/approx` 数字纪律；边距按介质分档；跳切推近 | `timeline.py`、`check_timeline.py` |
 | ④ 成型 | `render_hf.py`、`subs.py`、`gen_scene.py`、CC0 | 卡种 10 → 18；punch-in；垫乐「静则抬」；字幕展示单位；半开帧窗 | `subs.py`、`overlays/`、`render_hf.py` |
-| ⑤ 判官 | `verify_film.py` 22 条 + `check_subs/sfx/sync/board` | **拆成两半**：机判 +8 条；目判新增 `review_sheet.py`（拼图/细节/转场/mute 版/纯字幕版）+ 毛病对照表 | 新 `review_sheet.py`、`references/qa-checklist.md` |
+| ⑤ 判官 | `verify_film.py` 22 条 + `check_subs/sfx/sync/board` | **拆成两半**：机判 +8 条；目判新增 `review_sheet.py`（拼图/细节/转场/mute 版/纯字幕版）+ 毛病对照表 | 新 `review_sheet.py`、`qa-checklist.md`（规划落点） |
 
 **真值源不变，仍是四份**：`index.json`（素材）/ `brief.json`（需求）/ `timeline.json`（片子本身）/ `styles/*.yaml`（长相）。看板仍然是 `timeline.json` 的视图，不是第二份真相。
 

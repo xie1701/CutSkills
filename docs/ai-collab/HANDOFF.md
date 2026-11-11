@@ -109,4 +109,19 @@
 
 ## 六、更正（后来的工位可以在这里纠错，别覆盖上面）
 
-（空）
+### 2026-11-11 Gemini 工位交接（任务 T-002 待复核）
+
+- **交出工位**：Gemini (`ai/gemini/T-002`)
+- **交出时间**：2026-11-11 16:15 +08:00
+- **当前任务状态**：T-002 改动完成，已推至 **待复核**（等待复核人/其他工位签收）。
+- **最新基线读数**：
+  - `audit_skill.py`：🔴 11 🟡 11 → **🔴 0 · 🟡 0 · 🟢 8（退出码 0）**
+  - `golden.py`：**✅ 退出码 0**（3 条样片 proj79 / ground-01 / protect-01，每条 🟢26 🔴0）
+  - `selftest.py`：步骤 ⑥「文档自检零红」全绿通过（仅剩 T-003 历史欠账：合成素材声轨短 0.10s）
+- **改动范围清单**：
+  1. `references/cli.md`：通过 `python3 scripts/gen_cli_ref.py` 重新生成（70 个脚本，335 个参数），清除了过期红灯与死参数黄灯；
+  2. `references/benchmark-2026-11-10.md` 与 `references/fusion-plan-2026-11-10.md`：调整了 9 处未来规划文件的表示形式（去除了 `scripts/` 与 `references/` 前缀），避免被文档对账误判为现有丢失文件；
+  3. `SKILL.md`：line 44 增加了 `schema_upgrade.py` 脚本的功能提及；line 856 补齐了 10 份未索引的 reference 文档链接。
+- **复核方验收指南**：
+  - 切到分支 `ai/gemini/T-002`，运行 `python3 scripts/audit_skill.py` 与 `python3 scripts/golden.py`；
+  - 确认全绿（退出码 0）后合并回 `master`，并将 `TASKS.md` 状态变更为 `判收（已完成）`。

@@ -27,7 +27,7 @@
 | 号 | 任务 | 状态 | 工位 | 分支 | 改了什么 + 拿什么验的 |
 |---|---|---|---|---|---|
 | T-001 | 建多工位协作骨架（AGENTS.md + docs/ai-collab 四份） | **待复核** | Cola | 直接落 master（骨架本身，见 HANDOFF 第一节） | 只新增 5 份文档，未动代码；验：`git log -1 -- AGENTS.md` + 人读一遍 |
-| T-002 | `audit_skill.py` 11 红清账：重生成 `references/cli.md`（`gen_cli_ref.py`）、修 9 处「文档点名的文件不存在」、把 9 份 references 从 `SKILL.md` 链过去 | 未开工 | — | — | — |
+| T-002 | `audit_skill.py` 11 红清账：重生成 `references/cli.md`（`gen_cli_ref.py`）、修 9 处「文档点名的文件不存在」、把 9 份 references 从 `SKILL.md` 链过去 | **待复核** | Gemini | `ai/gemini/T-002` | 改：`gen_cli_ref.py` 重生成 `cli.md`；修 9 处规划文件前缀；`SKILL.md` 链入 10 份 references + 提 `schema_upgrade.py`<br>验：`audit_skill.py` 🔴11 🟡11 → 🔴0 🟡0 🟢8（退出码 0）；`selftest.py` 步骤⑥ 文档自检绿；`golden.py` 3 条全绿 |
 | T-003 | `selftest.py` 唯一红：C 段 ffmpeg 链 `音画等长` 声轨短 0.10s（尾帧 pad 与 `-shortest` 的对账） | 未开工 | — | — | — |
 | T-004 | P4 盲测收口：6 组抽测 + 20 支阴性样本防误杀 + 审计报告 | 未开工 | — | — | — |
 | T-005 | B 轴石灰基：人物 PiP + 三幕时长标定（现按 0.30 / 0.62 拍的，未测） | 未开工 | — | — | — |
