@@ -411,7 +411,7 @@ python3 <SKILL_DIR>/scripts/blind_test.py --project <项目目录> --score 回�
 python3 <SKILL_DIR>/scripts/blind_test.py --project P --score 裁判1.md --score 裁判2.md
 ```
 
-格式没要求，整段回答原样存成 `.md` 就行；脚本只做三件事——和 `intent.promise` 对字数、抽出裁判点到的段号、把「≥2 位裁判点到同一段」单列出来。那几条才是高信号。改完**再跑一次**，看被点过的段消失了没有——这是这套机制唯一的成绩单。全流程见 [references/blind-test-playbook.md](references/blind-test-playbook.md)。
+格式没要求，整段回答原样存成 `.md` 就行；脚本只做三件事——和 `intent.promise` 对字数、抽出裁判点到的段号、把「≥2 位裁判点到同一段」单列出来。那几条才是高信号。改完**再跑一次**，看被点过的段消失了没有——这是这套机制唯一的成绩单。全流程见 [references/blind-test-playbook.md](references/blind-test-playbook.md)；盲测与防误杀自动化回归套件见 `scripts/test_blind_negative.py`（包含 20 支阴性样本与 20 支对照组断言，详见 [references/audit-p4-blind-2026-11-11.md](references/audit-p4-blind-2026-11-11.md)）。
 
 10. **A/B 双开场**（要对照开场效果时才做）：
 
@@ -864,4 +864,5 @@ source scripts/runtime.sh env && scripts/runtime.sh install
 - [references/fixes-2026-11-11.md](references/fixes-2026-11-11.md) — 第一轮审查后的修复与真实读数
 - [references/audit-2026-11-11-round2-adversarial.md](references/audit-2026-11-11-round2-adversarial.md) — 第二轮对抗式审查报告（抓到的 6 处假与自证）
 - [references/fixes-2026-11-11-round2.md](references/fixes-2026-11-11-round2.md) — 第二轮审查后的修复记录
+- [references/audit-p4-blind-2026-11-11.md](references/audit-p4-blind-2026-11-11.md) — P4 盲测收口与阴性样本防误杀审计报告：20 支阴性样本 + 20 支对照组防误杀 + 6 组项目抽测
 - [BRIEF.md](BRIEF.md) — 完整需求 v1.1（硬指标数字、版本切分、砍掉了什么及为什么）

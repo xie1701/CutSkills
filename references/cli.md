@@ -735,6 +735,11 @@
 | `--tolerance` | （默认 TOL_MS） |
 | `--json` | 开关 |
 
+### `test_blind_negative.py`
+*CutSkills · 盲测收口与阴性样本防误杀测试 (P4)*
+
+（无参数）
+
 ### `thesis.py`
 *CutSkills · 观点先行：先定「一句话讲完什么」，再回头挑素材。*
 
