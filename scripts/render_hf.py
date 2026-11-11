@@ -1765,7 +1765,13 @@ def main():
     if n_err or r.returncode != 0:
         print("\n".join(out.splitlines()[-30:]), file=sys.stderr)
         if not a.no_render:
-            raise SystemExit("lint 没过，先别渲")
+            # 说清是「HTML 有错」还是「lint 进程自己退非 0」——这两种要查的地方完全不同。
+            # 2026-11-11 有一次 0 error 却退出码 1，屏幕上只留下「lint 没过」四个字，
+            # 读到的人根本分不清是片子的问题还是工具的问题。
+            why = (f"lint 报了 {n_err} 个 error" if n_err
+                   else f"lint 0 error 但进程退出码 {r.returncode}"
+                        f"（不是 HTML 的错；npx 缓存锁 / 二进制异常都会这样，重试一次）")
+            raise SystemExit(f"lint 没过，先别渲：{why}")
 
     if a.no_render:
         print(f"  → {hf/'index.html'}")
