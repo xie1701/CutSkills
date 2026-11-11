@@ -29,7 +29,27 @@ import subs                                            # noqa: E402
 from render_film import load_chars                    # noqa: E402
 
 SKILL = Path(__file__).resolve().parent.parent
-HF = os.environ.get("CUTSKILLS_HF", "npx --yes hyperframes")
+def _resolve_hf() -> str:
+    """先找**本地装好的** hyperframes，找不到才退回 npx。
+
+    以前这里默认 "npx --yes hyperframes"：哪怕 ~/.cutskills 里已经装好，
+    每次 lint 还是要连 npm registry（实测握手 43 秒），还会撞 _npx 的锁与
+    ENAMETOOLONG。「依赖只装一次」被渲染器一句话击穿，属于配置写一套、跑另一套。
+    """
+    env = (os.environ.get("CUTSKILLS_HF") or "").strip()
+    if env:
+        return env
+    cands = [Path.home() / ".cutskills/npm/node_modules/.bin/hyperframes",
+             SKILL / "node_modules/.bin/hyperframes",
+             Path("/opt/homebrew/bin/hyperframes")]
+    for c in cands:
+        if c.exists() and os.access(c, os.X_OK):
+            return str(c)
+    w = shutil.which("hyperframes")
+    return w or "npx --yes hyperframes"
+
+
+HF = _resolve_hf()
 
 
 # ------------------------------------------------------------------ 字体
@@ -1548,6 +1568,7 @@ def main():
     _jump = str(_pl_shot.get("jump_cut") or "normal")
     _punch_ratio = {"dense": 1.25, "normal": 1.45, "sparse": 1.8}.get(_jump, 1.45)
     shots_out, punch_map = [], {}
+    snap_hit = snap_try = 0   # 吸附命中/尝试：0/7 这种数字必须打出来，别再说「已吸附」
     for v in videos:
         el = next((e for e in segs if int(e.get("n") or 0) == int(v["n"])), {})
         medium = str(el.get("medium") or "")
@@ -1562,14 +1583,20 @@ def main():
             k = max(2, int(round(d / _punch_target)))
             aid = (el.get("audio") or {}).get("asset") or el.get("asset")
             starts = [c[1] for c in (chars_cache.get(aid) or [])] if aid else []
+            # 字级时间戳是**原始整段素材**的绝对时间（例如 436.26s 起），
+            # 而 want 是从这一刀自己 0.0 起算的相对秒数。以前直接拿两者比大小，
+            # 差值几百秒，吸附条件恒为假 → 声称的「吸附字界」100% 静默失效（实测 0/7）。
+            a_in = float((el.get("audio") or {}).get("in") or el.get("in") or 0.0)
             rel = [0.0]
             for j in range(1, k):
                 want = d * j / k
                 if starts:
                     # 切点吸附到字界：切在词中间最刺眼（画面换的那一下刚好切掉半个字）
-                    near = min(starts, key=lambda x: abs(x - want))
-                    if abs(near - want) <= 0.35:
-                        want = near
+                    near = min(starts, key=lambda x: abs(x - (a_in + want)))
+                    if abs(near - (a_in + want)) <= 0.35:
+                        want = round(near - a_in, 3)
+                        snap_hit += 1
+                snap_try += 1
                 if want - rel[-1] >= 0.8 and d - want >= 0.8:
                     rel.append(round(want, 3))
             rel.append(round(d, 3))
@@ -1596,6 +1623,9 @@ def main():
         shots_out.append({"n": len(shots_out) + 1, "seg": int(v["n"]),
                           "in": 0.0, "out": round(float(v["dur"]), 3),
                           "dur": round(float(v["dur"]), 3), "zoom": 1.0, "medium": "gen"})
+    if snap_try:
+        print(f"  切点吸附字界：{snap_hit}/{snap_try}（{snap_hit / snap_try * 100:.0f}%）"
+              f"· 其余按机械等分", file=sys.stderr)
     shots_out.sort(key=lambda x: (x["seg"], x["in"]))
     for i, s_ in enumerate(shots_out, 1):
         s_["n"] = i

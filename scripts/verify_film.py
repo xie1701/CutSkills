@@ -98,7 +98,9 @@ def load_timeline_or_edl(proj: Path) -> dict:
         return {"segments": segs, "beats": tl.get("beats") or [],
                 "style_pack": tl.get("style_pack"), "duration_s": t, "_src": "timeline",
                 # v5：骨架与包装的 id 要一路带下来，验收才知道该拿哪个 band 对账
-                "plan": tl.get("plan") or _brief_plan(p),
+                # 形参叫 proj，这里以前写成 p —— 空 plan 的时间轴一进来就 NameError。
+                # 之前没炸只是因为样片恰好写了 plan，短路求值把这条残肢藏住了。
+                "plan": tl.get("plan") or _brief_plan(proj),
                 "pack": tl.get("pack"), "axis": tl.get("axis") or "A"}
     return {**json.loads((proj / "edl.json").read_text()), "_src": "edl"}
 
@@ -332,6 +334,85 @@ def main() -> int:
                 "green" if lo > 0.008 else "red",
                 "" if lo > 0.008 else
                 f"subs.json 有字幕，但画面上找不到字幕色 {_chex}——滤镜或颜色没生效")
+
+    # 双语第二行到底上没上屏 —— 必须去成片像素上找。
+    # 以前整个验收脚本对「第二行」零防线：项目没英文稿、或英文被推出画面，
+    # 照样 🟢30。而这件事刚刚真的出过一次（英文行压根没渲出来，见 fixes 补记）。
+    if _has_subs and _ssx_id == "bilingual":
+        _enp = proj / "subs-en.json"
+        _enmap = {}
+        if _enp.exists():
+            try:
+                _enmap = json.loads(_enp.read_text()) or {}
+            except json.JSONDecodeError:
+                _enmap = {}
+        _sub_st = style.get("subtitle") or {}
+        _cap_px = int(_sub_st.get("size_px") or 72)
+        _top = int(float(_sub_st.get("center_y_px") or H * 0.674))
+        _scan0, _scan1 = _top - 10, min(H - 2, int(_top + _cap_px * 2.4))
+        # 代码画的整屏格本身就满是高对比图形（实测那两帧的行剖面跨度顶到 181px），
+        # 拿它量字幕行高等于量背景。只取「这一段没有 gen 格压着」的时刻。
+        # 注意：segments 里的 in/out 是**素材内的时间**，不是成片时间。
+        # 代码画面要按「前面所有格子加起来」折成成片位置，否则过滤等于没过（踩过一次）。
+        _genspans, _acc = [], 0.0
+        try:
+            for s_ in (load_timeline_or_edl(proj).get("segments") or []):
+                if s_.get("_overlay"):
+                    continue
+                _d = (round(float(s_["out"]) - float(s_["in"]), 3)
+                      if s_.get("kind") == "clip" else float(s_.get("dur") or 0))
+                if s_.get("kind") == "gen":
+                    _genspans.append((_acc, _acc + _d))
+                _acc = round(_acc + _d, 3)
+        except Exception:
+            _genspans = []
+
+        def _ink_span(im):
+            """字幕块的行跨度（像素）。双语两行会把块撑高，单行撑不起来——
+            这是唯一不靠猜颜色、又不受「中文字尾溢进下一行」影响的量。"""
+            import numpy as _np
+            arr = _np.asarray(im.convert("L").crop((180, _scan0, W - 180, _scan1))
+                              ).astype("float32") / 255.0
+            med = float(_np.median(arr))
+            prof = (_np.abs(arr - med) > 0.20).mean(axis=1)
+            peak = float(prof.max())
+            if peak < 0.25:      # 这一帧根本看不到字幕
+                return 0, peak
+            rows = [i for i, v in enumerate(prof) if v >= peak * 0.10]
+            span = int(rows[-1] - rows[0]) if rows else 0
+            # 跨度顶到扫描窗两头 = 这一帧整个区域都是高对比（人物、地面、代码画面），
+            # 量到的不是字幕。这种帧直接丢掉，别让它冒充「两行高」。
+            if span >= 0.95 * (len(prof) - 1):
+                return 0, peak
+            return span, peak
+
+        if not _enmap:
+            add("双语第二行", "项目里没有 subs-en.json", "red",
+                "这套包装声明双语双行，但没有英文稿——渲出来只有一行中文。"
+                "要不补 subs-en.json（键=字幕序号），要不把这套包换掉")
+        elif cues0:
+            _cand = [c for c in cues0 if c["end"] - c["start"] > 0.8
+                     and not any(c["start"] < b_ and c["end"] > a_ for a_, b_ in _genspans)]
+            _cand = _cand[:40]
+            _pick = _cand[:: max(1, len(_cand) // 4)][:4] if _cand else []
+            _need = int(_cap_px * 1.55)      # 单行 ~0.9×cap；双语 ~1.6×cap
+            _hits, _spans = 0, []
+            for i, c in enumerate(_pick):
+                im = frame_at((c["start"] + c["end"]) / 2, f"en{i}")
+                if im is None:
+                    continue
+                sp, pk = _ink_span(im)
+                if sp == 0:
+                    continue
+                _spans.append(sp)
+                if sp >= _need:
+                    _hits += 1
+            if _spans:
+                _ok = _hits >= max(2, len(_spans) - 1)
+                add("双语第二行", f"{_hits}/{len(_spans)} 帧字幕块高 {min(_spans)}–{max(_spans)}px"
+                    f"（门槛 {_need}px）", "green" if _ok else "red",
+                    "英文行真的在画面上，把字幕块撑到了两行高" if _ok else
+                    "声明双语双行，但字幕块只有一行高——英文行没上屏、或被遮住了")
 
     fin = load_timeline_or_edl(proj)
     cards_meta = {}
@@ -678,34 +759,46 @@ def main() -> int:
     if _axis == "B":
         # B 轴是一整段连续场景（人物缩 PiP），**本来就不该有剪辑点**：
         # 拿「剪辑点中位」判它，等于要求「一块石灰基的一生」每 2.5 秒切一刀。
-        # 它要防的病是「一张静图挂 14 秒」，所以按**场景内微事件间隔**判。
-        # 直接读 timeline.json：`load_timeline_or_edl` 返回的是折好的 segments，
-        # 里面没有 micro（那是渲染层的声明），拿它判微事件会一条都读不到。
-        _tlp = proj / "timeline.json"
-        _els = (json.loads(_tlp.read_text()).get("elements") or []) if _tlp.exists() else []
-        _gaps = []
-        for _e in _els:
-            _ms = _e.get("micro") or []
-            if _e.get("kind") != "gen" or not isinstance(_ms, list):
-                continue
-            _ts = []
-            for _it in _ms:
-                _tv = _it.get("t") if isinstance(_it, dict) else _it
-                try:
-                    _ts.append(float(_tv))
-                except (TypeError, ValueError):
-                    pass
-            if not _ts:
-                continue
-            _d = float(_e.get("dur") or 0)
-            _seq = [0.0] + sorted(_ts) + [_d]
-            _gaps.append(max(b_ - a_ for a_, b_ in zip(_seq, _seq[1:])))
-        if _gaps:
-            _mx = max(_gaps)
-            # 2.5s 与 check_timeline 的 MICRO_GAP_MAX_SCENE 对齐：两个判官用同一个数，
-            # 否则「写的时候过、验的时候红」，人会去改片子而不是改判据。
-            add("场景内微事件间隔", f"最大 {_mx:.2f}s", "green" if _mx <= 2.5 else "yellow",
-                "B 轴看的是「一直在动」；超过 2.5s 没有新东西发生就像静图")
+        # 它要防的病是「一张静图挂 14 秒」，所以按**场景里多久没有新东西发生**判。
+        # 以前这里读的是 timeline.json 里人手填的 micro 数组，两个数相减就判绿——
+        # 而渲染端根本没读过 micro（gen_scene 按自己的关键帧在动）。闭环自证，作废。
+        # 现在按成片量：每帧之间的画面差找「事件」，再看最长空窗。
+        import numpy as _np
+        _fps = 10.0
+        _tmp = proj / "work" / "_verify_baxis"
+        if _tmp.exists():
+            import shutil as _sh
+            _sh.rmtree(_tmp, ignore_errors=True)
+        _tmp.mkdir(parents=True, exist_ok=True)
+        run(["ffmpeg", "-v", "error", "-y", "-i", str(film),
+             "-vf", f"fps={_fps:g},scale=270:-1", str(_tmp / "f%04d.png")])
+        _fr = sorted(_tmp.glob("f*.png"))
+        if len(_fr) >= 12:
+            prev, _diffs = None, []
+            for f_ in _fr:
+                arr = _np.asarray(Image.open(f_).convert("L")).astype("float32")
+                if prev is not None:
+                    _diffs.append(float(_np.abs(arr - prev).mean()))
+                prev = arr
+            _med = float(_np.median(_diffs))
+            # 判「挂着不动」，不判「够不够热闹」：慢转场、缓推镜头每帧只差一点点，
+            # 拿「帧差超过中位两倍」当事件，会把一段正常的长溶解判成空档（实测 2.6s 假红）。
+            # 真正的病是**一模一样**挂在那里，所以量的是「帧差低到阈值以下」的最长连跑。
+            _eps = max(0.25, 0.35 * _med)
+            _run, _worst, _at = 0, 0.0, 0.0
+            for i, dv in enumerate(_diffs, 1):
+                if dv < _eps:
+                    _run += 1
+                    if _run / _fps > _worst:
+                        _worst, _at = _run / _fps, i / _fps
+                else:
+                    _run = 0
+            add("场景内最长静止", f"{_worst:.2f}s（到 {_at:.1f}s）· 帧差中位 {_med:.2f}",
+                "green" if _worst <= 2.0 else "yellow",
+                "在成片上逐帧量：超过 2s 一模一样，看着就是静图挂着"
+                if _worst > 2.0 else "一直是动的（2s 内必有变化）")
+        else:
+            add("场景内最长静止", "取帧失败", "yellow", "ffmpeg 没抽出帧，这条没量到")
     elif _shots_p.exists():
         _sh = [x for x in json.loads(_shots_p.read_text()) if float(x.get("dur") or 0) > 0.05]
         if _sh:
@@ -732,7 +825,7 @@ def main() -> int:
     plan_id = str(edl.get("plan") or "").strip()
     if _axis == "B":
         add("画面变化（诊断）", "不适用", "green",
-            "B 轴是一段连续场景，band 管的是剪辑点；这条改用上面的「场景内微事件间隔」")
+            "B 轴是一段连续场景，band 管的是剪辑点；这条改用上面的「场景内最长静止」")
         plan_id = ""            # 下面不再按 band 判
     try:
         if not plan_id:

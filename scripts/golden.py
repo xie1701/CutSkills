@@ -79,15 +79,24 @@ def main() -> int:
         elif want is None:
             print(f"  {slug}: 🟢 {cur['green']} · 🟡 {cur['yellow']} · 🔴 {cur['red']}（还没有基线）")
         else:
-            status = "OK" if cur["green"] >= want and cur["red"] == 0 else "REGRESSED"
-            print(f"  {slug}: 🟢 {cur['green']}（基线 {want}）· 🟡 {cur['yellow']} · 🔴 {cur['red']}  {status}")
-            if status != "OK":
-                fails.append(f"{slug}: 绿灯从 {want} 掉到 {cur['green']}，红灯 {cur['red']}")
+            # 基线里要连红灯一起记：以前只存 green，于是「绿灯涨了、但多出一条红」
+            # 会被打印成「绿灯从 13 掉到 23」——数字往上走，话往下说，谁看都懵。
+            want_red = int(meta.get("red") or 0)
+            ok_green = cur["green"] >= want
+            ok_red = cur["red"] <= want_red
+            status = "OK" if (ok_green and ok_red) else "REGRESSED"
+            print(f"  {slug}: 🟢 {cur['green']}（基线 {want}）· 🟡 {cur['yellow']} · "
+                  f"🔴 {cur['red']}（基线 {want_red}）  {status}")
+            if not ok_green:
+                fails.append(f"{slug}: 绿灯 {want} → {cur['green']}（掉了 {want - cur['green']} 条）")
+            if not ok_red:
+                fails.append(f"{slug}: 红灯 {want_red} → {cur['red']}（多了 {cur['red'] - want_red} 条）")
 
     if a.init:
         for slug, cur in results.items():
             if "green" in cur:
                 base["samples"][slug]["green"] = cur["green"]
+                base["samples"][slug]["red"] = cur["red"]
         base["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         BASE.write_text(json.dumps(base, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"基线已更新 → {BASE}")
