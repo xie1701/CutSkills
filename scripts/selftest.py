@@ -286,6 +286,10 @@ def main() -> int:
     ok10 = _dark_judge_negative()
     must("深底判据负样本", ok10, "实拍帧 dark_ratio 应 ≤ 0.35（触发红），代码画面帧应 > 0.35（绿）")
 
+    print("⑪ PiP 判据负样本（T-012：缺键 / 贴回失败 / 数量不足）")
+    r = sh([PY, str(ROOT / "scripts" / "test_pip_judge.py")])
+    must("PiP 判据负样本", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:

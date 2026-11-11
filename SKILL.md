@@ -83,6 +83,7 @@ python3 scripts/bgm_gen.py --project <项目> --mood auto     # 按 brief 挑情
 python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频：谱质心 <350Hz 就是闷
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
+python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
 python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/单行 10–14 字/强调色/硬切
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）

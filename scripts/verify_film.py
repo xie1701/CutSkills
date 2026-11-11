@@ -32,6 +32,37 @@ def median_of(vals: list[float]):
     return sorted(vals)[len(vals) // 2] if vals else None
 
 
+def pip_applied(meta: dict) -> bool:
+    """meta 里的 pips_applied 只有渲片贴回成功才是 true。
+
+    缺键（旧 meta / 渲染中途崩）必须按 false 算——曾经缺省 True，让
+    「raw 成片冒充 + 删键」拿到 24/0/0（T-005 二次复核抓过）。
+    """
+    return bool(meta.get("pips_applied", False))
+
+
+def pip_verdict(want: list, pips: list, applied: bool) -> tuple[str, str, str] | None:
+    """PiP 的声明层 / 管线层 / 数量层判定；像素层留在调用方（要抽帧）。
+
+    返回 (级别, 读数, 说明)；None = 前两层都过，交给像素层继续判。
+    T-012：verify 与测试共用这一份判定，避免「测试自己写一套」。
+    """
+    n_want, n_pip = len(want), len(pips)
+    if n_want and not n_pip:
+        return ("red", "timeline 有 B 轴格，meta 里没有 pips",
+                "渲片时 PiP 没建出来（缺 person_mask 或音频素材），或渲染器版本没带这功能")
+    if n_pip and not applied:
+        if n_want:
+            return ("red", f"meta 声明 {n_pip} 格但贴回失败（pips_applied=false）",
+                    "渲片日志里有「PiP 没贴上」——成片里没有小窗，声明不作数")
+        return ("yellow", "贴回失败但 timeline 不要求 PiP",
+                "meta 声明了 pips 但 pips_applied=false；timeline 没有 B 轴格所以不算硬伤，查渲片日志")
+    if n_want and n_pip < n_want:
+        return ("red", f"想要 {n_want} 格，meta 只有 {n_pip} 格",
+                "有 B 轴格没建出小窗——查渲片日志里被跳过的那几格")
+    return None
+
+
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -825,12 +856,13 @@ def main() -> int:
         # 真在画面上。判据看像素：PiP 区域的纹理量——人是抠像浮在场景上的，
         # 区域 std 低于 6 基本就是没贴上（贴上了也有人脸/衣纹在动）。
         _mp = proj / "hf" / "meta.json"
-        _mpips = []
+        _meta = {}
         if _mp.exists():
             try:
-                _mpips = json.loads(_mp.read_text()).get("pips") or []
+                _meta = json.loads(_mp.read_text())
             except json.JSONDecodeError:
-                _mpips = []
+                _meta = {}
+        _mpips = _meta.get("pips") or []
         # _want_pip 必须读 timeline.json 原件：load_timeline_or_edl 返回的是 EDL 视图，
         # 只有 segments 没有 elements——读转换视图会让声明永远为空，这条红永远不响
         # （跟「B 轴微事件」当时犯的是同一个错，别再犯）。
@@ -840,29 +872,11 @@ def main() -> int:
                      if str(e.get("axis") or "") == "B"
                      and str(e.get("template") or "") == "scene"
                      and (e.get("props") or {}).get("pip") is not False]
-        # meta 是渲片写的，但它声明了不等于贴上了：贴回是否成功看 pips_applied
-        # （T-005 复核①②）。判据分三层：声明层（want vs meta）、管线层（applied）、
-        # 像素层（区域 std）——只要前两层有一样不满足，像素 std 多高都不能算绿。
-        _applied = False
-        if _mpips:
-            try:
-                # 缺省必须是 False：pips 声明了却拿不出「贴回成功」的凭证，就是没贴上。
-                # 缺省 True 的假绿被二次复核抓过（raw 冒充成片 + 删键 → 24/0/0）。
-                _applied = bool(json.loads(_mp.read_text()).get("pips_applied", False))
-            except json.JSONDecodeError:
-                pass
-        if _want_pip and not _mpips:
-            add("B 轴人物 PiP", "timeline 有 B 轴格，meta 里没有 pips", "red",
-                "渲片时 PiP 没建出来（缺 person_mask 或音频素材），或渲染器版本没带这功能")
-        elif _want_pip and _mpips and not _applied:
-            add("B 轴人物 PiP", f"meta 声明 {len(_mpips)} 格但贴回失败（pips_applied=false）", "red",
-                "渲片日志里有「PiP 没贴上」——成片里没有小窗，声明不作数")
-        elif len(_mpips) < len(_want_pip):
-            add("B 轴人物 PiP", f"想要 {len(_want_pip)} 格，meta 只有 {len(_mpips)} 格", "red",
-                "有 B 轴格没建出小窗——查渲片日志里被跳过的那几格")
-        elif _mpips and not _applied:
-            add("B 轴人物 PiP", "贴回失败但 timeline 不要求 PiP", "yellow",
-                "meta 声明了 pips 但 pips_applied=false；timeline 没有 B 轴格所以不算硬伤，查渲片日志")
+        # 声明层（want vs meta）、管线层（pips_applied）、数量层先判；
+        # 任何一层不过，像素 std 多高都不能算绿。
+        _verdict = pip_verdict(_want_pip, _mpips, pip_applied(_meta) if _mpips else False)
+        if _verdict:
+            add("B 轴人物 PiP", _verdict[1], _verdict[0], _verdict[2])
         elif _mpips:
             _bad = []
             for _p in _mpips:
