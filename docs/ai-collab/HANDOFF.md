@@ -290,3 +290,18 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 - **并发事故与修复（必须记）**：我在主树检查时它是 `master`，执行 `merge --ff-only` 的一瞬间主树被切到 **`ai/gemini/T-007`**，结果误把 T-007 快进到我的合并提交。T-007 是 Gemini 20:18:58 刚从 `d78257a` 建的分支、工作树干净、尚无提交；已用 reflog 还原 `ai/gemini/T-007` → `d78257a`，master 改用 `git branch -f` 前进（master 当时未被 checkout）。**T-007 现在落后 master 一个 T-005 合并，Gemini 开工前请先 rebase。**
 - **遗留**：`ai/cola/T-005` 仍被 Cola worktree 占用，分支删除待其清理；raw-负样本的自动化固化为 **T-012（未开工）**。
 - **状态**：T-005 **判收**；T-007 在跑（Gemini，@ `d78257a`）；T-012 未开工。
+
+### 2026-11-11 20:39 · DeepSeek · T-012 完成待复核（PiP 判据负样本固化）
+
+- **分支 / 工作树**：`ai/deepseek/T-012` @ `c98c2d8`，worktree `/Users/jerry/Downloads/AIworks/review/T012/CutSkills`（主树在跑 T-007，未动）。
+- **做了什么**：把 `verify_film` 里 PiP 的「声明层 / 管线层 / 数量层」抽成 `pip_applied(meta)` 与 `pip_verdict(want, pips, applied)`；新增 `scripts/test_pip_judge.py` 直接测这两个纯函数，并挂进 `selftest` 第⑪步。覆盖：缺键=False、timeline 要而 meta 没有、`pips_applied=false`、`want 2 / meta 1`、无要求时贴回失败只黄、三层都过才交给像素层。
+- **负样本实证**：把 `pip_applied` 的缺省临时改回 `True`，`test_pip_judge` 的 A 段立即失败；端到端「raw 成片 + meta 保留 pips + 删 `pips_applied`」→ **23/0/1 红**。
+- **验收**：test_pip_judge 0 · selftest 0（66s，第⑪步跑通）· golden 0（3×26/0/0）· audit 0/0/8 · lime 24/0/0 · `gen_cli_ref` 一致。
+- **复核命令**：
+  ```bash
+  cd /Users/jerry/Downloads/AIworks/review/T012/CutSkills
+  python3 scripts/test_pip_judge.py
+  python3 scripts/selftest.py --dir /tmp/cutskills-selftest-review-t012
+  python3 scripts/golden.py && python3 scripts/audit_skill.py
+  ```
+- **状态**：T-012 待复核；T-007 已由 Gemini 推到待复核（@ `eed2943`）。另：T-011 行仍写「待复核」，但代码已并入 master `47d3f41`、分支已删——需要一次状态行更正（不是代码问题）。
