@@ -735,6 +735,11 @@
 | `--tolerance` | （默认 TOL_MS） |
 | `--json` | 开关 |
 
+### `test_blind_negative.py`
+*CutSkills · 盲测收口与阴性防误杀测试套件 (P4)*
+
+（无参数）
+
 ### `test_board_clips.py`
 *T-010 回归：clips.ov 对账不许被 overlay 推歪（主轨起点只看视频格）。*
 

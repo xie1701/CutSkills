@@ -1,0 +1,59 @@
+{
+  "cut_source": "speech",
+  "visual_selector": "single_cam_talking",
+  "style_pack": "talking-head-v1",
+  "segments": [
+    {
+      "n": 1,
+      "asset": "a_claim",
+      "in": 0.0,
+      "out": 5.2,
+      "dur": 5.2,
+      "beat": 1,
+      "role": "claim",
+      "medium": "talking",
+      "source": "library",
+      "why": "开场明确提出金刚砂地坪起砂的核心症结不是骨料差而是养护不足",
+      "evidence": "很多业主发现新打的金刚砂地坪半年就起砂，核心症结往往不在骨料，而在混凝土初凝阶段的抹光提浆与保水养护。"
+    },
+    {
+      "n": 2,
+      "asset": "b_proof",
+      "in": 5.2,
+      "out": 12.8,
+      "dur": 7.6,
+      "beat": 1,
+      "role": "evidence",
+      "medium": "talking",
+      "source": "library",
+      "why": "举证金刚砂骨料撒料时机与打磨机收光工序数据",
+      "evidence": "混凝土浇筑后脚踩下陷 3 到 5 毫米时必须进行第一次撒料，每平米均匀撒布 5 公斤金刚砂骨料，随后用重型抹光机十字交叉反复压光 4 遍。"
+    },
+    {
+      "n": 3,
+      "asset": "c_close",
+      "in": 12.8,
+      "out": 18.5,
+      "dur": 5.7,
+      "beat": 1,
+      "role": "warrant",
+      "medium": "talking",
+      "source": "library",
+      "why": "解释为什么压光和保水固化剂能提升莫氏硬度",
+      "evidence": "二次抹光封闭了水泥基表面微孔隙，配合锂基固化剂渗透结晶，才能将表层硬度从莫氏 4 级提升到 8 级以上。"
+    },
+    {
+      "n": 4,
+      "asset": "a_claim",
+      "in": 18.5,
+      "out": 22.0,
+      "dur": 3.5,
+      "beat": 2,
+      "role": "payoff",
+      "medium": "talking",
+      "source": "library",
+      "why": "收束给出2米靠尺偏差不大于3毫米的验收标准",
+      "evidence": "最终验收拿 2 米靠尺靠地面，缝隙偏差小于 3 毫米且起砂磨损率低于 0.1% 才算真正合格。"
+    }
+  ]
+}

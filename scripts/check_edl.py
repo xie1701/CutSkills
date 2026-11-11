@@ -13,6 +13,7 @@ import argparse
 import difflib
 import hashlib
 import json
+import os
 import re
 import statistics
 import sys
@@ -156,23 +157,33 @@ def pad_edge(bounds, t: float, direction: int, limit: float, dur: float) -> floa
     return round(max(0.0, min(dur, v)), 3)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--project", required=True)
-    ap.add_argument("--library", default=None, help="默认从项目路径往上找")
-    ap.add_argument("--strict", action="store_true")
-    a = ap.parse_args()
+def check_project(proj: Path, lib: Path | None = None, write_report: bool = True) -> tuple[list[str], list[str], list[str]]:
+    """对一个项目进行完整的 EDL 静态规则检查，返回 (errors, warns, info)。"""
+    proj = Path(proj).expanduser().resolve()
+    if lib:
+        lib = Path(lib).expanduser().resolve()
+    else:
+        # 依次尝试：proj.parents[2]、祖先目录寻访、环境变量 CUTSKILLS_HOME
+        cand = proj.parents[2] if len(proj.parents) >= 3 else proj.parent
+        if not (cand / "_cutskills" / "index.json").exists():
+            for p in proj.parents:
+                if (p / "_cutskills" / "index.json").exists():
+                    cand = p
+                    break
+        if not (cand / "_cutskills" / "index.json").exists() and os.environ.get("CUTSKILLS_HOME"):
+            h = Path(os.environ["CUTSKILLS_HOME"])
+            if (h / "_cutskills" / "index.json").exists():
+                cand = h
+        lib = cand
 
-    proj = Path(a.project).expanduser().resolve()
-    lib = Path(a.library).expanduser().resolve() if a.library else proj.parents[2]
     errors: list[str] = []
     warns: list[str] = []
     info: list[str] = []
 
     idx_f = lib / "_cutskills" / "index.json"
     if not idx_f.exists():
-        print(f"索引不存在：{idx_f}", file=sys.stderr)
-        return 2
+        errors.append(f"索引不存在：{idx_f}")
+        return errors, warns, info
     index = {x["id"]: x for x in json.loads(idx_f.read_text())["assets"]}
 
     intent_f = proj / "intent.json"
@@ -183,8 +194,8 @@ def main() -> int:
 
     edl_f = proj / "edl.json"
     if not edl_f.exists():
-        print(f"edl.json 不存在：{edl_f}", file=sys.stderr)
-        return 2
+        errors.append(f"edl.json 不存在：{edl_f}")
+        return errors, warns, info
     edl = json.loads(edl_f.read_text())
     segs = edl.get("segments") or []
     if not segs:
@@ -503,16 +514,37 @@ def main() -> int:
                      f"{r.get('beat') if r.get('beat') is not None else '—'} | "
                      f"{ROLE_CN.get(r.get('role'), '—')} | "
                      f"{r['source']} | {r['why'].replace('|', '/')} |")
-    (proj / "edl-report.md").write_text("\n".join(lines) + "\n")
+    if write_report:
+        (proj / "edl-report.md").write_text("\n".join(lines) + "\n")
 
-    print(f"{status}  {len(rows)} 段 / {total}s  ·  error {len(errors)}  warning {len(warns)}")
+    return errors, warns, info
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--project", required=True)
+    ap.add_argument("--library", default=None, help="默认从项目路径往上找")
+    ap.add_argument("--strict", action="store_true")
+    a = ap.parse_args()
+
+    proj = Path(a.project).expanduser().resolve()
+    lib = Path(a.library).expanduser().resolve() if a.library else None
+    errors, warns, info = check_project(proj, lib, write_report=True)
+
+    if any("索引不存在" in e for e in errors):
+        for e in errors:
+            print(e, file=sys.stderr)
+        return 2
+
+    status = "FAIL" if errors else "WARN" if warns else "OK"
+    print(f"{status}  ·  error {len(errors)}  warning {len(warns)}")
     for e in errors:
         print(f"  error: {e}")
     for w in warns:
         print(f"  warn : {w}")
     for i2 in info:
         print(f"  info : {i2}")
-    print(f"报告 → {proj/'edl-report.md'}")
+    print(f"报告 → {proj / 'edl-report.md'}")
 
     if errors:
         return 1
