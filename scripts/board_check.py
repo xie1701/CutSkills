@@ -65,6 +65,62 @@ def checks(board: dict, proj: Path, tl: dict) -> list[tuple[str, str, str]]:
     out.append(("ok" if n_video == len(shots) else "error", "一格一镜（silence 算 gap 不算镜）",
                 f"时间轴 {n_video} 格 / 看板 {len(shots)} 镜"))
 
+    # 3b. clips.ov 是时间轴 overlay 的投影，不许变成第二份真值（T-010）
+    # 写：board_from_timeline 投影出来；读：看板引擎排 V4、board_patch 回写。
+    # 成片渲染只认 timeline 的 overlay 元素（唯一真值），所以两边必须逐块对上；
+    # 对不上就是「看板看到的时刻」和「渲染用的时刻」脱钩，预演就不再≈成片。
+    t, starts, n_vid = 0.0, {}, 0
+    for e in tl.get("elements") or []:
+        dur = ((float(e["out"]) - float(e["in"])) if e.get("kind") == "clip"
+               else float(e.get("dur") or 0.0))
+        if dur <= 0:
+            continue
+        if (e.get("track") or "video") == "overlay":
+            # 叠加层不在主轨上：它的 dur 绝不许累加进线性时间（T-010 复核打回项）。
+            # 这里必须和 board_from_timeline.py 的 `if overlay: continue` 一致。
+            continue
+        if (e.get("kind") or "clip") != "silence":
+            n_vid += 1
+            # 缺省镜号按「第几个视频格」补，和 board_from_timeline 的 enumerate(video_rows, 1) 一致
+            starts[f"S{int(e.get('n') or n_vid):02d}"] = round(t, 3)
+        t = round(t + dur, 3)
+    ovs = [e for e in tl.get("elements") or []
+           if (e.get("track") or "video") == "overlay" and float(e.get("dur") or 0.0) > 0]
+    drift, claimed, n_proj = [], set(), 0
+    for s in shots:
+        c = (s.get("clips") or {}).get("ov")
+        if not c:
+            continue
+        n_proj += 1
+        st = starts.get(s["id"])
+        if st is None:
+            drift.append(f"{s['id']} 不在时间轴")
+            continue
+        want_at = round(st + float(c[0]), 3)
+        want_dur = round(float(c[1]), 3)
+        hit = None
+        for i, o in enumerate(ovs):
+            if (abs(float(o.get("at") or 0) - want_at) <= 0.05
+                    and abs(float(o.get("dur") or 0) - want_dur) <= 0.05):
+                hit = i
+                break
+        if hit is None:
+            near = min(ovs, key=lambda o: abs(float(o.get("at") or 0) - want_at), default=None)
+            drift.append(f"{s['id']} 要 {want_at:.2f}s/{want_dur:.2f}s" + (
+                f"，最近 #{near.get('n')} {float(near.get('at') or 0):.2f}s/"
+                f"{float(near.get('dur') or 0):.2f}s" if near else "，时间轴上没有叠加层"))
+        else:
+            claimed.add(hit)
+    orphan = [f"#{o.get('n')} {float(o.get('at') or 0):.2f}s/{float(o.get('dur') or 0):.2f}s"
+              for i, o in enumerate(ovs) if i not in claimed]
+    if drift:
+        out.append(("error", "clips.ov 与时间轴叠加层对账", f"对不上：{drift[:4]}"))
+    elif orphan:
+        out.append(("error", "clips.ov 与时间轴叠加层对账",
+                    f"时间轴有、看板没投影 {orphan[:4]}（重跑 board_from_timeline）"))
+    else:
+        out.append(("ok", "clips.ov 与时间轴叠加层对账", f"{n_proj} 块投影 = {len(ovs)} 个叠加层"))
+
     # 4. 分镜元素：坐标在 0–100，字不压底部 12% 字幕区
     over, low = [], []
     for s in shots:

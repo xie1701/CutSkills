@@ -213,6 +213,10 @@ def main() -> int:
         if ln.startswith("产线基准："):
             print(f"     {ln.strip()}")
 
+    print("⑧ 看板 clips.ov 对账回归（T-010：overlay 不推歪主轨起点）")
+    r = sh([PY, str(ROOT / "scripts" / "test_board_clips.py")])
+    must("clips.ov 对账回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:

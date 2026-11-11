@@ -13,6 +13,7 @@
 | Codex | `ai/codex/` | 7821–7829 | `-codex` | |
 | Cursor | `ai/cursor/` | 7831–7839 | `-cursor` | |
 | Gemini CLI | `ai/gemini/` | 7841–7849 | `-gemini` | |
+| DeepSeek | `ai/deepseek/` | 7851–7859 | `-deepseek` | 2026-11-11 接入（首个任务 T-010） |
 | 人（Jerry） | 直接提 master 或走任一工位 | — | — | 只做拍板与判收 |
 
 新工位接入 = 在表里加一行（分支前缀 + 端口 + 副本后缀），**不占别人的号段**。

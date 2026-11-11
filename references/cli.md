@@ -735,6 +735,11 @@
 | `--tolerance` | （默认 TOL_MS） |
 | `--json` | 开关 |
 
+### `test_board_clips.py`
+*T-010 回归：clips.ov 对账不许被 overlay 推歪（主轨起点只看视频格）。*
+
+（无参数）
+
 ### `thesis.py`
 *CutSkills · 观点先行：先定「一句话讲完什么」，再回头挑素材。*
 
