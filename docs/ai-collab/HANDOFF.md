@@ -305,3 +305,13 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   python3 scripts/golden.py && python3 scripts/audit_skill.py
   ```
 - **状态**：T-012 待复核；T-007 已由 Gemini 推到待复核（@ `eed2943`）。另：T-011 行仍写「待复核」，但代码已并入 master `47d3f41`、分支已删——需要一次状态行更正（不是代码问题）。
+
+### 2026-11-11 22:40 · DeepSeek · T-014 完成待复核（仓体瘦身 814MB → 56MB）
+
+- **分支 / 工作树**：`ai/deepseek/T-014` @ `48692e4`，worktree `/Users/jerry/Downloads/AIworks/review/T014/CutSkills`（主树在跑 T-007，未动）。
+- **发现**：T-009 只清了 `proj79/work` 等，漏了 `proj79-fontB/work`（489MB）和 `proj79/hf/work`（约 159MB mask），再加三只旧成片与 `proj/out-C/`；master 上 tracked 814.3MB / 1228 文件，其中 `references/**/work/` 占 648.7MB。
+- **处置**：删 866 个可重建文件（work/ 与旧成片），补 `.gitignore` 六条，`selftest` 加第⑬步守卫「references/**/work/ 不许被 git 跟踪」。**保留**各项目 EDL/plan/报告 JSON、`proj79/out/film-hf.mp4`（本就不在 git，golden 靠它）、`hf-probe` 32MB 证据。
+- **结果**：tracked **814.3MB → 56.4MB**（1228 → 362 文件），`references` 671.2→31.3MB，`work` 648.7→0。主线校验：selftest 0（85s，⑬ 跑通）· golden 0（3×26/0/0）· audit 0/0/8 · test_blind_negative 0。
+- **没解决**：`.git` 仍约 1.0GB（历史 blob），只能走 **T-013** 的 filter-repo + 全员 re-clone；T-014 只把工作树与未来提交瘦下来。
+- **项目级 review 附注**：主线（索引→EDL→时间轴/看板→渲染→验收）依赖清晰，三项 CI 是硬底；长尾是 77 个脚本 / 64 份 md 与若干历史报告，属于「可归档不可急删」；`render_film.py` 仍是旧 ffmpeg 链、`render_hf.py` 是现役，若要收敛入口建议单开任务，不在本次动。
+- **状态**：T-014 待复核；T-013（历史瘦身）仍待全员窗口。
