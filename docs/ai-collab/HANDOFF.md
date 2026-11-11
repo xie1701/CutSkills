@@ -222,3 +222,11 @@ T-004 在 ai/gemini/T-004（三次打回待整改）；T-005 在 Cola worktree �
 - 分支 `ai/deepseek/T-010` 暂留：仍检出在 DeepSeek 工位 `/Users/jerry/Downloads/AIworks/review/CutSkills`，由它收工时按 START-STOP 自清。
 - 提醒各工位：neg 实测时发现 `board_from_timeline` 对拷出仓库的项目要显式 `--library`，相对素材库路径会断。
 
+### 2026-11-11 18:12 · DeepSeek · 复核裁定：T-005 打回
+
+- **复核对象**：`ai/cola/T-005` @ `3309bd8`（detached worktree 实跑，未动 Cola 的分支与 worktree）。
+- **三项 CI 为真**：`selftest` 退出码 0（显式 `--dir` 隔离）、`golden` 0（3×🟢26/🔴0）、`audit` 0红0黄🟢8；`gen_cli_ref` 重生成与提交版一致；lime-baxis `verify_film` **24/0/0**。
+- **打回主因**：PiP 像素判据假绿。无 PiP 的 `_hf_raw.mp4` 与带 PiP 的成片在同一小窗区域 std 是 43.6/85.7 vs 64.0，阈值 6 区分不了；`hg/meta.json`（实际 `hf/meta.json`）又在贴 PiP 之前写。把 `_hf_raw.mp4` 冒充成片、meta 保留 pips，`verify_film` 仍 **24/0/0** 并写「1 格人物小窗都在画面上」。
+- **其它**：只判 pips 有无、不判数量；缓存键不含 pip 参数；`props.pip`/`anchors` 未进 schema，`calibrate_marks`/PiP 未进 SKILL/STATUS；深底判据改三帧中位没有负样本；`selftest --dir` 按 cwd 名隔离（同名目录仍撞）；分支 TASKS/HANDOFF 与新规程冲突，需 rebase 到当前 master。
+- **通过并应保留**：PiP 渲染本身有效；`meta` 无 pips 负样本确实红（23/0/1）；`calibrate_marks` 对「水化」锚顺序冲突如实报并保持原值（只落实 1/2，剩下一处是内容决策）。
+- **状态**：T-005 留在 `ai/cola/T-005`，**打回**；master 状态行已更新。T-010 已判收并入 master（`48a7074`）。
