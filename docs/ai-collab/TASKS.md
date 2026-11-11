@@ -36,7 +36,7 @@
 | T-008 | `ai-portrait-cover` 封面接进发布前一步（现在发布前一步是空的） | 未开工 | — | — | — |
 | T-009 | `references/packtest-2026-11-08` 占 1.4 G（仓库 2.8 G 的一半），决定删片还是留索引 | 未开工 | — | — | — |
 | T-010 | `board_patch` 的 `clips.ov` 只写不读（渲染端不消费），要么接上要么删字段 | **判收** | DeepSeek | `ai/deepseek/T-010` @ `4fd8293`（并入 `61a23ad`） | Cola 复核（2026-11-11 18:1x）：① `board_check` 第 13 条对账在真项目 ground-01 上 13/13 绿（1 投影=1 叠加层）；负样本三连实过——漂移 0.3s 红、多一块孤儿红、恢复绿，读数带「S14 要 64.31s/4.00s，最近 #15 65.31s」级别的定位；② `board_patch` 原地改实过：64.31/4.00→65.31/3.00 不新增不重复，拖短到 3.0s 被 `check_timeline` 模板下限拦下（护栏在工作）；③ `test_board_clips.py` 用真 `board_check.py` 子进程，正负样本齐（A 绿/B 红带读数/C 缺省镜号），非自证；④ overlay `continue` 打回项已修，镜号缺省与 `board_from_timeline` 同规则；⑤ audit 🔴0、golden 退出码 0、分支未碰 HANDOFF/TASKS 共享状态（PROTOCOL 只加 DeepSeek 工位行）。`br` 轨道明确拒收并挂 T-011，不算遗留。 |
-| T-011 | `board_patch` 的 `clips.br` 未接：`br` 是整屏 B-roll 轨道，旧实现误当 overlay 叠一块（T-010 已改为明确提示不支持） | 未开工 | — | — | — |
+| T-011 | `board_patch` 的 `clips.br` 未接：`br` 是整屏 B-roll 轨道，旧实现误当 overlay 叠一块（T-010 已改为明确提示不支持） | **在跑** | DeepSeek | `ai/deepseek/T-011` | 开工 2026-11-11 19:15：`clips.br` 需要第二视频层 + 素材指针，本管线没有落点；本任务按「显式不支持 + 看板护栏 + 回归」收口，若要真渲染 br 需另开多视频层任务。 |
 
 ---
 
