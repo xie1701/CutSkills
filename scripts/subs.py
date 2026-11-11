@@ -75,6 +75,10 @@ BREAK_HINTS = ("因为", "所以", "但是", "而且", "那么", "就是", "我�
 # 没有分词器时，用它判断一个切点像不像词边界——不精确，但能把「厦|门」这种切开拦住。
 ENDERS = set("的了着过是在和与上里中后前也都还又再很更最只就才把被让给对向从到为")
 STARTERS = set("我你他她它这那哪谁什怎那可就也还又再才只不没别和与从到对把被让给因为所如但而")
+# 不能收尾的字：单字代词/副词当句末，观众会以为下一行是另一句的补语
+# （2026-11-11 欧阳这批实测：「所以好多人都觉得我」|「好傻一个六百平嘅店」）。
+# 粤语口语字一并算上：嘅/咗/唔/喺/佢。
+NO_END = set("我你他她它嘅咗唔喺佢哋同埋将把被对向从到为与和及或者系都就才很更最只得地")
 
 # 分词器：只用来判「这个词能不能断」。装在 scripts/vendor/ 里（本机 pip 走 SOCKS 代理
 # 必失败，只能手动放），装不上就退回上面那两个字表——不精确，但能把「厦|门」拦住。
@@ -88,9 +92,21 @@ try:
         import jieba  # noqa: E402
 
     jieba.setLogLevel(60)
+    # 粤语词表：jieba 是普通话模型，「我哋」它会拆成「我|哋」，字幕就断在「我」后面。
+    # 词表跟着仓库走，不用每个项目手配（2026-11-11 欧阳这批实测踩到）。
+    _YW = _VENDOR.parent / "data" / "cantonese-words.txt"
+    if _YW.exists():
+        try:
+            jieba.load_userdict(str(_YW))
+            HAVE_YUE_WORDS = True
+        except Exception:                       # pragma: no cover
+            HAVE_YUE_WORDS = False
+    else:                                       # pragma: no cover
+        HAVE_YUE_WORDS = False
     HAVE_JIEBA = True
 except Exception:                                    # pragma: no cover
     HAVE_JIEBA = False
+    HAVE_YUE_WORDS = False
 
 
 def word_bounds(txt: str) -> list[int]:
@@ -135,10 +151,12 @@ def choose_cut(buf: list[tuple[str, float, float]], target: int | None = None) -
         # 光看「离目标多近」会挑出「…任何表面」|「的让他成为成品就」这种：
         # 「的」被甩到下一句开头，读着像下一句的定语。中文习惯把「的」留在前一句，
         # 所以落在轻声字（的了着过…）之后的切点加分。
-        return min(b, key=lambda p: abs(p - goal) - (1.5 if buf[p - 1][0] in ENDERS else 0))
+        return min(b, key=lambda p: abs(p - goal) - (1.5 if buf[p - 1][0] in ENDERS else 0)
+                      + (3.0 if buf[p - 1][0] in NO_END else 0))
     best, best_k = 0, None
     for k in range(lo, hi + 1):
-        sc = (2 if buf[k - 1][0] in ENDERS else 0) + (2 if buf[k][0] in STARTERS else 0)
+        sc = (2 if buf[k - 1][0] in ENDERS else 0) + (2 if buf[k][0] in STARTERS else 0) \
+             - (3 if buf[k - 1][0] in NO_END else 0)
         if sc > best:
             best, best_k = sc, k
     return best_k
@@ -191,8 +209,65 @@ def _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
         if items:
             out.append({"el": seg.get("n"), "seg_start": seg["_start"],
                         "s_in": s_in, "dur": seg.get("_dur_q") or seg.get("_dur"),
+                        # 书面稿：元素上写了 evidence 就照它出字幕（口误、场记口令、
+                        # 「三二一组」这类话 ASR 会照念，字幕不能跟着一起念）。
+                        "ev": seg.get("evidence") or "",
                         "items": lexicon.fix_items(items, lex)})
     return out
+
+
+def retime_to_script(items, script: str):
+    """把字幕文字换成书面稿，时间仍钉在原来那几千个字上。
+
+    为什么不能直接拿 ASR 的句子出字幕（2026-11-11 欧阳这批的实测）：
+    口播里满是「咧」「诶」「三二一组」和重复句，ASR 照单全收，字幕就成了念稿事故。
+    但也不能换成书面稿之后就按字数平均分配时间——那样后段会越走越偏。
+    所以用 difflib 把「稿子」对到「原声字」上：能对上的字继承原声时间，
+    改写的片段按原声那一段的时长摊开，删掉的字（口误）把时间让出去，
+    停顿于是自然出现，`regroup()` 照旧按停顿切呼吸组。
+    """
+    A, sent_at = [], []
+    for it in items:
+        if it[0] == SENTINEL:
+            sent_at.append(len(A))
+        else:
+            A.append(it)
+    B = [ch for ch in (script or "") if ch not in PUNCT and ch != SENTINEL]
+    asr = "".join(t for t, _, _ in A)
+    if not B or not asr:
+        return items
+    import difflib
+    sm = difflib.SequenceMatcher(None, asr, B, autojunk=False)
+    times: list[tuple[float, float]] = [(0.0, 0.0)] * len(B)
+    src: list[int] = [0] * len(B)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for k in range(j2 - j1):
+                times[j1 + k] = (A[i1 + k][1], A[i1 + k][2])
+                src[j1 + k] = i1 + k
+        elif tag in ("replace", "insert"):
+            if i2 > i1:
+                a0, a1 = A[i1][1], A[i2 - 1][2]
+            else:
+                a0 = A[i1][2] if i1 < len(A) else (A[-1][2] if A else 0.0)
+                a1 = A[i1][1] if i1 < len(A) else a0
+            n = max(1, j2 - j1)
+            step = max(0.0, (a1 - a0)) / n
+            for k in range(n):
+                times[j1 + k] = (a0 + k * step, a0 + (k + 1) * step)
+                src[j1 + k] = min(len(A) - 1, i1 + int(k * max(1, i2 - i1) / n)) if A else 0
+        # delete：原声里的口误/填充词在这里被丢掉，前后两字之间自然留出停顿
+    new: list[tuple] = []
+    cut = list(sent_at)
+    for j, ch in enumerate(B):
+        while cut and src[j] >= cut[0]:
+            new.append((SENTINEL, times[j][0], times[j][0]))
+            cut.pop(0)
+        new.append((ch, times[j][0], times[j][1]))
+    while cut:
+        new.append((SENTINEL, times[-1][1], times[-1][1]))
+        cut.pop(0)
+    return new
 
 
 def emphasis_html(text: str) -> str:
@@ -284,7 +359,9 @@ def regroup(items: list[tuple[str, float, float]]):
     fixed: list[tuple[list[tuple[str, float, float]], str]] = []
     for g, why in groups:
         txt = "".join(t for t, _, _ in g)
-        if display_units(txt) <= MAX_UNITS + 2:
+        # 硬上限就是 12 个展示单位，不留 +2 的「宽容」：+2 会让 14 字的条落地，
+        # 80px × 14 = 1120px > 1080px，两头真的被画幅吃掉（2026-11-11 欧阳 a/b 两条片实测 104%W）。
+        if display_units(txt) <= MAX_UNITS:
             fixed.append((g, why))
             continue
         best_k = choose_cut(g)
@@ -329,7 +406,10 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
     cues: list[dict] = []
     lex = lexicon.load(Path(lib) / "_cutskills")
     for blk in _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
-        for g, why in regroup(blk["items"]):
+        items = blk["items"]
+        if blk.get("ev"):
+            items = retime_to_script(items, blk["ev"])
+        for g, why in regroup(items):
             raw = "".join(t for t, _, _ in g)
             text = "".join(ch for ch in raw if ch not in PUNCT and ch != SENTINEL).strip()
             if not text:

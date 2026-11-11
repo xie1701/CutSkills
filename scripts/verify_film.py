@@ -74,13 +74,20 @@ def probe(path: Path) -> dict:
 
 
 def loudness(path: Path, target_i: float, target_tp: float) -> dict:
+    """量成片的整体响度 / 真峰。
+
+    **必须切到最后一块 { … } 之间。** 以前是 `split("{")[-1]`，ffmpeg 打完 JSON 还会
+    再打一行 `frame= … Lsize= …`，json.loads 于是抛错、返回 {}，而调用方看到
+    `input_i` 缺失就默默跳过——“响度 −14 LUFS 真峰 −1 dBTP” 这条硬指标长期没人判
+    （2026-11-11 欧阳 a/b 两条片 −15.46 LUFS / −0.54 dBTP 就这样绿着出了片）。
+    """
     r = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
              "-af", f"loudnorm=I={target_i}:TP={target_tp}:print_format=json",
              "-f", "null", "-"])
-    txt = (r.stderr or "").split("{")
+    txt = r.stderr or ""
     try:
-        return json.loads("{" + txt[-1])
-    except (json.JSONDecodeError, IndexError):
+        return json.loads(txt[txt.rindex("{"):txt.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError):
         return {}
 
 
@@ -581,6 +588,9 @@ def main() -> int:
         ok = got_tp <= L["true_peak_dbtp"] + 0.3
         add("真峰", f"{got_tp:.1f} dBTP", "green" if ok else "red",
             f"上限 {L['true_peak_dbtp']}（超了必削波）")
+    else:
+        # 量不到就是量不到，不许当成「没问题」：这条判据曾经因为解析 bug 静默消失过。
+        add("整体响度", "量不到", "red", "loudnorm 没吐出可解析的 JSON——先查 ffmpeg 链路，别当通过")
 
     # 整屏代码画面那几秒有没有声音。
     # 这是本轮最容易翻车的一处：画面换成代码画的整屏之后，人声得靠单独一条 <audio> 接着播。
@@ -695,13 +705,29 @@ def main() -> int:
         add("单条最长", f"{longest} 字", "green" if longest <= mx else "yellow",
             f"上限 {mx}（超了断句，别缩字号）")
         # 字数合规不等于塞得下：字幕宽度必须按像素算一次。
-        # 80px × 14 字 = 1120 > 1080，两头真的被切掉了，而按字数的判据全绿。
+        # 但**不能拿字数 × 字号**：半角字符（「OK」「2026」）在思源里只占一半宽，
+        # 「捉翻嚟嘅鸡绝对品质 OK 嘅」14 字实际 10.7 个字宽，按 14 字算就多报 3%。
+        # 工具就有真字体，直接量。
         _sz = float(style["subtitle"].get("size_px") or 0)
-        if _sz:
-            widest = max(len(c["text"]) for c in cues) * _sz
+        if _sz and cues:
+            widest, widest_txt = 0.0, ""
+            try:
+                from PIL import ImageFont
+                _fname = str(style["subtitle"].get("font") or "NotoSansSC-SemiBold")
+                _fp = Path("~/Library/Fonts").expanduser() / f"{_fname}.ttf"
+                _font = ImageFont.truetype(str(_fp), int(_sz))
+                for c in cues:
+                    wpx = _font.getlength(c["text"])
+                    if wpx > widest:
+                        widest, widest_txt = wpx, c["text"]
+            except Exception:                      # 字体不在就退回字数估算，并说清楚
+                _font = None
+                widest = max(len(c["text"]) for c in cues) * _sz
+                widest_txt = "按字宽估算"
             add("字幕最宽（像素）", f"{widest / W * 100:.0f}%W",
                 "green" if widest <= 0.92 * W else "red",
-                f"上限 92%W（{_sz:.0f}px × {longest} 字 = {widest:.0f}px / {W}px）"
+                f"上限 92%W（最宽一条「{widest_txt}」实量 {widest:.0f}px / {W}px）"
+                + ("" if _font else "·字体缺失，按字数估")
                 + ("" if widest <= 0.92 * W else "——超了会被画幅切掉两头"))
         gaps = [(cues[i + 1]["start"] - cues[i]["end"]) for i in range(len(cues) - 1)]
         dead = [g for g in gaps if g > 3.0]

@@ -1425,30 +1425,73 @@ def measure_audio(path: Path) -> tuple[float, float]:
 def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
     """把混音拉回样式包给的响度，并且真的落在断言上。
 
-    **不能用 linear=true。** 这条链的混音 integrated -20.4 / 真峰 -2.3，
-    要涨 6 dB 才到 -14，可线性增益会把真峰顶到 +4 —— loudnorm 于是自己缩了回去，
-    实测停在 -15.7，差 1.7 dB。要涨响度只能先压再归一（和 ffmpeg 那条链一样）。
-    AAC 编码还有回峰：TP 目标抄 -1 时出来常是 -0.8，所以留 0.4 dB 余量。
-    最后量一遍，不够就带着偏差再归一一次——最多三次，收敛就停。
+    这条路是踩出来的，三条结论：**
+
+    1. **不能用 `loudnorm` 单遍冲目标**。混音一进来是 −19.8 LUFS / 真峰 −0.92（口播慢、
+       句子之间还有 BGM 垫底），要涨 6 dB；loudnorm 一动真峰就顶穿，于是它自己缩回去，
+       实测停在 −15.5，差 1.5 dB 还报绿——因为验收那边量不到（见 verify_film 的注释）。
+    2. **`alimiter` 必须写 `level=false`**。默认它自带「自动电平补偿」，把限幅又抵消掉，
+       限 0.63 出来的真峰照样 +0.3 dBTP。同一批实验里加上这个参数，真峰立刻老实。
+    3. 所以做法是**逐遍增益 + 砖墙限幅**：量一次、补差值、限一次，最多 8 遍。
+       限幅点取 0.56（−5 dBFS）：AAC 编码的回峰在 −2 dB 限幅点能爬到 +0.7 dBTP，
+       实测只有压到 −5 才稳得住（AAC 后 −14.29 LUFS / −2.68 dBTP）。收敛判据 abs(dev) ≤ 0.3。
     """
-    delta = 0.0
-    last = (I, TP)
-    for _ in range(3):
-        af = ("acompressor=threshold=0.06:ratio=3.5:attack=8:release=220:makeup=1.6,"
-              f"loudnorm=I={I + delta:.2f}:TP={TP - 1.0:.2f}:LRA=9")
+    def measure(p: Path) -> tuple[float, float]:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-i", str(p),
+             "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+            capture_output=True, text=True)
+        try:
+            t = r.stderr
+            j = json.loads(t[t.rindex("{"):t.rindex("}") + 1])
+            return float(j["input_i"]), float(j["input_tp"])
+        except (ValueError, KeyError):
+            return -99.0, 0.0
+
+    cur = src
+    last = measure(src)
+    for k in range(8):
+        dev = I - last[0]
+        if abs(dev) <= 0.3 and last[1] <= TP:
+            break
+        # 往上推的时候多给 60%：限幅会吃掉一部分增益，按差值给永远差一口气（实测每遍只涨 1 dB）。
+        g = dev if dev < 0 else dev * 1.6
+        nxt = dst.with_suffix(f".ln{k}.wav")
         rc = subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-c:v", "copy",
-             "-af", af, "-c:a", "aac", "-b:a", "192k", str(dst)],
+            ["ffmpeg", "-y", "-v", "error", "-i", str(cur), "-vn",
+             "-af", f"volume={g:.2f}dB,alimiter=limit=0.56:level=false:attack=1:release=50",
+             "-c:a", "pcm_s16le", "-ar", "48000", str(nxt)],
             capture_output=True, text=True).returncode
         if rc != 0:
             return rc
-        last = measure_audio(dst)
-        if abs(last[0] - I) <= 0.4 and last[1] <= TP:
-            break
-        delta += I - last[0]
+        cur = nxt
+        last = measure(cur)
+
+    # 最后一次：把处理好的音轨和原画面拼回去（画面直接 copy，不重编）
+    rc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-i", str(cur),
+         "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+         "-c:a", "aac", "-b:a", "192k", "-ar", "48000", str(dst)],
+        capture_output=True, text=True).returncode
+    if cur != src:
+        cur.unlink(missing_ok=True)
+    if rc != 0:
+        return rc
+    # AAC 后的回峰再量一次：真的超了就带着偏差补一遍（只降不升）
+    got = measure(dst)
+    if got[1] > TP + 0.3:
+        fix = dst.with_suffix(".fix.m4a")
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", str(dst),
+             "-af", f"volume={min(0.0, TP - got[1]):.2f}dB,alimiter=limit=0.79:level=false",
+             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", str(fix)],
+            capture_output=True, text=True)
+        if fix.exists():
+            fix.replace(dst)
+            got = measure(dst)
+    last = got
     print(f"  响度 {last[0]:.2f} LUFS · 真峰 {last[1]:.2f} dBTP（目标 {I} / {TP}）")
     return 0
-
 
 def cover_fg(raw: Path, dst: Path, fgs: list[tuple[Path, float, float]], crf: int = 17,
              crop_h: int = 0) -> int:
