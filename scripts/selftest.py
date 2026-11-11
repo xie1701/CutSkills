@@ -84,7 +84,12 @@ def build_library(lib: Path) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="/tmp/cutskills-selftest")
+    # 默认目录按工位隔离：两个 AI 同时跑 selftest 会互相 rm -rf 对方的现场
+    #（2026-11-11 T-005 实撞：Gemini 16:50 推 T-004 重构，同时段跑的 selftest
+    # 出现「转写少一支 / v007 凭空消失」的假红）。同一工位重跑还是同目录，
+    # 现场可回看；不同工位互不打扰。
+    _wt = Path.cwd().name
+    ap.add_argument("--dir", default=f"/tmp/cutskills-selftest-{_wt}")
     ap.add_argument("--keep", action="store_true", help="跑完不删（想看成片时用）")
     a = ap.parse_args()
     base = Path(a.dir)

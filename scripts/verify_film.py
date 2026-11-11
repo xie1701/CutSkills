@@ -572,11 +572,19 @@ def main() -> int:
                 "green" if mv > -45 else "red",
                 "" if mv > -45 else "整屏换了画面，人声没接上——这几秒是哑的")
         # 画面也得真的换掉了：代码画面是深底 + 品牌金，跟展厅/工地实拍差得远。
-        im = frame_at(g0 + gd * 0.6, f"gen{seg.get('n')}", mode="L")
-        if im is not None:
-            px = list(im.getdata())
-            dark = sum(1 for v in px if v < 46) / max(1, len(px))
-            add(f"代码画面 #{seg.get('n')} 真的在画面上", f"深底占比 {dark * 100:.0f}%",
+        # 单帧采样太脆：换幕扫光的亮带扫过时（宽 14%、alpha 70），背景橄榄底色
+        # 本来就贴在阈值上，一帧就能从 48% 掉到 26%（2026-11-11 T-005 实测）。
+        # 改成三采样取中位：扫光只占一格里的一个时刻，实拍误投则三帧全低。
+        _darks = []
+        for _fr in (0.25, 0.5, 0.75):
+            _im = frame_at(g0 + gd * _fr, f"gen{seg.get('n')}_{_fr}", mode="L")
+            if _im is not None:
+                _px = list(_im.getdata())
+                _darks.append(sum(1 for v in _px if v < 46) / max(1, len(_px)))
+        if _darks:
+            dark = sorted(_darks)[len(_darks) // 2]
+            add(f"代码画面 #{seg.get('n')} 真的在画面上",
+                f"深底占比 {dark * 100:.0f}%（三帧中位）",
                 "green" if dark > 0.35 else "red",
                 "" if dark > 0.35 else "这一格该是代码画的整屏，量到的却是实拍亮度")
         # 这一格是「在演」还是「一张静图」——量成片自己，不信脚本的自我评价。
@@ -799,6 +807,48 @@ def main() -> int:
                 if _worst > 2.0 else "一直是动的（2s 内必有变化）")
         else:
             add("场景内最长静止", "取帧失败", "yellow", "ffmpeg 没抽出帧，这条没量到")
+
+        # B 轴 PiP：meta.json 是渲片写下的（不是 timeline 自证），声明了就要
+        # 真在画面上。判据看像素：PiP 区域的纹理量——人是抠像浮在场景上的，
+        # 区域 std 低于 6 基本就是没贴上（贴上了也有人脸/衣纹在动）。
+        _mp = proj / "hf" / "meta.json"
+        _mpips = []
+        if _mp.exists():
+            try:
+                _mpips = json.loads(_mp.read_text()).get("pips") or []
+            except json.JSONDecodeError:
+                _mpips = []
+        # _want_pip 必须读 timeline.json 原件：load_timeline_or_edl 返回的是 EDL 视图，
+        # 只有 segments 没有 elements——读转换视图会让声明永远为空，这条红永远不响
+        # （跟「B 轴微事件」当时犯的是同一个错，别再犯）。
+        _tlp = proj / "timeline.json"
+        _tl_els = (json.loads(_tlp.read_text()).get("elements") or []) if _tlp.exists() else []
+        _want_pip = [e for e in _tl_els
+                     if str(e.get("axis") or "") == "B"
+                     and str(e.get("template") or "") == "scene"
+                     and (e.get("props") or {}).get("pip") is not False]
+        if _want_pip and not _mpips:
+            add("B 轴人物 PiP", "timeline 有 B 轴格，meta 里没有 pips", "red",
+                "渲片时 PiP 没建出来（缺 person_mask 或音频素材），或渲染器版本没带这功能")
+        elif _mpips:
+            _bad = []
+            for _p in _mpips:
+                _stds = []
+                for _fr in (0.45, 0.8):
+                    _im = frame_at(_p["start"] + _p["dur"] * _fr, f"pip{_p['n']}_{_fr}")
+                    if _im is None:
+                        continue
+                    _c = _im.crop((_p["x"], _p["y"], _p["x"] + _p["w"], _p["y"] + _p["h"]))
+                    _stds.append(float(_np.asarray(_c, dtype="float32").std()))
+                _m = min(_stds) if _stds else -1.0
+                if _m < 6:
+                    _bad.append(f"格 {_p['n']}（std {_m:.1f}）")
+            if _bad:
+                add("B 轴人物 PiP", f"{'、'.join(_bad)} 区域没内容", "red",
+                    "PiP 区域像素 std < 6：多半没贴上或贴错了位置")
+            else:
+                add("B 轴人物 PiP", f"{len(_mpips)} 格人物小窗都在画面上", "green",
+                    "PiP 区域 std ≥ 6（有人在动，不是空场景）")
     elif _shots_p.exists():
         _sh = [x for x in json.loads(_shots_p.read_text()) if float(x.get("dur") or 0) > 0.05]
         if _sh:
