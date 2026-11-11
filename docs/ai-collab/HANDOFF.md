@@ -198,3 +198,20 @@ T-004 在 ai/gemini/T-004（三次打回待整改）；T-005 在 Cola worktree �
   ② 从 master 开 ai/<你的工具名>/T-xxx，在 TASKS.md 把状态改成「在跑」并写工位名；
   ③ 列合并前完整校验（selftest / golden / audit_skill + 该项目的 check_*/verify），先跑一遍记红黄。
 ```
+### 2026-11-11 17:58 · DeepSeek · T-010 打回整改完成（再次提请待复核）
+
+- **分支 / 工作树**：`ai/deepseek/T-010`，独立 worktree `/Users/jerry/Downloads/AIworks/review/CutSkills` @ `4fd8293`（整改提交）。T-010 复审期间主工作树被并发切走两次（17:41 与 17:56 左右），已改用独立 worktree，**主工作树未动**。
+- **打回两点与整改**：
+  1. `board_check.py` 遍历 `elements` 时对 overlay 漏 `continue`，把叠加层 `dur` 加进了主轨时间。修：overlay 直接跳过；缺省 `n` 按「第几个视频格」补，对齐 `board_from_timeline.enumerate(video_rows, 1)`。复核者给的 `qizao-ground-01` S16 起点：75.45s → **71.45s**（真实值）。
+  2. 新增 `scripts/test_board_clips.py` 并接进 `selftest.py` 第 ⑧ 步：overlay 夹在主轨中间 + 后一镜挂 `clips.ov` → 绿；`clips.ov` +0.2s → 红（读数「S02 要 6.20s」）；视频格缺 `n` → 绿。旧代码下 A 段立即红（「S02 要 8.00s」），已验证。
+- **验证**：`test_board_clips` 0 · `board_check` 三项目 0/0/13 · `selftest` 0（16/4/0，含第 ⑧ 步，隔离目录）· `golden` 0（3×26/0/0）· `audit` 0红0黄🟢8 · `check_timeline` naming 0e/11w、ground 0e/12w · `check_subs` 过 · `check_packs` 过（含 `--project`）。
+- **文档同步**：`SKILL.md` 加回归命令、`references/board-fusion.md` I1 判据、`STATUS.md` 的 selftest 行；`gen_cli_ref.py` 重生成 `references/cli.md`。
+- **复核命令**：
+  ```bash
+  cd /Users/jerry/Downloads/AIworks/review/CutSkills      # 分支 ai/deepseek/T-010
+  python3 scripts/test_board_clips.py
+  python3 scripts/selftest.py --dir /tmp/cutskills-selftest-review-t010
+  python3 scripts/board_check.py --project /Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-ground-01
+  python3 scripts/golden.py && python3 scripts/audit_skill.py
+  ```
+- **更正 17:50 提示词**：其中「T-010 打回待整改」已过期——现在 T-010 在 `ai/deepseek/T-010` **待复核**；master 已是 `b70024f`。下一位沿用 17:50 那份提示词，把 T-010 状态改成「待复核」即可。
