@@ -684,7 +684,7 @@
 
 | 参数 | 说明 |
 |---|---|
-| `--dir` | （默认 f'/tmp/cutskills-selftest-{_wt}'） |
+| `--dir` | （默认 f'/tmp/cutskills-selftest-{_station()}'） |
 | `--keep` | 跑完不删（想看成片时用） |
 
 ### `shot_match.py`

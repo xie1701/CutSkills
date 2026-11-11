@@ -25,6 +25,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -82,14 +83,67 @@ def build_library(lib: Path) -> bool:
     return ok
 
 
+def _dark_judge_negative() -> bool:
+    """深底判据的负样本（T-005 复核④）：「代码画面深底占比 > 0.35」这条判据，
+    必须能区分真代码画面和实拍帧——拿 ground-01 成片（纯实拍，无 gen）抽三帧，
+    用与 verify_film 同一个 dark_ratio/median_of 量，必须低（会触发红）；
+    再拿合成素材的纯深底帧量，必须高。两边都过才说明判据不是摆设。"""
+    try:
+        from verify_film import dark_ratio, median_of
+        from PIL import Image
+    except ImportError as e:
+        print(f"     导入失败：{e}"); return False
+
+    def _frame(film: Path, t: float, tag: str) -> Image.Image | None:
+        out = Path(tempfile.mkdtemp(prefix="darkneg_")) / f"{tag}.png"
+        r = sh(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}",
+                "-i", str(film), "-frames:v", "1", str(out)])
+        if r.returncode != 0 or not out.exists():
+            return None
+        return Image.open(out).convert("L")
+
+    # 负样本主体：拿 ground-01 成片（纯实拍，无 gen）抽三帧，用与 verify_film
+    # 同一个 dark_ratio/median_of 量——必须低（会触发红）；没有真语料时跳过
+    # 这半边但明说，合成帧对照必须跑。
+    g = Path.home() / "Downloads" / "柒造Video" / "素材" / "_cutskills" / "projects" \
+        / "qizao-ground-01" / "out" / "film.mp4"
+    if g.exists():
+        vals = [dark_ratio(im) for im in (_frame(g, 10.0, "a"), _frame(g, 30.0, "b"),
+                                          _frame(g, 55.0, "c")) if im]
+        real = median_of(vals)
+        print(f"     实拍三帧 dark 中位 = {real:.2f}（阈值 0.35，应判红）")
+        if real is None or real > 0.35:
+            return False
+    else:
+        print("     （无真语料，实拍负样本跳过——合成对照照跑）")
+
+    # 对照组：深底代码画面帧 → 必须高（判据会放它绿）。
+    # 用纯合成帧（PIL 画）：深橄榄底 + 一条品牌金亮带，模拟 gen 场景。
+    w, h = 1080, 1920
+    syn = Image.new("L", (w, h), 30)
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(syn)
+    d.rectangle([int(w * 0.42), 0, int(w * 0.56), h], fill=170)
+    syn_val = dark_ratio(syn)
+    print(f"     合成深底帧（含扫光亮带）dark = {syn_val:.2f}（应 > 0.35 判绿）")
+    return syn_val > 0.35
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    # 默认目录按工位隔离：两个 AI 同时跑 selftest 会互相 rm -rf 对方的现场
-    #（2026-11-11 T-005 实撞：Gemini 16:50 推 T-004 重构，同时段跑的 selftest
-    # 出现「转写少一支 / v007 凭空消失」的假红）。同一工位重跑还是同目录，
-    # 现场可回看；不同工位互不打扰。
-    _wt = Path.cwd().name
-    ap.add_argument("--dir", default=f"/tmp/cutskills-selftest-{_wt}")
+    # 默认目录按工位身份隔离（T-005 复核⑤）：用 git 分支名当工位标识，不用目录名——
+    # 主仓和复审 worktree 可以同名（都叫 CutSkills），但分支不会重名。
+    #（2026-11-11 实撞：两个 AI 同时跑 selftest 互删现场，假红「转写少一支/v007 凭空消失」）
+    def _station() -> str:
+        try:
+            r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                               capture_output=True, text=True, timeout=5)
+            b = r.stdout.strip() if r.returncode == 0 else ""
+        except Exception:
+            b = ""
+        b = b or Path.cwd().name
+        return "".join(c if c.isalnum() or c in "._-" else "_" for c in b)
+    ap.add_argument("--dir", default=f"/tmp/cutskills-selftest-{_station()}")
     ap.add_argument("--keep", action="store_true", help="跑完不删（想看成片时用）")
     a = ap.parse_args()
     base = Path(a.dir)
@@ -221,6 +275,10 @@ def main() -> int:
     print("⑧ 看板 clips.ov 对账回归（T-010：overlay 不推歪主轨起点）")
     r = sh([PY, str(ROOT / "scripts" / "test_board_clips.py")])
     must("clips.ov 对账回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
+    print("⑨ 深底判据负样本（T-005 复核④：实拍帧必须被判红，背景纹理不能当证据）")
+    ok9 = _dark_judge_negative()
+    must("深底判据负样本", ok9, "实拍帧 dark_ratio 应 ≤ 0.35（触发红），代码画面帧应 > 0.35（绿）")
 
     secs = time.time() - t0
     print()

@@ -86,6 +86,23 @@ v2 的 `edl.json` 是一条**镜头列表**——它默认片子是「从库里�
 `marks` 是词级节拍：`[0.169, 0.365, 0.400, 0.731]` 这种成数，由 ASR 字级时间戳算出来，
 意思是「念到第几个词的时候画面该变形态」。不写就退回脚本自己的比例——那样画面对不上词。
 
+### B 轴（axis: "B"）专用字段
+
+`scene` 格可以升成 B 轴叙事主体（连续场景 + 人物 PiP），此时格子额外认这些字段：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `axis` | ✓ | `"B"`：这格是叙事主体，不再服务论点（准入三条见 plan-v3：有叙事内容 / ≥8s / `narrative{subject,turn,change}`） |
+| `props.scene` | ✓ | 用哪个场景生成器（现 `lime`） |
+| `narrative` | ✓ | `{subject, turn, change}`：谁、遇到什么、怎么变；验收读它 |
+| `anchors` | 建议 | 如 `["煅烧", "水化"]`：声明旁白里的锚词，`calibrate_marks.py` 据此从字级时间戳推 `marks`；锚词缺失或叙述顺序与工序冲突时保持原值并如实报，不悄悄钳位 |
+| `props.pip` | 建议 | 人物小窗。`false` 关；`{width, right, bottom_edge, mode}` 调（都小数占比；`bottom_edge` 是小窗**底边** y 占比，默认 0.62，压在字幕带上方；`mode`: `box` 圆角卡（默认）/ `cutout` 浮人抠像——Vision 遮罩在白 T 恤/杂背景上会撕裂，切 cutout 前先目检） |
+| `marks` | 建议 | B 转场的成数；`anchors` 声明后由 `calibrate_marks.py` 标定 |
+
+验收三层（`verify_film.py`「B 轴人物 PiP」）：声明层（timeline 想要几格 vs `hf/meta.json` 有几格）、
+管线层（`pips_applied`——只有 ffmpeg 贴回成功才写 true）、像素层（小窗区域 std ≥ 6）。
+任何一层不满足都判红。
+
 排版由模板自己决定，风格包只给**字号档位、颜色、字体**——模板不写死 CSS 数值。
 
 ## 缺口兜底链

@@ -623,8 +623,12 @@ def pip_clip(lib: Path, proj: Path, el: dict, FPS: int, W: int, H: int,
     wp = float(pip.get("width") or 0.26)
     mr = float(pip.get("right") or 0.04)
     bed = float(pip.get("bottom_edge") or 0.62)
+    mode = str(pip.get("mode") or "box")
     pipw = max(2, int(W * wp) // 2 * 2)
-    tag = f"pip-{Path(aid).stem[-14:]}_{s_in:.2f}-{s_out:.2f}".replace(".", "p")
+    # 缓存键必须带全部窗口参数（T-005 复核⑥：只按素材+in/out 命中旧缓存，
+    # 调 width/right/bottom_edge/mode 不生效，白改）。
+    tag = (f"pip-{Path(aid).stem[-14:]}_{s_in:.2f}-{s_out:.2f}"
+           f"_{int(wp * 100)}_{int(mr * 100)}_{int(bed * 100)}_{mode}").replace(".", "p")
     tag = "".join(c if c.isalnum() or c in "-_" else "_" for c in tag)
     dst = proj / "hf" / "clips" / f"{tag}.webm"
     side = dst.with_suffix(".json")
@@ -2029,13 +2033,20 @@ def main():
 
     # 5.6) B 轴人物 PiP：ffmpeg 贴回。alpha 层不过浏览器，理由同 5.5 的 fg 层；
     # 位置/尺寸在 pip_clip 里按遮罩框定死，这里只照单贴。
+    # meta 里 pips_applied 只有贴回成功后才写 true（T-005 复核①：原来 meta 在
+    # 贴回之前就写 pips，贴失败验收还拿着声明当真值）。
     if pips:
         pd = proj / "out" / "_hf_pip.mp4"
+        _mp = hf / "meta.json"
+        _mj = json.loads(_mp.read_text())
         if pip_overlay(raw, pd, pips) == 0:
             raw = pd
+            _mj["pips_applied"] = True
             print(f"  PiP 贴回 {len(pips)} 格人物小窗")
         else:
+            _mj["pips_applied"] = False
             print("  ！PiP 没贴上，成片只有代码场景没有人物小窗", file=sys.stderr)
+        _mp.write_text(json.dumps(_mj, ensure_ascii=False, indent=1))
 
     # 5.8) BGM：先归一，再让人声压住它
     bgm_p = None

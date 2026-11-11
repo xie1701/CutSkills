@@ -21,6 +21,17 @@ from pathlib import Path
 import yaml
 
 
+def dark_ratio(im) -> float:
+    """深底占比：像素 < 46（L 模式）的比例。供「代码画面真的在画面上」用，
+    也供 selftest 的负样本调用——实拍帧必须量出低值，不然判据就是假的。"""
+    px = list(im.getdata())
+    return sum(1 for v in px if v < 46) / max(1, len(px))
+
+
+def median_of(vals: list[float]):
+    return sorted(vals)[len(vals) // 2] if vals else None
+
+
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -579,14 +590,16 @@ def main() -> int:
         for _fr in (0.25, 0.5, 0.75):
             _im = frame_at(g0 + gd * _fr, f"gen{seg.get('n')}_{_fr}", mode="L")
             if _im is not None:
-                _px = list(_im.getdata())
-                _darks.append(sum(1 for v in _px if v < 46) / max(1, len(_px)))
-        if _darks:
-            dark = sorted(_darks)[len(_darks) // 2]
+                _darks.append(dark_ratio(_im))
+        dark = median_of(_darks)
+        if dark is not None:
             add(f"代码画面 #{seg.get('n')} 真的在画面上",
                 f"深底占比 {dark * 100:.0f}%（三帧中位）",
                 "green" if dark > 0.35 else "red",
                 "" if dark > 0.35 else "这一格该是代码画的整屏，量到的却是实拍亮度")
+        else:
+            add(f"代码画面 #{seg.get('n')} 真的在画面上", "取帧失败", "yellow",
+                "ffmpeg 没抽出帧，这条没量到")
         # 这一格是「在演」还是「一张静图」——量成片自己，不信脚本的自我评价。
         # 为什么这条必须有：gen_scene --probe 只有画的时候跑，渲进片子里之后没人再看。
         # 而「0.5s 和 4s 一模一样」正是这套场景被打回的原病。
@@ -827,9 +840,27 @@ def main() -> int:
                      if str(e.get("axis") or "") == "B"
                      and str(e.get("template") or "") == "scene"
                      and (e.get("props") or {}).get("pip") is not False]
+        # meta 是渲片写的，但它声明了不等于贴上了：贴回是否成功看 pips_applied
+        # （T-005 复核①②）。判据分三层：声明层（want vs meta）、管线层（applied）、
+        # 像素层（区域 std）——只要前两层有一样不满足，像素 std 多高都不能算绿。
+        _applied = True
+        if _mpips:
+            try:
+                _applied = bool(json.loads(_mp.read_text()).get("pips_applied", True))
+            except json.JSONDecodeError:
+                pass
         if _want_pip and not _mpips:
             add("B 轴人物 PiP", "timeline 有 B 轴格，meta 里没有 pips", "red",
                 "渲片时 PiP 没建出来（缺 person_mask 或音频素材），或渲染器版本没带这功能")
+        elif _want_pip and _mpips and not _applied:
+            add("B 轴人物 PiP", f"meta 声明 {len(_mpips)} 格但贴回失败（pips_applied=false）", "red",
+                "渲片日志里有「PiP 没贴上」——成片里没有小窗，声明不作数")
+        elif len(_mpips) < len(_want_pip):
+            add("B 轴人物 PiP", f"想要 {len(_want_pip)} 格，meta 只有 {len(_mpips)} 格", "red",
+                "有 B 轴格没建出小窗——查渲片日志里被跳过的那几格")
+        elif _mpips and not _applied:
+            add("B 轴人物 PiP", "贴回失败但 timeline 不要求 PiP", "yellow",
+                "meta 声明了 pips 但 pips_applied=false；timeline 没有 B 轴格所以不算硬伤，查渲片日志")
         elif _mpips:
             _bad = []
             for _p in _mpips:
