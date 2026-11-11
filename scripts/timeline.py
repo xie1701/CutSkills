@@ -360,6 +360,11 @@ def build_timeline(lib: Path, plan, *, brief: dict | None = None, style: dict | 
         "slug": None,
         "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "duration_s": total,
+        # 菜单选的东西必须落到真值源上。style_menu.py --choose 只写 brief.json，
+        # 而 render / verify 读的是 timeline.json——中间没人搬，等于选了不算
+        # （2026-11-11 对抗式审查抓到的「配置写了一件事，片子做另一件事」）。
+        "plan": (brief or {}).get("plan") or "",
+        "pack": (brief or {}).get("pack") or "",
         "style_pack": style_name,
         "brief": ({k: brief.get(k) for k in
                    ("audience", "change", "length_s", "style_pack", "length_band")}

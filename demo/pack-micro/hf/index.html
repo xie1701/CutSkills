@@ -8,23 +8,23 @@
 <style>
 /* 包装 token → CSS 变量。只有一条规矩：变量只喂「穿什么」，不喂「什么时候」。
    代码画出来的格子（.gen）以前颜色是写死的 #F6EB34，换包不换脸——那是假的换装。 */
-:root { --ground:#0B0C0E; --ink:#F5F7FA; --accent:#39D0C4; --accent2:#FF6B4A; --radius:2px; --stroke:1px; }
-@font-face { font-family: "SC-Sub"; src: url("assets/fonts/NotoSansSC-SemiBold.ttf"); font-weight: 600; }
-@font-face { font-family: "SC-Big"; src: url("assets/fonts/NotoSansSC-Black.ttf"); font-weight: 900; }
+:root { --ground:#F2EDE3; --ink:#1F1B16; --accent:#B4552D; --accent2:#4A6B57; --radius:6px; --stroke:2px; }
+@font-face { font-family: "SC-Sub"; src: url("assets/fonts/NotoSerifSC-Regular.ttf"); font-weight: 600; }
+@font-face { font-family: "SC-Big"; src: url("assets/fonts/NotoSerifSC-Bold.ttf"); font-weight: 900; }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
 #root { position:relative; width:100%; height:100%; }
 .clip { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 #grade { position:absolute; inset:0; background:transparent; }
 .cap { position:absolute; left:0; right:0; top:67.4%; display:flex; justify-content:center;
-        padding:0 100px; }
-.cap span { font-family:"SC-Sub", sans-serif; font-weight:600; font-size:88px;
-  color:#F5F7FA; letter-spacing:0.01em; line-height:1.28; text-align:center;
-  text-shadow:0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9); white-space:nowrap;  }
+        padding:0 180px; }
+.cap span { font-family:"SC-Sub", sans-serif; font-weight:600; font-size:72px;
+  color:#1F1B16; letter-spacing:0.01em; line-height:1.28; text-align:center;
+  text-shadow:0 1px 0 rgba(255,255,255,.6); white-space:nowrap;  }
 /* 强调：数字与否定/对比词。只染这两类，别的一个字都不动 */
-.cap .em { color:#39D0C4; font-weight:800; }
+.cap .em { color:#B4552D; font-weight:800; }
 .kw { position:absolute; left:0; right:0; top:30.0%; display:flex; justify-content:center;
-       padding:0 100px; }
+       padding:0 180px; }
 /* behind：字压在人物脑袋后面，露一半。位置按样式的 top_h，字更大一号，
    下半截交给抠像层盖住——这是「人物前后层级」唯一能被眼睛验证的地方。 */
 /* 不给负 z-index：遮挡靠 ffmpeg 的抠像层贴回来实现，DOM 里给它负层会被整块压到视频下面，
@@ -32,7 +32,7 @@ html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
 .kw-behind { top:28.5%; }
 .kw-behind span { font-size:187px; }
 .kw span { font-family:"SC-Big", sans-serif; font-weight:900; font-size:163px;
-  line-height:1.06; text-align:center; color:#39D0C4; white-space:nowrap;
+  line-height:1.06; text-align:center; color:#B4552D; white-space:nowrap;
   text-shadow:0 6px 22px rgba(0,0,0,0.6);  }
 .idcard { position:absolute; left:5.5%; top:15.5%; text-align:left; }
 .idcard span { display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }

@@ -57,6 +57,17 @@ def black_runs(path: Path) -> list[float]:
     return out
 
 
+def _brief_plan(proj: Path) -> str:
+    """时间轴没写 plan 时认 brief.json 的菜单选择（同一件事不许有两个答案）。"""
+    b = proj / "brief.json"
+    if not b.exists():
+        return ""
+    try:
+        return str((json.loads(b.read_text()) or {}).get("plan") or "")
+    except json.JSONDecodeError:
+        return ""
+
+
 def load_timeline_or_edl(proj: Path) -> dict:
     """返回 `{segments: [...], style_pack}` 这种统一形状。
 
@@ -87,7 +98,8 @@ def load_timeline_or_edl(proj: Path) -> dict:
         return {"segments": segs, "beats": tl.get("beats") or [],
                 "style_pack": tl.get("style_pack"), "duration_s": t, "_src": "timeline",
                 # v5：骨架与包装的 id 要一路带下来，验收才知道该拿哪个 band 对账
-                "plan": tl.get("plan"), "pack": tl.get("pack"), "axis": tl.get("axis") or "A"}
+                "plan": tl.get("plan") or _brief_plan(p),
+                "pack": tl.get("pack"), "axis": tl.get("axis") or "A"}
     return {**json.loads((proj / "edl.json").read_text()), "_src": "edl"}
 
 
@@ -103,11 +115,33 @@ def main() -> int:
     # 实测：换了 padding 之后成片 78.6s、edl 还写着 79.0s，字幕归属整片错位，
     # 报「10 条字幕文字对不上声音」，其实声音和字幕都对，是核对用的窗口是旧的。
     edl = load_timeline_or_edl(proj)
+    # 包装以**实际渲这片时用的那套**为准。三个来源按可信度排：
+    #   ① --style（命令行显式指定）
+    #   ② proj/hf/meta.json 的 style —— 渲染那一步自己记下来的，最接近事实
+    #   ③ timeline.pack / style_pack —— 时间轴声明的
+    # 以前只有 ①③：`--style P3-dark` 渲完之后，验收照时间轴里的 P1-warm 去查，
+    # 于是暗调片上三块大字被判「花字色占比 0.00%」（颜色在查错的那套里）。
+    root = Path(__file__).resolve().parent.parent
+    _meta_style = ""
+    _mp = proj / "hf" / "meta.json"
+    if _mp.exists():
+        try:
+            _meta_style = str((json.loads(_mp.read_text()) or {}).get("style") or "")
+        except json.JSONDecodeError:
+            _meta_style = ""
     if a.style:
         style_path = Path(a.style).expanduser()
+        if style_path.suffix != ".yaml" and (root / "packs" / f"{a.style}.yaml").exists():
+            style_path = root / "packs" / f"{a.style}.yaml"
+    elif _meta_style and ((root / "packs" / f"{_meta_style}.yaml").exists()
+                          or (root / "styles" / f"{_meta_style}.yaml").exists()):
+        style_path = ((root / "packs" / f"{_meta_style}.yaml")
+                      if (root / "packs" / f"{_meta_style}.yaml").exists()
+                      else (root / "styles" / f"{_meta_style}.yaml"))
+    elif edl.get("pack") and (root / "packs" / f"{edl['pack']}.yaml").exists():
+        style_path = root / "packs" / f"{edl['pack']}.yaml"
     else:
-        style_path = (Path(__file__).resolve().parent.parent / "styles"
-                      / f"{edl.get('style_pack') or 'talking-head-v1'}.yaml")
+        style_path = (root / "styles" / f"{edl.get('style_pack') or 'talking-head-v1'}.yaml")
     style = yaml.safe_load(style_path.read_text())
     # 包装模板（pack-*.yaml）不是渲染参数表：它的画幅写成 `canvas.aspect`（[9:16, 16:9]），
     # 因为同一族要跨两个方向用。验收这一步却需要**一个**确定画幅。
@@ -288,7 +322,23 @@ def main() -> int:
                 cards_meta.setdefault(str(c.get("kind")), []).append(c)
         except json.JSONDecodeError:
             pass
-    kw_hex = str((style.get("emphasis") or {}).get("keyword_color") or "#FFD400")
+    # 大字是什么颜色，由**当前这套包装**决定，不由判据自己决定。
+    # 以前这里写死 emphasis.keyword_color（暖金黄 #F6EB34），于是拿暗调包装（青 #39D0C4）
+    # 渲一遍，三块大字明明在画面上，判据全报「花字色占比 0.00%」——判据和包装耦合，
+    # 换包必假红（2026-11-11 对抗式审查抓到）。
+    _pal = (style.get("tokens") or {}).get("palette") or {}
+    _kw_cands = []
+    for _h in (_pal.get("accent"), (style.get("emphasis") or {}).get("keyword_color")):
+        if _h and str(_h).upper() not in [x.upper() for x in _kw_cands]:
+            _kw_cands.append(str(_h))
+    if not _kw_cands:
+        _kw_cands = ["#FFD400"]
+    kw_hex = _kw_cands[0]
+    _kw_list = _kw_cands
+
+    def kw_share(im, box):
+        """大字色占比：候选色里取最大。候选来自当前包装的 accent / emphasis 色。"""
+        return max(color_share(im, h, box) for h in _kw_list)
 
     def color_share(im, hexs, box, tol=64):
         """一块区域里接近某个颜色的像素占比。
@@ -325,8 +375,7 @@ def main() -> int:
                     im_ = frame_at(tt, f"card{c.get('el')}{frac}", "RGB")
                     if im_ is None:
                         continue
-                    share = max(share, color_share(
-                        im_, kw_hex, (0, int(H * 0.28), W, int(H * 0.76))))
+                    share = max(share, kw_share(im_, (0, int(H * 0.28), W, int(H * 0.76))))
                 if im_ is None:
                     continue
                 # behind 卡是故意被人挡住的，可见墨迹天然远少于 keyword：
@@ -362,8 +411,7 @@ def main() -> int:
             if im is not None:
                 kind = str(card.get("kind") or "card")
                 if kind in ("keyword", "behind", "cutout"):
-                    share = color_share(im, kw_hex,
-                                        (0, int(H * 0.30), W, int(H * 0.74)))
+                    share = kw_share(im, (0, int(H * 0.30), W, int(H * 0.74)))
                     floor = 0.0008 if kind in ("behind", "cutout") else 0.004
                     add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
                         "green" if share > floor else "red",
@@ -431,6 +479,40 @@ def main() -> int:
             add(f"代码画面 #{seg.get('n')} 真的在画面上", f"深底占比 {dark * 100:.0f}%",
                 "green" if dark > 0.35 else "red",
                 "" if dark > 0.35 else "这一格该是代码画的整屏，量到的却是实拍亮度")
+        # 这一格是「在演」还是「一张静图」——量成片自己，不信脚本的自我评价。
+        # 为什么这条必须有：gen_scene --probe 只有画的时候跑，渲进片子里之后没人再看。
+        # 而「0.5s 和 4s 一模一样」正是这套场景被打回的原病。
+        if gd >= 2.5:
+            import numpy as np
+            sdir = proj / "work" / f"_gen{seg.get('n')}_seq"
+            if sdir.exists():
+                for f_ in sdir.glob("*.png"):
+                    f_.unlink()
+            sdir.mkdir(parents=True, exist_ok=True)
+            run(["ffmpeg", "-v", "error", "-y", "-ss", f"{g0:.3f}", "-t", f"{gd:.3f}",
+                 "-i", str(film), "-vf", "fps=6,scale=180:-1", str(sdir / "f%04d.png")])
+            frames = sorted(sdir.glob("f*.png"))
+            diffs = []
+            prev = None
+            for f_ in frames:
+                arr = np.asarray(Image.open(f_).convert("L"), dtype=np.float32)
+                if prev is not None:
+                    diffs.append(float(np.abs(arr - prev).mean()))
+                prev = arr
+            if diffs:
+                run_len = worst = 0
+                for d_ in diffs:
+                    if d_ < 0.6:
+                        run_len += 1
+                        worst = max(worst, run_len)
+                    else:
+                        run_len = 0
+                still = worst / 6.0
+                med = float(np.median(diffs))
+                add(f"代码画面 #{seg.get('n')} 不是静图",
+                    f"最长静止 {still:.2f}s · 帧差中位 {med:.2f}",
+                    "green" if still < 2.0 else "red",
+                    "" if still < 2.0 else "这一格有连续 2 秒一模一样——代码画的是图，不是画面")
         _t = round(_t + _d, 3)
 
     # 字幕
@@ -516,7 +598,13 @@ def main() -> int:
             "ASR 写错的词漏到画面上了：" +
             " / ".join(f"「{b}」→「{_lex['terms'][b]}」" for b, _ in _bad[:3]))
     else:
-        add("字幕", "0 条", "red", "没有字幕")
+        _ss = (style.get("subtitle_system") or {})
+        _ssid = (_ss.get("id") if isinstance(_ss, dict) else str(_ss)) or "single-line"
+        if _ssid == "none":
+            add("字幕", "不适用", "yellow",
+                "这套包装没有字幕层（大字即字幕）—— 要看字有没有上屏，看下面的大字判据")
+        else:
+            add("字幕", "0 条", "red", "没有字幕")
 
     # 节奏：优先按成片里真实的镜头清单判（推镜切之后和 EDL 不一样）
     shots_path = proj / "out" / "shots.json"

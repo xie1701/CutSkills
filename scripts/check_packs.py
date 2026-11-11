@@ -108,25 +108,55 @@ def check_schema(pid: str, pack: dict, grades: set[str]) -> tuple[list[str], lis
     hits = [(p, k) for p, k in walk_keys(pack) if k in TIMING_KEYS and p not in TIMING_EXEMPT]
     need(not hits, "包装包里混进了时间字段（包装不许动切点）：" + "、".join(f"{p}" for p, _ in hits[:5]))
 
+    # 「大字撑 70% 宽、单排」是 Jerry 2026-11-09 定的硬规则。包里写 0.82 就是违规——
+    # 判据放在这里，是因为这种数字太容易被「这套风格想更满一点」这种理由悄悄改掉。
+    fw = (pack.get("emphasis") or {}).get("fit_width")
+    if fw is not None:
+        need(float(fw) <= 0.72, f"emphasis.fit_width={fw} 超过 0.72（大字单排撑 70% 是硬规则）")
+
     # 提示级：这套包靠什么活
     if sid == "none" and not (pack.get("emphasis") or {}).get("big_keyword_px"):
         warn.append("字幕系统是 none，但没给大字尺寸——等于什么字都没有")
+    if sid == "bilingual":
+        warn.append("bilingual 要真有英文稿（subs.json 每条 cue 的 en 字段）；"
+                    "没有英文稿时渲出来仍是单行")
     if not pack.get("look_notes"):
         warn.append("没写 look_notes：后面的人不知道这套包为什么这么配色")
     return err, warn
 
 
-VID_RE = re.compile(r'<div class="([^"]*)"[^>]*?data-start="([\d.]+)"[^>]*?data-duration="([\d.]+)"')
+# 只认 <div> 是不够的：实拍格是 `<video class="clip" ...>`，代码画面是
+# `<video class="clip">`，只有整屏 gen 卡才是 `<div class="clip gen">`。
+# 第一版正则只匹配 div，于是在**真项目上恒为 0 格**——0 == 0，「切点一致 ✅」，
+# 一个永远不会失败的自证。判据必须用见过的两种错来校准，不是用「跑通了」校准。
+TAG_RE = re.compile(r'<(\w+)([^>]*)>', re.S)
+CLS_RE = re.compile(r'class="([^"]*)"')
+START_RE = re.compile(r'data-start="([\d.]+)"')
+DUR_RE = re.compile(r'data-duration="([\d.]+)"')
+SKIP_CLASS = {"cap", "kw", "idcard"}      # 字幕层 / 大字层：本来就该随包装变
 
 
 def cut_list(html: str) -> list[tuple[float, float]]:
-    """视频轨每格的 (start, dur)。只认带 clip 的格：字幕/卡片层本来就该随包变。"""
+    """**视频轨**每格的 (start, dur)。字幕、大字、抠像层不进这个列表。
+
+    判据：class 里有 clip、且不是字幕/大字/身份卡、且不在 overlay 轨（track-index 1）。
+    """
     out = []
-    for cls, st, du in VID_RE.findall(html):
-        toks = cls.split()
-        if "clip" in toks:
-            out.append((round(float(st), 3), round(float(du), 3)))
-    return out
+    for _tag, attrs in TAG_RE.findall(html):
+        m = CLS_RE.search(attrs)
+        if not m:
+            continue
+        toks = set(m.group(1).split())
+        if "clip" not in toks or toks & SKIP_CLASS:
+            continue
+        if 'data-track-index="1"' in attrs:      # 抠像层，不是时间轴上的格
+            continue
+        s, d = START_RE.search(attrs), DUR_RE.search(attrs)
+        if not (s and d):
+            continue
+        out.append((round(float(s.group(1)), 3), round(float(d.group(1)), 3)))
+    # 按起点排序：文档顺序里代码画面的 <video> 排在实拍格后面，直接比会误报「不一致」。
+    return sorted(out)
 
 
 def render_cuts(project: Path, pack: str, library: str | None) -> list[tuple[float, float]] | None:

@@ -643,6 +643,78 @@ def render(scene: str, out: Path, dur: float, fps: int, W: int, H: int) -> Path:
     return out
 
 
+FREEZE_S = 2.0          # 静止多久算「冻住」：全片判会误杀（20 支参考片 7 支有空镜），
+FREEZE_FPS = 8          # 但代码画面里连续 2 秒一模一样就是错——它不是素材，是我画的。
+MOTION_EPS = 0.6        # 帧差小于这个算「这一格没动」（0–255 灰度均值差）
+
+
+def motion_profile(fn, dur: float, W: int, H: int) -> tuple[float, float, float]:
+    """帧差剖面：最长静止多少秒、有多少比例的相邻帧在动。
+
+    为什么必须进 `--probe`：`bright` 只判「收尾空不空」，判不了「中间是不是一张静图」。
+    实测反例——一支纯静止的亮画面，`--probe` 给的是 🟢 100% 收尾有东西。
+    而「0.5s 和 4s 一模一样」正是这套场景被自己打回的原病，判据不能瞎。
+    """
+    step = 1.0 / FREEZE_FPS
+    n = max(2, int(round(dur / step)))
+    small = (max(120, W // 4), max(200, H // 4))
+    prev = None
+    diffs = []
+    for i in range(n):
+        t = min(dur - 1e-3, i * step)
+        arr = np.asarray(fn(t, small[0], small[1], dur).convert("L"), dtype=np.float32)
+        if prev is not None:
+            diffs.append(float(np.abs(arr - prev).mean()))
+        prev = arr
+    run = worst = 0
+    for d in diffs:
+        if d < MOTION_EPS:
+            run += 1
+            worst = max(worst, run)
+        else:
+            run = 0
+    moving = sum(1 for d in diffs if d >= MOTION_EPS) / max(1, len(diffs))
+    med = float(np.median(diffs)) if diffs else 0.0
+    return worst * step, moving, med
+
+
+def probe_scene(fn, dur: float, W: int, H: int) -> tuple[bool, list[str]]:
+    msgs, bad = [], False
+    rows, bright = [], []
+    for i in range(6):
+        t = round(dur * i / 5, 2)
+        arr = np.asarray(fn(min(t, dur - 1e-3), W, H, dur).convert("L"))
+        b = float((arr > 60).mean()) * 100
+        rows.append((t, float(arr.mean()), b))
+        bright.append(b)
+    peak = max(bright)
+    for t, lu, b in rows:
+        msgs.append(f"  t={t:5.2f}s  luma {lu:5.1f}  bright {b:5.2f}%{' ←' if b == peak else ''}")
+    if bright[-1] < 5.0:
+        msgs.append(f"⚠ 结尾几乎全黑（{bright[-1]:.1f}%）——收尾没落下东西")
+        bad = True
+    elif bright[-1] < peak * 0.6:
+        msgs.append(f"⚠ 结尾比最满的一帧空了 {100 - bright[-1] / peak * 100:.0f}%"
+                    f"（{bright[-1]:.1f}% vs {peak:.1f}%）——收尾收空了")
+        bad = True
+    # 中位帧差要一起报：只看「动帧比例」认不出「变化小到看不见」——
+    # 一个 2 像素的点在动也能让 90% 的相邻帧算「在动」。数字得自己看得见。
+    still, moving, med = motion_profile(fn, dur, W, H)
+    if still >= FREEZE_S:
+        msgs.append(f"⚠ 最长静止 {still:.2f}s（判据 <{FREEZE_S}s）——中间有一段是静的，像一张图")
+        bad = True
+    if moving < 0.30:
+        msgs.append(f"⚠ 只有 {moving * 100:.0f}% 的相邻帧在动——整段太静")
+        bad = True
+    if not bad:
+        msgs.append(f"🟢 收尾有东西（{bright[-1]:.1f}% / 峰值 {peak:.1f}%）· "
+                    f"最长静止 {still:.2f}s · 动帧 {moving * 100:.0f}% · 帧差中位 {med:.2f}")
+    else:
+        msgs.append(f"（结尾 {bright[-1]:.1f}% / 峰值 {peak:.1f}% · 最长静止 {still:.2f}s · "
+                    f"动帧 {moving * 100:.0f}% · 帧差中位 {med:.2f}）")
+    return (not bad), msgs
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="phase", choices=sorted(SCENES))
@@ -661,31 +733,9 @@ def main() -> int:
     MARKS = [float(x) for x in a.marks.replace(" ", "").split(",") if x] if a.marks else []
     W, H = (int(x) for x in a.size.lower().split("x"))
     if a.probe:
-        # 判据只有两条，都是「真看出来过」的病：
-        #   ① 结尾比全片最满的时候少了 40% 以上（收尾收空了）
-        #   ② 结尾亮度低于 5%（几乎全黑）
-        # 中间的起伏不判死：墙面→台面本来就会变小，那不是错。
-        fn = SCENES[a.scene]
-        rows, bright = [], []
-        for i in range(6):
-            t = round(a.dur * i / 5, 2)
-            arr = np.asarray(fn(min(t, a.dur - 1e-3), W, H, a.dur).convert("L"))
-            b = float((arr > 60).mean()) * 100
-            rows.append((t, float(arr.mean()), b))
-            bright.append(b)
-        peak = max(bright)
-        for t, lu, b in rows:
-            mark = " ←" if b == peak else ""
-            print(f"  t={t:5.2f}s  luma {lu:5.1f}  bright {b:5.2f}%{mark}")
-        if bright[-1] < 5.0:
-            print(f"⚠ 结尾几乎全黑（{bright[-1]:.1f}%）——收尾没落下东西")
-            return 1
-        if bright[-1] < peak * 0.6:
-            print(f"⚠ 结尾比最满的一帧空了 {100 - bright[-1] / peak * 100:.0f}%"
-                  f"（{bright[-1]:.1f}% vs {peak:.1f}%）——收尾收空了")
-            return 1
-        print(f"🟢 {a.scene} 收尾有东西（结尾 {bright[-1]:.1f}% / 峰值 {peak:.1f}%）")
-        return 0
+        ok, msgs = probe_scene(SCENES[a.scene], a.dur, W, H)
+        print("\n".join(msgs))
+        return 0 if ok else 1
     out = render(a.scene, Path(a.out).expanduser(), a.dur, a.fps, W, H)
     print(f"→ {out}（{a.scene} · {a.dur}s · {W}×{H} @{a.fps}fps）")
     return 0
