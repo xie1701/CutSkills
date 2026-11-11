@@ -104,7 +104,7 @@
 |---|---|---|
 | `audit_skill.py` | 文档和代码对账：文件存在 / 参数认不认 / 脚本被没被文档提过 / frontmatter 合法 / 全部能编译 | OK 🔴0 🟡0 🟢8 |
 | `gen_cli_ref.py` | 从 `argparse` 生成 `references/cli.md`（29 个脚本 / 100+ 参数），防文档腐烂 | 每次改脚本自动重生成 |
-| `selftest.py` | 合成素材跑 A→B→C→D 全链路 + 看板 clips.ov 回归 + 深底/PiP 判据负样本；临时目录按 git 分支名隔离工位 | ✅ 通（含看板回归与负样本） |
+| `selftest.py` | 合成素材跑 A→B→C→D 全链路 + 看板 clips.ov 回归 + 深底/PiP 负样本 + 仓库中间物守卫；临时目录按 git 分支名隔离工位 | ✅ 通（含看板回归与负样本） |
 | `calibrate_marks.py` | B 轴 marks 按 `props.anchors` 锚词从字级时间戳标定；冲突如实报不钳位 | lime-baxis：幕1 落实 0.495，幕2 顺序冲突保持 0.5811 |
 | `bench.py` | 产线指标：机器分钟、缓存命中、人工确认次数 | **一条 79 秒片：机器 0.69 分钟、人工 6 次** |
 
