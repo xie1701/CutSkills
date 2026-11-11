@@ -306,7 +306,7 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   ```
 - **状态**：T-012 待复核；T-007 已由 Gemini 推到待复核（@ `eed2943`）。另：T-011 行仍写「待复核」，但代码已并入 master `47d3f41`、分支已删——需要一次状态行更正（不是代码问题）。
 
-### 2026-11-11 22:40 · DeepSeek · T-014 完成待复核（仓体瘦身 814MB → 56MB）
+### 2026-11-11 22:24 · DeepSeek · T-014 完成待复核（仓体瘦身 814MB → 56MB）
 
 - **分支 / 工作树**：`ai/deepseek/T-014` @ `48692e4`，worktree `/Users/jerry/Downloads/AIworks/review/T014/CutSkills`（主树在跑 T-007，未动）。
 - **发现**：T-009 只清了 `proj79/work` 等，漏了 `proj79-fontB/work`（489MB）和 `proj79/hf/work`（约 159MB mask），再加三只旧成片与 `proj/out-C/`；master 上 tracked 814.3MB / 1228 文件，其中 `references/**/work/` 占 648.7MB。
