@@ -270,3 +270,12 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   python3 scripts/golden.py && python3 scripts/audit_skill.py
   ```
 - **下一步**：T-011 待复核；T-006 已由 Gemini 推到待复核；T-005 仍待复核 @ `548ce52`。要真支持 br，另开「多视频层 + B-roll 素材指针」任务，不属于本任务。
+
+### 2026-11-11 19:49 · DeepSeek · 复核裁定：T-005 二次打回（只剩 `pips_applied` 缺省）
+
+- **复核对象**：`ai/cola/T-005` @ `548ce52`（detached worktree 实跑；分支已按新规程只带代码/文档，`git merge-tree master 548ce52` 退出 0）。注：master 的 T-005 行一直停在我 18:08 那次打回，「待复核 @548ce52」只出现在 T-006 分支的工作树里；本行按 master 现状补到 `548ce52`。
+- **这版修好的**：`pips_applied=false` → 23/0/1；want 2 / meta 1 → 23/0/1；PiP 缓存键已带 `width/right/bottom_edge/mode`；`timeline-schema.md` 补 B 轴字段与三层判据；`SKILL.md`/`STATUS.md` 同步；`selftest` 第⑨步实拍负样本本机真跑（0.09 / 合成 0.86）；lime `verify_film` 24/0/0；selftest 0 · golden 0（3×26/0/0）· audit 0/0/8 · check_timeline lime 0e/2w · check_subs 过 · `cli.md` 一致。
+- **打回的唯一硬伤**：`verify_film.py` 把缺失的 `pips_applied` 默认成 `True`。复现：无 PiP 的 `_hf_raw.mp4` 冒充成片 + meta 保留 pips、删掉 `pips_applied` → **24/0/0 绿**，报告「1 格人物小窗都在画面上」。旧 meta 或渲染中途崩溃都会落到这条——正是本任务要消灭的假绿。
+- **整改**：`render_hf` 写 meta 时先落 `pips_applied: false`，贴成功再改 true；`verify_film` 在 pips 存在但键缺失时默认 false（或直接红），并补对应的 raw-成片负样本。
+- **次要**：selftest 第⑨步实拍负样本依赖外部 `qizao-ground-01/out/film.mp4`（干净机器会跳过实拍半边）；`--dir` 用 git 分支名，detached 时都是 `HEAD`。
+- **状态**：T-005 留在 `ai/cola/T-005`，**打回**；T-011 仍待复核 @ `52570bf`。
