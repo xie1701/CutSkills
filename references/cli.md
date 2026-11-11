@@ -347,6 +347,11 @@
 | `--file` | 评论文本文件；不给就读 stdin |
 | `--dry-run` | 开关 |
 
+### `brand_safety.py`
+*CutSkills · 品牌安全与第三方字样检测与处置引擎。*
+
+（无参数）
+
 ### `brief.py`
 *CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
 
@@ -753,6 +758,11 @@
 
 ### `test_board_clips.py`
 *T-010 回归：clips.ov 对账不许被 overlay 推歪（主轨起点只看视频格）。*
+
+（无参数）
+
+### `test_brand_safety.py`
+*CutSkills · T-007 品牌安全与第三方字样处置回归测试*
 
 （无参数）
 

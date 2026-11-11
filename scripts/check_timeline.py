@@ -41,7 +41,7 @@ def load_index(lib: Path) -> dict:
     return {x["id"]: x for x in json.loads(f.read_text())["assets"]}
 
 
-def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str]]:
+def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | None = None) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     els = tl.get("elements") or []
     if not els:
@@ -312,6 +312,24 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                             f"要么做一个承接，要么写 hard_cut 说明为什么硬切"))
         prev_v, prev_e = v, e
 
+    # ---- 画面里的第三方字样与品牌安全检查（T-007）
+    from brand_safety import scan_third_party_risks
+    clip_items = []
+    for e in els:
+        if e.get("kind") == "clip" and e.get("asset"):
+            clip_items.append({
+                "n": e.get("n"),
+                "asset": e.get("asset"),
+                "in": float(e.get("in", 0.0)),
+                "out": float(e.get("out", 0.0)),
+                "third_party_action": e.get("third_party_action") or e.get("third_party")
+            })
+    unresolved, resolved = scan_third_party_risks(clip_items, index, decisions_text=decisions_text)
+    if unresolved:
+        hits_str = " / ".join(f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved[:3])
+        more_str = f" 等共 {len(unresolved)} 段" if len(unresolved) > 3 else ""
+        out.append(("warning", f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 记「无需避开/保留」，或元素标 third_party_action: keep）：{hits_str}{more_str}"))
+
     return out
 
 
@@ -348,7 +366,9 @@ def main() -> int:
     lib = Path(a.library).expanduser().resolve() if a.library else proj.parent.parent.parent
     index = load_index(lib)
 
-    probs = check(tl, index, strict=a.strict)
+    dec_f = proj / "decisions.md"
+    dec_text = dec_f.read_text(encoding="utf-8") if dec_f.exists() else None
+    probs = check(tl, index, strict=a.strict, decisions_text=dec_text)
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)

@@ -290,6 +290,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_pip_judge.py")])
     must("PiP 判据负样本", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑫ 品牌安全与第三方字样处置回归（T-007：FESTOOL/PPG 拦截与 decisions 留痕核销）")
+    r = sh([PY, str(ROOT / "scripts" / "test_brand_safety.py")])
+    must("品牌安全与第三方字样处置回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:
