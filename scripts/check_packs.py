@@ -121,8 +121,8 @@ def check_schema(pid: str, pack: dict, grades: set[str]) -> tuple[list[str], lis
     if sid == "none" and not (pack.get("emphasis") or {}).get("big_keyword_px"):
         warn.append("字幕系统是 none，但没给大字尺寸——等于什么字都没有")
     if sid == "bilingual":
-        warn.append("bilingual 要真有英文稿（subs.json 每条 cue 的 en 字段）；"
-                    "没有英文稿时渲出来仍是单行")
+        warn.append("bilingual 要真有英文稿：项目里得放 subs-en.json（键=字幕序号）；"
+                    "没有它渲出来仍是单行，渲染时会打一行提示")
     if not pack.get("look_notes"):
         warn.append("没写 look_notes：后面的人不知道这套包为什么这么配色")
     return err, warn

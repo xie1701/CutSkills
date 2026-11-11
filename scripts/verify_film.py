@@ -546,6 +546,11 @@ def main() -> int:
         # 绝对数字照样写在说明里，别让"内容慢"背成"剪辑懒"的锅。
         avg = float(subs.get("avg_chars") or 0) or 9.0
         cps = float(subs.get("chars_per_s") or 0)
+        if not cps:   # subs.json 被别的包装写过（例如无字幕层那套）→ 就地按 cue 重算
+            _cs = sum(len(c.get("text") or "") for c in cues)
+            _ss = sum(float(c["end"]) - float(c["start"]) for c in cues)
+            cps = round(_cs / _ss, 2) if _ss else 0.0
+            avg = round(_cs / len(cues), 2) if _cs else avg
         derived = (cps / avg) * 60
         dev = abs(per_min - derived) / derived if derived else 1.0
         level = "green" if dev <= 0.15 else ("yellow" if dev <= 0.3 else "red")

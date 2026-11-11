@@ -12,6 +12,8 @@ subtitle:
   size_px: 72
   weight: ExtraBold
   color: '#1F1B16'
+  # 深墨字压在暗画面上实测读不出来（字幕带 p98 152 / 字 30）→ 纸感改奶白字
+  light_text: true
   shadow: 0 1px 0 rgba(255,255,255,.6)
   center_y_px: 1294
   safe_bottom_px: 300
@@ -23,6 +25,8 @@ subtitle:
   - 58
   entry: hard_cut
   colorize_emphasis: false
+  # 深墨字压在暗画面上读不出来 → 垫一条纸底（实测字幕带 p98 152 / 字 30）
+  plate: true
 emphasis:
   font: NotoSerifSC-Bold
   grammars:
@@ -71,7 +75,7 @@ subtitle_system:
   id: bilingual
   desc: 中文主行 72px + 英文小字 34px，两行固定高度
   en_size_px: 34
-  en_color: '#6B635A'
+  en_color: 'rgba(246,241,231,0.90)'  # 跟着 light_text 走，深灰英文在暗画面上读不出来
 fx:
 - page_turn
 - note_drop

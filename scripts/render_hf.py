@@ -740,8 +740,21 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 #root {{ position:relative; width:100%; height:100%; }}
 .clip {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }}
 #grade {{ position:absolute; inset:0; {grade} }}
-.cap {{ position:absolute; left:0; right:0; top:{cap_top}%; display:flex; justify-content:center;
+/* .cap 同时带 .clip，而 .clip 是 inset:0 + height:100% —— 字幕框被撑成整屏高。
+   单行时看不出（行盒在框顶），双语竖排时 align-items:center 把整块垂直居中，
+   直接推到画面外（实测 y=2254，比 1920 还低一半）：双语双行「从来没出现过」。
+   所以这里必须显式收掉 bottom 与 height。 */
+.cap {{ position:absolute; left:0; right:0; top:{cap_top}%; bottom:auto; height:auto;
+        display:flex; justify-content:center; align-items:flex-start;
         padding:0 {cap_pad}px; }}
+/* light_text：奶白字 + 细描边。试过「暗晕」和「纸底」两条路，都不行——
+   暗晕压在复杂背景上像一块擦不掉的脏斑（26.0s 那一帧），纸底被 .clip 的
+   100% 高度推到画面外。描边是唯一不看背景脸色、又不改版面的做法。 */
+.cap.cap-light span, .cap.cap-light .en {{
+  paint-order:stroke fill; -webkit-text-stroke:2px rgba(0,0,0,0.45); }}
+/* 压在浅底代码画面上：换深墨字，描边也跟着反过来 */
+.cap.cap-ink span, .cap.cap-ink .en {{
+  color:var(--ink,#1F1B16) !important; -webkit-text-stroke:2px rgba(255,255,255,0.35); }}
 .cap.cap-bi {{ flex-direction:column; align-items:center; gap:{cap_en_gap}px; }}
 .cap.cap-bi .en {{ font-family:"SC-Sub", sans-serif; font-style:normal; font-weight:600;
   letter-spacing:0.02em; white-space:nowrap; opacity:0.92;
@@ -864,7 +877,8 @@ def esc(t: str) -> str:
 
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
                punch_map=None,
-               fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None):
+               fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None,
+               gen_spans=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
     cap_px = int(sub.get("size_px") or 72)
@@ -941,15 +955,49 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     _sy = style.get("subtitle_system") or {}
     _sy_id = (_sy.get("id") if isinstance(_sy, dict) else str(_sy)) or "single-line"
     _en_px = int((_sy.get("en_size_px") if isinstance(_sy, dict) else 0) or 34)
-    _en_col = (_sy.get("en_color") if isinstance(_sy, dict) else "") or "#8A8178"
+    # 英文行跟着中文字色走：暗画面上深灰英文等于没有（实测和背景糊在一起）
+    _en_col = ((_sy.get("en_color") if isinstance(_sy, dict) else "") or
+               ("rgba(246,241,231,0.86)" if (_sy.get("light_text") if isinstance(_sy, dict) else False)
+                else "#8A8178"))
+    # 代码画面自带 --ground 底色：浅底包（纸感）的奶白字幕压上去等于没有。
+    # 按 tokens.palette.ground 的亮度判一次，重叠的 cue 换深墨字——不改版面，只换字色。
+    def _ground_lum() -> float:
+        g = (((style.get("tokens") or {}).get("palette") or {}).get("ground") or "")
+        g = str(g).lstrip("#")
+        if len(g) != 6:
+            return 0.0
+        try:
+            r, gg, b = (int(g[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        except ValueError:
+            return 0.0
+        return 0.2126 * r + 0.7152 * gg + 0.0722 * b
+
+    _light_ground = _ground_lum() > 0.55
+
+    def _over_gen(c) -> bool:
+        if not (gen_spans and _light_ground and sub.get("light_text")):
+            return False
+        for s0, d0 in gen_spans:
+            ov = min(c["end"], s0 + d0) - max(c["start"], s0)
+            if ov > 0.15:
+                return True
+        return False
+
+    def _cap_inner(c) -> str:
+        s = f'<span>{c.get("html") or esc(c["text"])}</span>'
+        if _sy_id == "bilingual" and c.get("en"):
+            s += (f'<i class="en" style="font-size:{_en_px}px;color:{_en_col}">'
+                  f'{esc(c["en"])}</i>')
+        return s
+
     c_html = "\n".join(
         f'      <div id="cap-{i:03d}" class="clip cap'
-        f'{" cap-bi" if (_sy_id == "bilingual" and c.get("en")) else ""}" '
+        f'{" cap-bi" if (_sy_id == "bilingual" and c.get("en")) else ""}'
+        f'{" cap-light" if sub.get("light_text") else ""}'
+        f'{" cap-ink" if _over_gen(c) else ""}" '
         f'data-start="{c["start"]}" '
         f'data-duration="{round(c["end"] - c["start"], 3)}">'
-        f'<span>{c.get("html") or esc(c["text"])}</span>'
-        + (f'<i class="en" style="font-size:{_en_px}px;color:{_en_col}">'
-           f'{esc(c["en"])}</i>' if (_sy_id == "bilingual" and c.get("en")) else "")
+        + _cap_inner(c)
         + '</div>'
         for i, c in enumerate(caps, 1))
     card_html = []
@@ -995,8 +1043,11 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         fr=fonts["sub"], fb=fonts["big"],
         grade=grade or "background:transparent;",
         cap_top=cap_top, cap_pad=cap_pad, cap_px=cap_px,
-        cap_color=sub.get("color") or "#FFFFFF",
-        cap_shadow=sub.get("shadow") or "0 3px 8px rgba(0,0,0,.75)",
+        # 纸感包是深墨字压在暗画面上读不出来（实测字幕带 p98 只有 152、字 30）→
+        # subtitle.light_text: true 就把字换成奶白 + 深影。换字色不改版面，比垫纸底稳。
+        cap_color=("#F6F1E7" if sub.get("light_text") else (sub.get("color") or "#FFFFFF")),
+        cap_shadow=("0 3px 12px rgba(0,0,0,0.80)" if sub.get("light_text")
+                    else (sub.get("shadow") or "0 3px 8px rgba(0,0,0,.75)")),
         cap_extra="",
         cap_em=sub.get("em_color") or (emph.get("keyword_color") or "#FFD400"),
         kw_top=kw_top, kw_px=kw_px, kwb_top=kwb_top, kwb_px=kwb_px,
@@ -1336,6 +1387,7 @@ def main():
         except json.JSONDecodeError:
             amap = None
     videos, gens, clips_like, t, n_fail = [], [], [], 0.0, 0
+    gen_spans = []   # 代码画面占用的时间段：字幕压上去要换字色
     scenes, audios = [], []          # 代码画的整屏格 + 它下面要接着播的口播原声
     gd = GRADE.get(str(style.get("grade") or ""), "")
     for el in segs:
@@ -1366,6 +1418,7 @@ def main():
         elif kind == "gen":
             if (el.get("track") or "video") == "overlay":
                 el["_start"] = round(float(el.get("at") or 0.0), 3)
+                gen_spans.append((el["_start"], round(float(el.get("dur") or 0.0), 3)))
                 gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
                 el["_start"] = round(float(el.get("at") or 0.0), 3)
                 el.pop("_pads", None)
@@ -1381,6 +1434,7 @@ def main():
                 sdur = round(probe(sp)["dur"], 3)
                 scenes.append({"n": el["n"], "src": f"clips/{sp.name}",
                                "start": round(t, 3), "dur": sdur})
+                gen_spans.append((round(t, 3), sdur))
                 el["_dur_q"] = sdur
                 ac = get_audio_cell(lib, proj, el)
                 if ac:
@@ -1392,6 +1446,7 @@ def main():
                 t = round(t + sdur, 3)
             else:
                 gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
+                gen_spans.append((round(t, 3), round(dur, 3)))
                 t = round(t + dur, 3)
         elif kind == "silence":
             t = round(t + dur, 3)
@@ -1581,8 +1636,11 @@ def main():
     # 字幕轨落盘：verify_film.py 读的是 out/subs.json，两条链路必须吐同一个东西，
     # 否则 D 段会拿 ffmpeg 那版留下的旧字幕去算密度（实测 136 条/分钟）。
     (proj / "out").mkdir(parents=True, exist_ok=True)
-    speech_chars = sum(len(c["text"]) for c in caps)
-    speech_s = sum(min(c["end"], total) - c["start"] for c in caps)
+    # 语速这两个数必须与「这套包装有没有字幕」无关：P3（大字即字幕）渲一次，
+    # 以前会把 chars_per_s 写成 0，导致别的成片验收时被判「字幕密度 26 条/分钟、期望 0」。
+    _stat_cues = caps_json or caps
+    speech_chars = sum(len(c["text"]) for c in _stat_cues)
+    speech_s = sum(min(c["end"], total) - c["start"] for c in _stat_cues)
     ctr = float(sub.get("center_y_px") or H * 0.674)
     (proj / "out" / "subs.json").write_text(json.dumps({
         "cues": caps_json,
@@ -1592,7 +1650,7 @@ def main():
         "font": fonts_hint(style), "size": int(sub.get("size_px") or 0),
         "overflow": [],
         "speech_chars": speech_chars,
-        "avg_chars": round(speech_chars / len(caps), 2) if caps else 0,
+        "avg_chars": round(speech_chars / len(_stat_cues), 2) if _stat_cues else 0,
         "chars_per_s": round(speech_chars / speech_s, 2) if speech_s else 0,
         "colorize": colorize,
         "engine": "hyperframes",
@@ -1640,7 +1698,8 @@ def main():
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
                           punch_map=punch_map,
-                          fg_mode=a.fg_layer, gens=gens, scenes=scenes, audios=audios)
+                          fg_mode=a.fg_layer, gens=gens, scenes=scenes, audios=audios,
+                          gen_spans=gen_spans)
     (hf / "index.html").write_text(html_txt)
     (hf / "meta.json").write_text(json.dumps(
         {"from": tl_src, "style": name, "elements": len(segs),
