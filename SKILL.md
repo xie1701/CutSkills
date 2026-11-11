@@ -66,7 +66,8 @@ python3 scripts/check_timeline.py --project <项目>     # error 必改，warnin
 
 # 3.5 给人审：出看板 → 人拖完批完 → 补丁落回 timeline → 上锁
 python3 scripts/board_from_timeline.py --project <项目>       # 出 board/board.html + 声音轨
-python3 scripts/board_check.py --project <项目> --xml --md     # 12 条不变式 + XML 应有对照表
+python3 scripts/board_check.py --project <项目> --xml --md     # 13 条不变式 + XML 应有对照表
+python3 scripts/test_board_clips.py                          # clips.ov 对账回归：overlay 不推歪主轨起点
 node scripts/board_smoke.js <项目>/board/board.html <项目>/board   # 真开一次浏览器：报错/截图/导出 XML
 pbpaste | python3 scripts/board_patch.py --project <项目> --dry-run  # 粘回来的评论 → 看 diff
 python3 scripts/lock.py --project <项目> --lock --note "认可"         # 拍板（哈希钉死时间轴）
@@ -172,7 +173,7 @@ timeline.json  ──I1 board_from_timeline──▶  board/board.html（人看�
 3. **改动必须经 I2 落地。** 浏览器里拖了什么不会自己变回时间轴。
 
 看板引擎是 vendored 的 `vendor/production-board/`（MIT，见其 `THIRD_PARTY_NOTICES.md`）：
-**只换数据块，不改样式和引擎**。`board_check.py` 验 12 条不变式；`board_smoke.js` 用真 Chrome
+**只换数据块，不改样式和引擎**。`board_check.py` 验 13 条不变式；`board_smoke.js` 用真 Chrome
 开一次，报 JS 错误、截图、把导出的 XML 存下来对账——「报告全绿但画面是空」吃过两次亏，不能再只读 JSON。
 
 ## 阶段 A · 索引
@@ -789,7 +790,7 @@ python3 <SKILL_DIR>/scripts/gen_cli_ref.py
 python3 <SKILL_DIR>/scripts/bench.py --library "<库>" --project <项目目录>   # 产线基准
 ```
 
-**第一条 `selftest.py` 管「链路断没断」。** 它用系统 `say` 造三支带语音的合成素材（20 秒的库），把 A→B→C→D 整条链跑一遍：索引要有转写、EDL 零 error、能渲、验收无红。改一行 `index_assets` 或 `render_film`，跑它就知道坏没坏——不用等 153 分钟真素材跑完才发现自己改坏了什么。**它证明的是「链路没断」，不是「片子好看」**：合成素材验不出节奏、冷暖、换介质。
+**第一条 `selftest.py` 管「链路断没断」。** 它用系统 `say` 造三支带语音的合成素材（20 秒的库），把 A→B→C→D 整条链跑一遍：索引要有转写、EDL 零 error、能渲、验收无红。另外顺带跑 `test_board_clips.py`，锁住看板 `clips.ov` 对账的镜起点不被 overlay 推歪。改一行 `index_assets` 或 `render_film`，跑它就知道坏没坏——不用等 153 分钟真素材跑完才发现自己改坏了什么。**它证明的是「链路没断」，不是「片子好看」**：合成素材验不出节奏、冷暖、换介质。
 
 **第二条管「说明书和代码对不对得上」。** 只查机器能查的五类：文档点名的文件存不存在、文档命令里的参数脚本认不认、每个脚本有没有被文档提过、frontmatter 合不合法、schema 字段和真产物对没对上。它跑不起来的东西（文笔、判断、策略）一行都没查。为什么要有它：前四天里两次「文档说 A、代码做 B」都是人读出来的——`grade_at_cut` 写死、字幕按整句收字。能机器查的，别靠人眼。🔴 为 0 才算完。
 

@@ -192,16 +192,30 @@ def apply(tl: dict, got: dict) -> tuple[dict, list[str]]:
                 notes.append(f"{sid} 要求重叠 {-g:.2f}s —— 本链路时间轴不支持重叠，按 0 处理")
         if patch.get("clips"):
             for track, val in patch["clips"].items():
-                if track not in ("ov", "br"):
+                if track != "ov":
+                    # br 是看板里整屏 B-roll 的轨道，不是 overlay；旧实现把它也 append 成
+                    # 一块 overlay，是错的。要接 br 得先有「B-roll 从第几秒起」的真值字段（T-011）。
                     notes.append(f"{sid} 的轨道 {track} 暂不支持单独定位")
                     continue
                 off, dur = float(val[0]), float(val[1])
                 base = starts().get(sid, 0.0)
-                n = max((int(e.get("n") or 0) for e in els), default=0) + 1
-                els.append({"n": n, "kind": "gen", "track": "overlay", "at": round(base + off, 3),
-                            "dur": round(dur, 3), "gen": "keyword",
-                            "props": {"text": f"{sid} 叠加层"}, "why": "看板里拖出来的叠加层"})
-                notes.append(f"{sid} 叠加层 {off:.2f}s 起、{dur:.2f}s（gen overlay）")
+                at, dur = round(base + off, 3), round(dur, 3)
+                # 读这一镜里已有的 overlay 再改它：append 会渲出两块叠在一起，
+                # 而且新块没有 template（check_timeline 直接报「模板 None」）。
+                inside = [e for e in els
+                          if (e.get("track") or "video") == "overlay"
+                          and base - 0.02 <= float(e.get("at") or 0.0) < base + el_dur(el) - 0.02]
+                if not inside:
+                    notes.append(f"{sid} 时间轴上没有叠加层可调——先加卡片，再回看板调时间")
+                    continue
+                ov_el = min(inside, key=lambda e: abs(float(e.get("at") or 0.0) - at))
+                old = f"{float(ov_el.get('at') or 0.0):.2f}s/{float(ov_el.get('dur') or 0.0):.2f}s"
+                ov_el["at"], ov_el["dur"] = at, dur
+                notes.append(f"{sid} 叠加层 {old} → {at:.2f}s/{dur:.2f}s（改原块，不新增）")
+                if len(inside) > 1:
+                    notes.append(f"{sid} 有 {len(inside)} 块叠加层，只改了最近的一块；其余用 board_check 对账")
+                if off < -0.02 or off + dur > el_dur(el) + 0.02:
+                    notes.append(f"{sid} 叠加层超出本镜（{off:.2f}s + {dur:.2f}s vs 镜长 {el_dur(el):.2f}s）")
 
     # 3) 画布元素 → 存起来；渲染不认 m，认 cards。能对上的大字顺手改文字。
     for sid, m in got["canvas"].items():
