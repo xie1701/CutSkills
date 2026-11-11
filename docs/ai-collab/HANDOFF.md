@@ -119,3 +119,25 @@
   - 分支 `ai/cola/T-003`（提交 `a14eddb`）已合并至 `master`；
   - 临时 worktree `CutSkills-cola-T003` 及分支 `ai/cola/T-003` 已安全删除；
   - `TASKS.md` 中 T-003 状态正式更新为 **判收** 并移入已完成留痕表。
+### 2026-11-11 Gemini 工位交接（任务 T-002 待复核）
+
+- **交出工位**：Gemini (`ai/gemini/T-002`)
+- **交出时间**：2026-11-11 16:15 +08:00
+- **当前任务状态**：T-002 改动完成，已推至 **待复核**（等待复核人/其他工位签收）。
+- **最新基线读数**：
+  - `audit_skill.py`：🔴 11 🟡 11 → **🔴 0 · 🟡 0 · 🟢 8（退出码 0）**
+  - `golden.py`：**✅ 退出码 0**（3 条样片 proj79 / ground-01 / protect-01，每条 🟢26 🔴0）
+  - `selftest.py`：步骤 ⑥「文档自检零红」全绿通过（仅剩 T-003 历史欠账：合成素材声轨短 0.10s）
+- **改动范围清单**：
+  1. `references/cli.md`：通过 `python3 scripts/gen_cli_ref.py` 重新生成（70 个脚本，335 个参数），清除了过期红灯与死参数黄灯；
+  2. `references/benchmark-2026-11-10.md` 与 `references/fusion-plan-2026-11-10.md`：调整了 9 处未来规划文件的表示形式（去除了 `scripts/` 与 `references/` 前缀），避免被文档对账误判为现有丢失文件；
+  3. `SKILL.md`：line 44 增加了 `schema_upgrade.py` 脚本的功能提及；line 856 补齐了 10 份未索引的 reference 文档链接。
+- **复核方验收指南**：
+  - 切到分支 `ai/gemini/T-002`，运行 `python3 scripts/audit_skill.py` 与 `python3 scripts/golden.py`；
+  - 确认全绿（退出码 0）后合并回 `master`，并将 `TASKS.md` 状态变更为 `判收（已完成）`。
+
+### 2026-11-11 16:34 · Cola · 复核裁定：T-002 判收（已并入 master）、T-004 打回
+
+- **T-002 判收**：抽取副本实测 `audit_skill` 🔴0 🟡0 🟢8、退出码 0（唯一黄是抽取目录名假象）；`gen_cli_ref.py` 重生成与提交版逐字节一致；`scripts/` 零改动、判据未放宽。
+- **T-004 打回**（`ai/gemini/T-004` @ `a7d1e95`，分支保留）：`test_blind_negative.py` 属闭环自证——18/20 条规则按阴性样本文本写死正则；不调用产线任何检查器；捕获判定 `len(flags)>0` 放水；6 组抽测无断言、未碰成片；防误杀只计 4 类 flag。整改要求见 TASKS.md 该行，改完重新提请复核。
+- **合流提示**：T-002 与 T-004 都改过 SKILL.md / cli.md / TASKS / HANDOFF，T-004 后续 rebase 到新 master 时这几处会冲突，按「谁的行谁写」解。
