@@ -141,6 +141,8 @@ def main() -> int:
             b = r.stdout.strip() if r.returncode == 0 else ""
         except Exception:
             b = ""
+        # detached HEAD 时 git 返回 "HEAD"，所有 worktree 都一样——退回目录名
+        b = "" if b == "HEAD" else b
         b = b or Path.cwd().name
         return "".join(c if c.isalnum() or c in "._-" else "_" for c in b)
     ap.add_argument("--dir", default=f"/tmp/cutskills-selftest-{_station()}")

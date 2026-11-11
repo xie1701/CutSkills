@@ -843,10 +843,12 @@ def main() -> int:
         # meta 是渲片写的，但它声明了不等于贴上了：贴回是否成功看 pips_applied
         # （T-005 复核①②）。判据分三层：声明层（want vs meta）、管线层（applied）、
         # 像素层（区域 std）——只要前两层有一样不满足，像素 std 多高都不能算绿。
-        _applied = True
+        _applied = False
         if _mpips:
             try:
-                _applied = bool(json.loads(_mp.read_text()).get("pips_applied", True))
+                # 缺省必须是 False：pips 声明了却拿不出「贴回成功」的凭证，就是没贴上。
+                # 缺省 True 的假绿被二次复核抓过（raw 冒充成片 + 删键 → 24/0/0）。
+                _applied = bool(json.loads(_mp.read_text()).get("pips_applied", False))
             except json.JSONDecodeError:
                 pass
         if _want_pip and not _mpips:

@@ -1949,6 +1949,8 @@ def main():
          "clips": len(videos), "gen": len(gens), "total_s": total,
          "captions": len(caps), "cards": len(cards),
          "pips": pips,
+         # 先落 false，贴回成功（5.6 步）才改 true——中途崩了验收必须红，不能假绿
+         "pips_applied": False,
          "fonts": fonts, "engine": "hyperframes"}, ensure_ascii=False, indent=1))
 
     kinds: dict[str, int] = {}
