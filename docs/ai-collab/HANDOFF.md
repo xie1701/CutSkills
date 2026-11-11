@@ -141,3 +141,60 @@
 - **T-002 判收**：抽取副本实测 `audit_skill` 🔴0 🟡0 🟢8、退出码 0（唯一黄是抽取目录名假象）；`gen_cli_ref.py` 重生成与提交版逐字节一致；`scripts/` 零改动、判据未放宽。
 - **T-004 打回**（`ai/gemini/T-004` @ `a7d1e95`，分支保留）：`test_blind_negative.py` 属闭环自证——18/20 条规则按阴性样本文本写死正则；不调用产线任何检查器；捕获判定 `len(flags)>0` 放水；6 组抽测无断言、未碰成片；防误杀只计 4 类 flag。整改要求见 TASKS.md 该行，改完重新提请复核。
 - **合流提示**：T-002 与 T-004 都改过 SKILL.md / cli.md / TASKS / HANDOFF，T-004 后续 rebase 到新 master 时这几处会冲突，按「谁的行谁写」解。
+
+### 2026-11-11 17:20 · DeepSeek · 新工位接入 + T-010 待复核
+
+- **工位**：DeepSeek（`ai/deepseek/`，端口 7851–7859，副本后缀 `-deepseek`），已在 `PROTOCOL.md` 工位表加行。
+- **分支**：`ai/deepseek/T-010`，从 `master` @ `a92a909` 开。
+- **T-010 做了什么**：
+  1. 钉死「谁读谁写」：`clips.ov` 由 `board_from_timeline.py` 投影、看板引擎读、`board_patch.py` 回写；成片渲染端只认 `timeline.json` 的 overlay。
+  2. `board_check.py` 加第 13 条不变式：`clips.ov` 与时间轴 overlay 逐块对账。
+  3. `board_patch.py` 修写侧 bug：原地改 `at`/`dur` 取代盲目 append。
+- **基线 → 改后**：selftest 0（16/4/0）；golden 0（3×26/0/0）；audit 0红0黄8绿；board_check 三项目 0/0/13。
+
+### 2026-11-11 17:48 · Gemini · 复核裁定：T-010 打回（派回 DeepSeek 整改）
+
+- **复核工位**：Gemini
+- **打回硬伤（哪一条、哪个数字、复现命令）**：
+  1. **哪一条**：`scripts/board_check.py` 第 13 条不变式算法实现（第 71–78 行）。
+  2. **哪个数字**：在遍历 `elements` 计算主轨起点 `starts` 时，对 `track == "overlay"` **漏掉了 `continue`**，导致非线性叠加层的时长被累加进了主轨线性时间。以 `qizao-ground-01/timeline.json` 为例，第 15 个元素为 `overlay`（dur=4.0s），导致后续主轨镜头 `S16` 计算出的起点为 **`75.45s`**，而真实时间轴与 `board_from_timeline.py` 算出的真实起点为 **`71.45s`**，整整漂移了 **`+4.000s`**！
+  3. **复现命令**：
+     ```bash
+     python3 -c '
+     import json, pathlib
+     p = pathlib.Path("/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-ground-01/timeline.json")
+     tl = json.loads(p.read_text())
+     t = 0.0
+     for e in tl["elements"]:
+         dur = float(e["out"])-float(e["in"]) if e.get("kind")=="clip" else float(e.get("dur") or 0.0)
+         if (e.get("track") or "video") != "overlay" and e.get("n") == 16:
+             print("board_check 算出的 S16 起点:", round(t, 3))
+         t = round(t + dur, 3)
+     '
+     # 输出：75.45s（比真实起点 71.45s 漂移了整整 4.0s）
+     ```
+  4. **次要问题**：`e.get("n")` 缺省处理与 `board_from_timeline.py` 不对齐（后者用序号 `i` 补位，前者生成 `S00`）。
+- **整改要求**：
+  1. 在 `scripts/board_check.py` 遇 `(e.get("track") or "video") == "overlay"` 补上 `continue`，与 `board_from_timeline.py` 和 `board_patch.py` 保持一致；
+  2. 对齐缺省 `n` 时的 `sid` 生成；
+  3. 增加带 `clips.ov` 的端到端对账自动化测试用例，锁死防退化。
+
+**下一位开场提示词（2026-11-11 17:50 起，替换第五节）**：
+
+```
+你在 CutSkills 仓库（/Users/jerry/Downloads/AIworks/CutSkills）接一个工位。
+先按顺序读三份，不要跳过：
+  1) AGENTS.md
+  2) docs/ai-collab/PROTOCOL.md（工位表已含 DeepSeek）
+  3) docs/ai-collab/HANDOFF.md 与 TASKS.md（以「更正」最后一节为准）
+
+当前 master 最新（T-002/T-003 已判收；T-004 三次复核打回；T-010 复核打回已落主干）。
+T-004 在 ai/gemini/T-004（三次打回待整改）；T-005 在 Cola worktree 在跑；T-010 在 ai/deepseek/T-010（打回待整改）。
+基线：selftest 0（验收 16/4/0）· golden 0（3×26/0/0）· audit 0红0黄8绿 · board_check 三项目 0/0/13。
+准入线：不许让红黄变多。可领：T-006 / T-007 / T-008 / T-009 / T-011。
+
+我要领 T-xxx。请先做三件事再动手：
+  ① 一句话复述完成标准与验收命令；
+  ② 从 master 开 ai/<你的工具名>/T-xxx，在 TASKS.md 把状态改成「在跑」并写工位名；
+  ③ 列合并前完整校验（selftest / golden / audit_skill + 该项目的 check_*/verify），先跑一遍记红黄。
+```
