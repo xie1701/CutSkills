@@ -5,13 +5,16 @@
   "hyperframes": "latest"
  },
  "pip": {
-  "pypinyin": "==0.55.0"
+  "pypinyin": "==0.55.0",
+  "pyyaml": ">=6（已 vendor 到 scripts/vendor/yaml，纯 Python 版——2026-11-12 python3.14→3.15 事故后固化）",
+  "pillow": ">=13（装在 $CUTSKILLS_HOME/py，C 扩展无法 vendor；重装命令见 runtime.sh install）",
+  "numpy": ">=2（同上）"
  },
  "system": {
   "ffmpeg": ">=6（解码、切点、混音）",
   "ffprobe": ">=6（规格探测）",
   "node": ">=22（hyperframes 要求）",
-  "python3": ">=3.9",
+  "python3": ">=3.9（CI 实跑 3.14/3.15 均可，依赖走 scripts/vendor）",
   "coli": "本地 ASR：coli asr --model sensevoice，离线"
  },
  "models": {
