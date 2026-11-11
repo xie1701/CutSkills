@@ -81,6 +81,8 @@ python3 scripts/sync_check.py --project <项目>              # 同步率 / 断�
 python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/单行 10–14 字/强调色/硬切
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
+python3 scripts/hooks.py --project <项目> --check          # 校验前 3 秒策略合规性与通过性（0: OK/WARN, 1: FAIL）
+python3 scripts/test_hooks_policy.py                      # 前 3 秒策略真判定回归（正负样本与持久化）
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
 
 # 阈值校准（改判据之前先量参考片自己的读数，别拍脑袋定标准）
