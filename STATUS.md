@@ -17,7 +17,7 @@
 | 1 入口 `brief.py` | ✅ | 四格（给谁看 / 他现在信什么 / 要他怎么变 / 多长 / 什么风格）+ 片长三档交互；套话拒写退出码 3；缺格写 `assumed[]` |
 | 2 理解 `hooks.py` | ✅ 已接策略真判定引擎 | 三种策略前 3 秒候选；补齐策略真判定（时长 ≤3.6s、共识 ≥2 票、定案一致对账、重跑防冲刷，test_hooks_policy 7 组正负样本全绿） |
 | 2 理解 `skeleton.py` | ✅ | 参考片 259s：69 切点 / 中位 2.85s / 字幕带 0.718H / 字高 0.055H；另一支 126s：38 切点 / 中位 2.83s / 0.693H / 0.029H——两支片量出两种排版，脚本没写死 |
-| 3 构形 `timeline.py` + `check_timeline.py` | ✅ | 元素可混排 clip / image / gen / silence，`track: overlay` 可盖在口播上不占时间；真项目 15 格 / 79.05s / error 0 warning 0 |
+| 3 构形 `timeline.py` + `check_timeline.py` | ✅ | 元素可混排 clip / image / gen / silence，`track: overlay` 可盖在口播上不占时间；真项目 15 格 / 79.05s / error 0 warning 0；新增统一第三方字样品牌安全排查（FESTOOL / PPG 等）与 decisions.md 确认留痕自动核销 |
 | 3 构形 代码生成 7 个模板 | ✅ | keyword / compare / number / steps / quote / chapter / chart，字数上限与时长下限写死，超了判 error |
 | 4 成型 `render_hf.py` v4 | ✅ | 真项目第 14 格是**代码造的对比屏**，盖在讲原料成本那段上：背景是实拍、声音不断、底部字幕照旧 |
 | 4 成型 良率卡 `yield_card.py` | ✅ | 四个判官（形式 / 结构 / 主张 / 钩子），历史累积到 `_cutskills/yield-history.jsonl` |
@@ -59,7 +59,7 @@
 |---|---|---|
 | 入口检查（这次是不是真有个剪辑需求） | ✅ | `intake.py` 判 full / thin / empty；thin 会逼出 2–3 个选题 |
 | 结构骨架（六套 beat 模板） | ✅ | 分歧拆解 / 现场带看 / 三步做法 / 反常识举证 / 客户问答 / 对比测评 |
-| EDL 生成 + 12 类校验 | ✅ | 字界吸附、`role` 六值（缺 `warrant` 会提醒）、泛述词告警、第三方品牌字样告警、同质画面按素材算 |
+| EDL 生成 + 12 类校验 | ✅ | 字界吸附、`role` 六值（缺 `warrant` 会提醒）、泛述词告警、第三方品牌字样告警与 decisions 留痕核销、同质画面按素材算 |
 | 口误标记 | ✅ | `⚠重复 / ⚠重启 / ⚠疑似修正` 三类信号 |
 | 人看的粗剪稿 | ✅ | `paper-edit.md` 文字稿，改稿不用看画面 |
 | 盲测 | ✅ | 多裁判 + **共同指认**（≥2 位点到同一段才算信号）；第一轮字面重合只有 5–7%——**证明了不能自评** |

@@ -466,23 +466,19 @@ def check_project(proj: Path, lib: Path | None = None, write_report: bool = True
                                  f"段数 {d_seg * 100:+.0f}% 时长 {d_sec * 100:+.0f}%）——该再给用户看一次稿子"
                                  "（log_decision.py 记下这一轮）")
 
-    # ---- 画面里的第三方字样：库里已经认过一遍，进片前必须在 EDL 上再提一次
+    # ---- 画面里的第三方字样与品牌安全检查（T-007）
     # 商用片里出现别人的品牌、公司名、手机号，等于替别人打广告；有的是竞品，有的是别人的客户。
-    # 机器只能读到 L2 当时写的 flags，具体露多少还是要人看一眼。
-    BRAND_HIT = re.compile(r"PPG|东鹏|MYLANDS|格力|GREE|别克|苹果|门窗|EOD|年年机电|手机|电话|"
-                           r"logo|标志|品牌字样|第三方|打码|水印")
-    brand_hits: list[str] = []
-    for r in rows:
-        rec = index.get(r["asset"]) or {}
-        for g in rec.get("segments") or []:
-            if g.get("out", 0) <= r["in"] + 0.05 or g.get("in", 0) >= r["out"] - 0.05:
-                continue
-            flags = [f for f in (g.get("flags") or []) if BRAND_HIT.search(str(f))]
-            if flags:
-                brand_hits.append(f"#{r['n']} {g.get('tag') or '—'}：{'；'.join(flags)}")
-    if brand_hits:
-        warns.append(f"{len(brand_hits)} 段的画面里有第三方字样或需打码的区域，"
-                     "商用前必须逐一看（裁切 / 打码 / 换段）：" + " / ".join(brand_hits[:3]))
+    # 机器读取 L2 flags，若在 decisions.md 中确认留痕则自动核销。
+    try:
+        from brand_safety import scan_third_party_risks
+        dec_text = (proj / "decisions.md").read_text(encoding="utf-8") if (proj / "decisions.md").exists() else None
+        unresolved, resolved = scan_third_party_risks(rows, index, decisions_text=dec_text)
+        if unresolved:
+            brand_hits = [f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved]
+            warns.append(f"{len(unresolved)} 段的画面里有第三方字样或需打码的区域，"
+                         "商用前必须逐一看（裁切 / 打码 / 换段 / decisions.md 确认）：" + " / ".join(brand_hits[:3]))
+    except ImportError:
+        pass
 
     # ---- 报告
     status = "FAIL" if errors else ("WARN" if warns else "OK")

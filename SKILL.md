@@ -62,7 +62,7 @@ python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候�
 
 # 3 构形：意图 → 元素时间轴（缺口按兜底链自动补 gen / 章节卡）
 python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
-python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由
+python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由（含第三方品牌字样排查与核销）
 
 # 3.4 B 轴连续场景：marks 别拍脑袋，按旁白锚词标定
 python3 scripts/calibrate_marks.py --project <项目>           # 读 props.anchors 锚词 → 字级时间戳推 marks
@@ -90,6 +90,7 @@ python3 scripts/hooks.py --project <项目> --kit            # 给人看的评�
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/hooks.py --project <项目> --check          # 校验前 3 秒策略合规性与通过性（0: OK/WARN, 1: FAIL）
 python3 scripts/test_hooks_policy.py                      # 前 3 秒策略真判定回归（正负样本与持久化）
+python3 scripts/test_brand_safety.py                      # 品牌安全与第三方字样处置回归（T-007：FESTOOL/PPG 拦截与核销）
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
 
 # 阈值校准（改判据之前先量参考片自己的读数，别拍脑袋定标准）
@@ -396,6 +397,7 @@ python3 <SKILL_DIR>/scripts/intake.py --library "<库>" --project <项目> --der
 6. `python3 <SKILL_DIR>/scripts/render_paper_edit.py --project ...` → 生成给人读的**按论点分节**的三列稿。
 7. **把文字稿给用户看，等他确认。** 这是唯一必须的人工确认点。人读 2000 字稿子 3 分钟，看 20 分钟粗剪要 20 分钟而且看不出该删什么。
    **确认完立刻记一行**：`python3 <SKILL_DIR>/scripts/log_decision.py --project <项目> --said "用户原话" --did "据此改了什么" [--verdict accepted|rejected]`。`decisions.md` 追加、不改旧行，结论后面挂当时的段数与时长。没记的话 `check_edl` 会 warn——否则一周后没人分得清「他没提这条」和「提了没改」。
+   **第三方字样处置**：施工实拍中常见的工具/设备品牌（如 FESTOOL 费斯托 RO 150、PPG 大师漆工装、牧田、博世等）若无法裁切且经客户认可保留，必须在 `decisions.md` 中记录一条留痕（或在时间轴元素标 `third_party_action: acknowledged/crop/blur`），`check_timeline.py` 与 `check_edl.py` 会自动核销告警。
 8. 确认后再跑一次：
 
 ```bash

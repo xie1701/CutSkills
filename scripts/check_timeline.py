@@ -41,7 +41,7 @@ def load_index(lib: Path) -> dict:
     return {x["id"]: x for x in json.loads(f.read_text())["assets"]}
 
 
-def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str]]:
+def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | None = None) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     els = tl.get("elements") or []
     if not els:
@@ -312,6 +312,28 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                             f"要么做一个承接，要么写 hard_cut 说明为什么硬切"))
         prev_v, prev_e = v, e
 
+    # ---- 画面里的第三方字样与品牌安全检查（T-007）
+    try:
+        from brand_safety import scan_third_party_risks
+        clip_items = []
+        for e in els:
+            if e.get("kind") == "clip" and e.get("asset"):
+                clip_items.append({
+                    "n": e.get("n"),
+                    "asset": e.get("asset"),
+                    "in": float(e.get("in", 0.0)),
+                    "out": float(e.get("out", 0.0)),
+                    "third_party_action": e.get("third_party_action") or e.get("third_party")
+                })
+        unresolved, resolved = scan_third_party_risks(clip_items, index, decisions_text=decisions_text)
+        if unresolved:
+            hits_str = " / ".join(f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved[:3])
+            more_str = f" 等共 {len(unresolved)} 段" if len(unresolved) > 3 else ""
+            out.append(("warning", f"{len(unresolved)} 段的画面里有第三方字样或需打码的区域，"
+                                  f"商用前必须逐一看（裁切 / 打码 / 换段 / decisions.md 确认）：{hits_str}{more_str}"))
+    except ImportError:
+        pass
+
     return out
 
 
@@ -348,7 +370,9 @@ def main() -> int:
     lib = Path(a.library).expanduser().resolve() if a.library else proj.parent.parent.parent
     index = load_index(lib)
 
-    probs = check(tl, index, strict=a.strict)
+    dec_f = proj / "decisions.md"
+    dec_text = dec_f.read_text(encoding="utf-8") if dec_f.exists() else None
+    probs = check(tl, index, strict=a.strict, decisions_text=dec_text)
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)
