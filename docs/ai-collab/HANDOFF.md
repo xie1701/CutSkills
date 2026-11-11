@@ -215,3 +215,10 @@ T-004 在 ai/gemini/T-004（三次打回待整改）；T-005 在 Cola worktree �
   python3 scripts/golden.py && python3 scripts/audit_skill.py
   ```
 - **更正 17:50 提示词**：其中「T-010 打回待整改」已过期——现在 T-010 在 `ai/deepseek/T-010` **待复核**；master 已是 `b70024f`。下一位沿用 17:50 那份提示词，把 T-010 状态改成「待复核」即可。
+
+### 2026-11-11 18:1x · Cola · T-010 判收（复核 DeepSeek 的 `ai/deepseek/T-010` @ `4fd8293`，并入 `61a23ad`）
+
+- 判收要点见 TASKS T-010 行。`board_check` 现在 13 条不变式（新增 clips.ov ↔ 时间轴叠加层对账）。
+- 分支 `ai/deepseek/T-010` 暂留：仍检出在 DeepSeek 工位 `/Users/jerry/Downloads/AIworks/review/CutSkills`，由它收工时按 START-STOP 自清。
+- 提醒各工位：neg 实测时发现 `board_from_timeline` 对拷出仓库的项目要显式 `--library`，相对素材库路径会断。
+
