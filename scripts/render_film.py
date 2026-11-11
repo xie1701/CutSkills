@@ -673,9 +673,11 @@ def main() -> int:
             vf += f",colorchannelmixer=rr={sh['gain']:.3f}:bb={1 / sh['gain']:.3f}"
         vf += f",fps={FPS},format=yuv420p"
         vp = work / f"v{idx:03d}.mp4"
+        # vcap：编码行为版本戳。2026-11-11 起 -frames:v 钉死帧数，旧缓存里的镜头文件
+        # 是没钉时编的（会比计划多帧）——sig 不变它们会继续被复用，音画等长白修。
         sig = {"asset": s["asset"], "in": round(sh["in"], 3), "out": round(sh["out"], 3),
                "zoom": sh["zoom"], "crf": a.crf, "w": W, "h": H, "fps": FPS,
-               "frames": sh["frames"], "vf": vf}
+               "frames": sh["frames"], "vf": vf, "vcap": 1}
         man[str(idx)] = sig
         # 只认同一套编号下的缓存。早先按「2 位数段号」存过的文件不能再复用——
         # 那批文件是"整段"，一旦被当成"镜头"拼进去，成片会凭空长出一大截
@@ -684,10 +686,14 @@ def main() -> int:
         if cached:
             vlist.append(vp)
         else:
+            # -frames:v 是等长的真正保证：计划里每镜几帧就出几帧。
+            # 只靠 -t 裁，压缩源上会按 pts 多吐一帧（ceil），8 镜多 8 帧 = +0.27s，
+            # 而声轨是按 total 走的——成片画面比声音长，验收「音画等长」判红。
             run(["ffmpeg", "-v", "error", "-y", "-ss", f"{sh['in']:.3f}",
                  "-t", f"{dur:.3f}", "-i", str(src), "-an", "-vf", vf,
                  "-c:v", "libx264", "-crf", str(a.crf), "-preset", "veryfast",
-                 "-pix_fmt", "yuv420p", "-r", str(FPS), str(vp)])
+                 "-pix_fmt", "yuv420p", "-r", str(FPS),
+                 "-frames:v", str(sh["frames"]), str(vp)])
             vlist.append(vp)
         sh["hdr"] = hdr
         sh["cached"] = cached
@@ -762,6 +768,11 @@ def main() -> int:
               f"linear=true:print_format=summary")
     else:
         af = f"loudnorm=I={L['loudness_lufs']}:TP={L['true_peak_dbtp']}"
+    # 每段声音是从压缩源里 -ss/-t 抠出来的，AAC 帧边界（1024 采样 @48k ≈ 21ms）
+    # 会把每段啃掉一点，3 段下来整条声轨短 ~0.1s（实测画面 17.77s / 声音 17.67s，
+    # 验收「音画等长」判红：声轨不许比画面短）。画面是整帧量化、一定够长，
+    # 所以在归一这步把整条声音 pad 到 total；结尾本来就是 30ms 淡出，垫静音无感。
+    af = af + f",apad=whole_dur={total:.4f}"
     run(["ffmpeg", "-v", "error", "-y", "-i", str(audio), "-af", af,
          "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", str(norm)])
 
@@ -1135,10 +1146,14 @@ def main() -> int:
         # -t 必须钉死成镜头时长：循环输入的帧会比画面多，不钉的话每个贴图层都长一点，
         # 二十个镜头累加下来成片比 EDL 多 12 秒，后面每个镜头的时间点全错位
         # （实测 video_ov 91.47s vs 79.07s，字卡在自己的时间里怎么找都找不到）。
+        # 这里和镜头编码、贴卡循环是同一个病：-t 按 pts 裁会 ceil 多吐一帧，
+        # 每个重编码的镜头 +1 帧（selftest 3 个带卡镜头 = +0.1s，音画等长判红）。
+        # 钉死帧数，三处一起钉，成片才等于 total。
         run(["ffmpeg", "-v", "error", "-y"] + inputs + [
             "-filter_complex", ";".join(fc), "-map", "[vo]", "-an", "-t", f"{sd:.4f}",
             "-c:v", "libx264", "-crf", str(a.crf), "-preset", "veryfast",
-            "-pix_fmt", "yuv420p", "-r", str(FPS), str(op)])
+            "-pix_fmt", "yuv420p", "-r", str(FPS),
+            "-frames:v", str(int(round(sd * FPS))), str(op)])
         parts.append(op)
         if mine:
             print(f"  贴字 镜头 {idx:03d}  {ss:5.1f}s  层数 {len(mine)}")
@@ -1159,7 +1174,8 @@ def main() -> int:
                  "-filter_complex",
                  f"[0:v][1:v]overlay=0:{o['y']}:enable='between(t,{wa:.3f},{wb:.3f})',format=yuv420p",
                  "-an", "-t", f"{sd:.4f}", "-c:v", "libx264", "-crf", str(a.crf), "-preset", "veryfast",
-                 "-pix_fmt", "yuv420p", "-r", str(FPS), str(cp)])
+                 "-pix_fmt", "yuv420p", "-r", str(FPS),
+                 "-frames:v", str(int(round(sd * FPS))), str(cp)])
             cur = cp
             print(f"  贴卡 镜头 {idx:03d}  {ss + wa:5.1f}–{ss + wb:5.1f}s")
         parts[-1] = cur

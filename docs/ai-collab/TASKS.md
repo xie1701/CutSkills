@@ -28,7 +28,7 @@
 |---|---|---|---|---|---|
 | T-001 | 建多工位协作骨架（AGENTS.md + docs/ai-collab 四份） | **待复核** | Cola | 直接落 master（骨架本身，见 HANDOFF 第一节） | 只新增 5 份文档，未动代码；验：`git log -1 -- AGENTS.md` + 人读一遍 |
 | T-002 | `audit_skill.py` 11 红清账：重生成 `references/cli.md`（`gen_cli_ref.py`）、修 9 处「文档点名的文件不存在」、把 9 份 references 从 `SKILL.md` 链过去 | 未开工 | — | — | — |
-| T-003 | `selftest.py` 唯一红：C 段 ffmpeg 链 `音画等长` 声轨短 0.10s（尾帧 pad 与 `-shortest` 的对账） | 未开工 | — | — | — |
+| T-003 | `selftest.py` 唯一红：C 段 ffmpeg 链 `音画等长` 声轨短 0.10s（尾帧 pad 与 `-shortest` 的对账） | **待复核** | Cola（worktree `CutSkills-cola-T003`） | `ai/cola/T-003` | 改：真因不是声轨短，是画面长——`render_film.py` 三处重编码（镜头 / 贴卡循环 / 字幕·抠像循环）`-t` 按 pts 裁会 ceil 多吐帧（3 带卡镜头 +3 帧 = +0.1s）。三处全部钉死 `-frames:v`；声轨归一时 `apad=whole_dur=total` 垫齐；缓存 sig 加 `vcap:1` 让没钉帧数时代编的旧镜头缓存失效。\n验：selftest 验收步 **16/4/0（原 15/4/1）**，音画等长 17.67s/17.67s（原 17.77/17.67）；`golden.py` 退出码 0（3 条样片 26-0-0 未变）；selftest 整体仍退出 1——只剩 audit_skill 11 红，是 T-002 的活。 |
 | T-004 | P4 盲测收口：6 组抽测 + 20 支阴性样本防误杀 + 审计报告 | 未开工 | — | — | — |
 | T-005 | B 轴石灰基：人物 PiP + 三幕时长标定（现按 0.30 / 0.62 拍的，未测） | 未开工 | — | — | — |
 | T-006 | `hooks.json` 的 `passed` 至今是 null（开头三秒策略没有真判过） | 未开工 | — | — | — |
