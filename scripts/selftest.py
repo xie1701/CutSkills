@@ -294,6 +294,13 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_brand_safety.py")])
     must("品牌安全与第三方字样处置回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑬ 仓库不夹带生成中间物（references/**/work/）")
+    r = sh(["git", "-C", str(ROOT), "ls-files", "references"])
+    bad = [ln for ln in (r.stdout or "").splitlines() if "/work/" in ln]
+    must("仓库不夹带生成中间物", r.returncode == 0 and not bad,
+         f"{len(bad)} 个 tracked 文件在 references/**/work/：" + "、".join(bad[:3])
+         if bad else (r.stderr or r.stdout).strip()[-160:])
+
     secs = time.time() - t0
     print()
     if fails:
