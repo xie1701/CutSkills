@@ -21,6 +21,17 @@ from pathlib import Path
 import yaml
 
 
+def dark_ratio(im) -> float:
+    """深底占比：像素 < 46（L 模式）的比例。供「代码画面真的在画面上」用，
+    也供 selftest 的负样本调用——实拍帧必须量出低值，不然判据就是假的。"""
+    px = list(im.getdata())
+    return sum(1 for v in px if v < 46) / max(1, len(px))
+
+
+def median_of(vals: list[float]):
+    return sorted(vals)[len(vals) // 2] if vals else None
+
+
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -572,13 +583,23 @@ def main() -> int:
                 "green" if mv > -45 else "red",
                 "" if mv > -45 else "整屏换了画面，人声没接上——这几秒是哑的")
         # 画面也得真的换掉了：代码画面是深底 + 品牌金，跟展厅/工地实拍差得远。
-        im = frame_at(g0 + gd * 0.6, f"gen{seg.get('n')}", mode="L")
-        if im is not None:
-            px = list(im.getdata())
-            dark = sum(1 for v in px if v < 46) / max(1, len(px))
-            add(f"代码画面 #{seg.get('n')} 真的在画面上", f"深底占比 {dark * 100:.0f}%",
+        # 单帧采样太脆：换幕扫光的亮带扫过时（宽 14%、alpha 70），背景橄榄底色
+        # 本来就贴在阈值上，一帧就能从 48% 掉到 26%（2026-11-11 T-005 实测）。
+        # 改成三采样取中位：扫光只占一格里的一个时刻，实拍误投则三帧全低。
+        _darks = []
+        for _fr in (0.25, 0.5, 0.75):
+            _im = frame_at(g0 + gd * _fr, f"gen{seg.get('n')}_{_fr}", mode="L")
+            if _im is not None:
+                _darks.append(dark_ratio(_im))
+        dark = median_of(_darks)
+        if dark is not None:
+            add(f"代码画面 #{seg.get('n')} 真的在画面上",
+                f"深底占比 {dark * 100:.0f}%（三帧中位）",
                 "green" if dark > 0.35 else "red",
                 "" if dark > 0.35 else "这一格该是代码画的整屏，量到的却是实拍亮度")
+        else:
+            add(f"代码画面 #{seg.get('n')} 真的在画面上", "取帧失败", "yellow",
+                "ffmpeg 没抽出帧，这条没量到")
         # 这一格是「在演」还是「一张静图」——量成片自己，不信脚本的自我评价。
         # 为什么这条必须有：gen_scene --probe 只有画的时候跑，渲进片子里之后没人再看。
         # 而「0.5s 和 4s 一模一样」正是这套场景被打回的原病。
@@ -799,6 +820,68 @@ def main() -> int:
                 if _worst > 2.0 else "一直是动的（2s 内必有变化）")
         else:
             add("场景内最长静止", "取帧失败", "yellow", "ffmpeg 没抽出帧，这条没量到")
+
+        # B 轴 PiP：meta.json 是渲片写下的（不是 timeline 自证），声明了就要
+        # 真在画面上。判据看像素：PiP 区域的纹理量——人是抠像浮在场景上的，
+        # 区域 std 低于 6 基本就是没贴上（贴上了也有人脸/衣纹在动）。
+        _mp = proj / "hf" / "meta.json"
+        _mpips = []
+        if _mp.exists():
+            try:
+                _mpips = json.loads(_mp.read_text()).get("pips") or []
+            except json.JSONDecodeError:
+                _mpips = []
+        # _want_pip 必须读 timeline.json 原件：load_timeline_or_edl 返回的是 EDL 视图，
+        # 只有 segments 没有 elements——读转换视图会让声明永远为空，这条红永远不响
+        # （跟「B 轴微事件」当时犯的是同一个错，别再犯）。
+        _tlp = proj / "timeline.json"
+        _tl_els = (json.loads(_tlp.read_text()).get("elements") or []) if _tlp.exists() else []
+        _want_pip = [e for e in _tl_els
+                     if str(e.get("axis") or "") == "B"
+                     and str(e.get("template") or "") == "scene"
+                     and (e.get("props") or {}).get("pip") is not False]
+        # meta 是渲片写的，但它声明了不等于贴上了：贴回是否成功看 pips_applied
+        # （T-005 复核①②）。判据分三层：声明层（want vs meta）、管线层（applied）、
+        # 像素层（区域 std）——只要前两层有一样不满足，像素 std 多高都不能算绿。
+        _applied = False
+        if _mpips:
+            try:
+                # 缺省必须是 False：pips 声明了却拿不出「贴回成功」的凭证，就是没贴上。
+                # 缺省 True 的假绿被二次复核抓过（raw 冒充成片 + 删键 → 24/0/0）。
+                _applied = bool(json.loads(_mp.read_text()).get("pips_applied", False))
+            except json.JSONDecodeError:
+                pass
+        if _want_pip and not _mpips:
+            add("B 轴人物 PiP", "timeline 有 B 轴格，meta 里没有 pips", "red",
+                "渲片时 PiP 没建出来（缺 person_mask 或音频素材），或渲染器版本没带这功能")
+        elif _want_pip and _mpips and not _applied:
+            add("B 轴人物 PiP", f"meta 声明 {len(_mpips)} 格但贴回失败（pips_applied=false）", "red",
+                "渲片日志里有「PiP 没贴上」——成片里没有小窗，声明不作数")
+        elif len(_mpips) < len(_want_pip):
+            add("B 轴人物 PiP", f"想要 {len(_want_pip)} 格，meta 只有 {len(_mpips)} 格", "red",
+                "有 B 轴格没建出小窗——查渲片日志里被跳过的那几格")
+        elif _mpips and not _applied:
+            add("B 轴人物 PiP", "贴回失败但 timeline 不要求 PiP", "yellow",
+                "meta 声明了 pips 但 pips_applied=false；timeline 没有 B 轴格所以不算硬伤，查渲片日志")
+        elif _mpips:
+            _bad = []
+            for _p in _mpips:
+                _stds = []
+                for _fr in (0.45, 0.8):
+                    _im = frame_at(_p["start"] + _p["dur"] * _fr, f"pip{_p['n']}_{_fr}")
+                    if _im is None:
+                        continue
+                    _c = _im.crop((_p["x"], _p["y"], _p["x"] + _p["w"], _p["y"] + _p["h"]))
+                    _stds.append(float(_np.asarray(_c, dtype="float32").std()))
+                _m = min(_stds) if _stds else -1.0
+                if _m < 6:
+                    _bad.append(f"格 {_p['n']}（std {_m:.1f}）")
+            if _bad:
+                add("B 轴人物 PiP", f"{'、'.join(_bad)} 区域没内容", "red",
+                    "PiP 区域像素 std < 6：多半没贴上或贴错了位置")
+            else:
+                add("B 轴人物 PiP", f"{len(_mpips)} 格人物小窗都在画面上", "green",
+                    "PiP 区域 std ≥ 6（有人在动，不是空场景）")
     elif _shots_p.exists():
         _sh = [x for x in json.loads(_shots_p.read_text()) if float(x.get("dur") or 0) > 0.05]
         if _sh:

@@ -64,6 +64,12 @@ python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候�
 python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
 python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由
 
+# 3.4 B 轴连续场景：marks 别拍脑袋，按旁白锚词标定
+python3 scripts/calibrate_marks.py --project <项目>           # 读 props.anchors 锚词 → 字级时间戳推 marks
+python3 scripts/calibrate_marks.py --project <项目> --write   # 采纳写回（锚词缺失/顺序冲突保持原值并如实报）
+# 人物小窗：B 轴 scene 格带 props.pip（box 圆角卡默认 / cutout 浮人）；
+# 字段说明见 references/timeline-schema.md 的「B 轴专用字段」表。
+
 # 3.5 给人审：出看板 → 人拖完批完 → 补丁落回 timeline → 上锁
 python3 scripts/board_from_timeline.py --project <项目>       # 出 board/board.html + 声音轨
 python3 scripts/board_check.py --project <项目> --xml --md     # 14 条不变式 + XML 应有对照表

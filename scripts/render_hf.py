@@ -586,6 +586,213 @@ def get_audio_cell(lib: Path, proj: Path, seg: dict) -> dict | None:
     return {"path": dst, "dur": round(s_out - s_in, 3)}
 
 
+# ---------------------------------------------------------- B 轴人物 PiP
+
+def pip_clip(lib: Path, proj: Path, el: dict, FPS: int, W: int, H: int,
+             grade: str = "", crf: int = 17) -> dict | None:
+    """B 轴人物 PiP：把口播素材里当前这段人抠出来，缩成小窗浮在代码场景上。
+
+    走 ffmpeg 后贴，**不进 HTML**：Chrome 把带 alpha 的 webm 交给硬件视频管线
+    时会丢 alpha（fg 层踩过，见 build_html 里那段注释），PiP 同样是 alpha 层，
+    只信 ffmpeg。人像框不猜——取 Vision 遮罩首/中/尾三帧的并集外接框再外扩，
+    框落在人身上，不落在脸上猜的位置。
+
+    样式默认「box」（bbox 内不透明画面 + 圆角卡，遮罩只参与取景）；
+    `props.pip.mode: "cutout"` 才是浮人抠像——Vision 遮罩在白 T 恤/杂背景
+    素材上会撕裂（fg 层看不出来，PiP 换背景就全露，2026-11-11 品红底目检）。
+
+    关掉：`props.pip: false`。调窗：`props.pip: {width, right, bottom_edge}`，
+    都是小数占比；bottom_edge 是小窗**底边**的 y 占比，默认 0.62——字幕带顶边
+    约 0.646H，小窗底边压在它上面，不抢字幕。
+    """
+    if str(el.get("axis") or "") != "B":
+        return None
+    pip = (el.get("props") or {}).get("pip")
+    if pip is False:
+        return None
+    a = el.get("audio") or {}
+    aid = a.get("asset") or el.get("asset")
+    if not aid:
+        return None
+    s_in = float(a.get("in", el.get("in") or 0))
+    s_out = float(a.get("out", el.get("out") or 0))
+    dur = s_out - s_in
+    if dur <= 0.30:
+        return None
+    pip = dict(pip) if isinstance(pip, dict) else {}
+    wp = float(pip.get("width") or 0.26)
+    mr = float(pip.get("right") or 0.04)
+    bed = float(pip.get("bottom_edge") or 0.62)
+    mode = str(pip.get("mode") or "box")
+    pipw = max(2, int(W * wp) // 2 * 2)
+    # 缓存键必须带全部窗口参数（T-005 复核⑥：只按素材+in/out 命中旧缓存，
+    # 调 width/right/bottom_edge/mode 不生效，白改）。
+    tag = (f"pip-{Path(aid).stem[-14:]}_{s_in:.2f}-{s_out:.2f}"
+           f"_{int(wp * 100)}_{int(mr * 100)}_{int(bed * 100)}_{mode}").replace(".", "p")
+    tag = "".join(c if c.isalnum() or c in "-_" else "_" for c in tag)
+    dst = proj / "hf" / "clips" / f"{tag}.webm"
+    side = dst.with_suffix(".json")
+    if dst.exists() and dst.stat().st_size > 4096 and side.exists():
+        try:
+            g = json.loads(side.read_text())
+            return {"path": dst, "dur": round(dur, 3), "w": g["w"], "h": g["h"],
+                    "x": g["x"], "y": g["y"]}
+        except (json.JSONDecodeError, KeyError):
+            pass
+    if not MASK_BIN.exists():
+        print("  ！缺 scripts/native/person_mask（swiftc -O person_mask.swift -o person_mask），"
+              "B 轴 PiP 跳过", file=sys.stderr)
+        return None
+    # 复用切片链：HDR/旋转/GRADE 都在里面处理过，PiP 的人跟 A-roll 一个色。
+    seg = get_clip(lib, proj, {"asset": aid, "in": s_in, "out": s_out},
+                   W=W, H=H, FPS=FPS, grade=grade)
+    clip = seg["path"]
+    mdir = proj / "hf" / "work" / "mask" / f"pip-{tag}"
+    r = subprocess.run([str(MASK_BIN), str(clip), "0", f"{dur:.3f}", str(mdir), str(FPS)],
+                       capture_output=True, text=True)
+    masks = sorted(mdir.glob("f*.png")) if r.returncode == 0 else []
+    if not masks:
+        print(f"  ！PiP 遮罩失败：{clip.name}\n{(r.stderr or '')[-200:]}", file=sys.stderr)
+        return None
+    # 遮罩后处理在 numpy 里做，不走 ffmpeg 滤镜链（目检 2026-11-11）：
+    # ① 白 T 恤在 Vision 遮罩里是低置信区（40–150），阈值 150 会把胸口掏出大洞——
+    #    fg 层看不出来是因为底下贴的是同一帧画面，PiP 换了背景就全露。
+    #    阈值降到 40 把弱区收回来，再闭运算补小洞。
+    # ② 人的下缘遮罩本来就有截断，硬切看着像撕裂——裁剪后底部 12% 做 alpha 渐隐，
+    #    截断变成刻意的「浮出」。
+    # ③ 缩放用 LANCZOS：二值遮罩缩出的是软边，比硬边自然。
+    import numpy as np
+    from PIL import Image
+
+    def _close(b: "np.ndarray", k: int = 3) -> "np.ndarray":
+        for _ in range(k):
+            d = b.copy()
+            d[1:, :] |= b[:-1, :]; d[:-1, :] |= b[1:, :]
+            d[:, 1:] |= b[:, :-1]; d[:, :-1] |= b[:, 1:]
+            b = d
+        for _ in range(k):
+            e = ~b
+            d = e.copy()
+            d[1:, :] |= e[:-1, :]; d[:-1, :] |= e[1:, :]
+            d[:, 1:] |= e[:, :-1]; d[:, :-1] |= e[:, 1:]
+            b = ~d
+        return b
+
+    vw, vh = seg["w"], seg["h"]
+    closed: list[np.ndarray] = []
+    box = None
+    for f in (masks[0], masks[len(masks) // 2], masks[-1]):
+        arr = np.asarray(Image.open(f).convert("L"))
+        b = _close(arr > 40)
+        closed.append(b)
+        ys, xs = np.nonzero(b)
+        if len(xs) == 0:
+            continue
+        bb = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+        box = bb if box is None else (min(box[0], bb[0]), min(box[1], bb[1]),
+                                      max(box[2], bb[2]), max(box[3], bb[3]))
+    if box is None:
+        print("  ！PiP 遮罩里没有像素，跳过", file=sys.stderr)
+        return None
+    pad = int(min(vw, vh) * 0.04)
+    raw_h = max(1, box[3] - box[1])
+    x0 = max(0, box[0] - pad)
+    y0 = max(0, box[1] - pad - int(raw_h * 0.08))  # 头顶留白：头顶贴框看着压抑
+    x1 = min(vw - 1, box[2] + pad)
+    y1 = min(vh - 1, box[3] + pad)
+    cw, ch = x1 - x0 + 1, y1 - y0 + 1
+    if cw < vw * 0.12 or ch < vh * 0.12:
+        print(f"  ！PiP 人像框可疑（{cw}x{ch}，画面 {vw}x{vh}），跳过", file=sys.stderr)
+        return None
+    ph = max(2, int(round(pipw * ch / cw)) // 2 * 2)
+    mode = str(pip.get("mode") or "box")
+    if mode != "cutout":
+        # 圆角卡样式（默认）：bbox 内的不透明画面，alpha 只提供圆角。
+        # 为什么默认 box 而不是 cutout：这个素材的 Vision 遮罩在白 T 恤区域
+        # 低置信（躯干被撕开、右腋还沾着背景杂物）——fg 层看不出来是因为
+        # 底下贴的是同一帧画面，PiP 换了背景就全露（2026-11-11 品红底目检）。
+        # box 不依赖遮罩质量，遮罩只参与取景。要浮人用 props.pip.mode="cutout"。
+        from PIL import ImageDraw
+        rad = max(8, pipw // 14)
+        mm = Image.new("L", (pipw, ph), 0)
+        ImageDraw.Draw(mm).rounded_rectangle([0, 0, pipw - 1, ph - 1], radius=rad, fill=255)
+        mpng = mdir.with_name(mdir.name + "-rrect.png")
+        mm.save(mpng)
+        r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(clip),
+                            "-loop", "1", "-framerate", str(FPS), "-i", str(mpng),
+                            "-filter_complex",
+                            f"[0:v]crop={cw}:{ch}:{x0}:{y0},scale={pipw}:{ph}[pc];"
+                            "[1:v]format=gray[mk];"
+                            "[pc][mk]alphamerge,format=yuva420p[o]",
+                            "-map", "[o]", "-frames:v", str(len(masks)),
+                            "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0",
+                            "-crf", "18", "-auto-alt-ref", "0", "-an", str(dst)],
+                           capture_output=True, text=True)
+    else:
+        # cutout 浮人：逐帧裁剪 + 缩放 + 底部渐隐，写成遮罩序列（小图，PNG 很快）。
+        pdir = mdir.with_name(mdir.name + "-crop")
+        pdir.mkdir(parents=True, exist_ok=True)
+        _fade_from = int(ph * 0.88)
+        _ramp = np.ones((ph, pipw), dtype=np.float32)
+        if _fade_from < ph:
+            _ramp[_fade_from:, :] = np.linspace(1.0, 0.0, ph - _fade_from)[:, None]
+        _n_done = 0
+        it = iter(closed)
+        for i, f in enumerate(masks):
+            b = next(it) if i in (0, len(masks) // 2, len(masks) - 1) else \
+                _close(np.asarray(Image.open(f).convert("L")) > 40)
+            crop = b[y0:y1 + 1, x0:x1 + 1]
+            m = Image.fromarray((crop * 255).astype(np.uint8)).resize((pipw, ph), Image.LANCZOS)
+            ma = np.asarray(m, dtype=np.float32) * _ramp
+            Image.fromarray(ma.astype(np.uint8)).save(pdir / f"f{i:04d}.png")
+            _n_done += 1
+        r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(clip),
+                            "-framerate", str(FPS), "-i", str(pdir / "f%04d.png"),
+                            "-filter_complex",
+                            f"[0:v]crop={cw}:{ch}:{x0}:{y0},scale={pipw}:{ph}[pc];"
+                            "[1:v]format=gray[mk];"
+                            "[pc][mk]alphamerge,format=yuva420p[o]",
+                            "-map", "[o]", "-frames:v", str(_n_done),
+                            "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0",
+                            "-crf", "18", "-auto-alt-ref", "0", "-an", str(dst)],
+                           capture_output=True, text=True)
+    if r.returncode != 0 or not dst.exists():
+        print(f"  ！PiP alpha 编码失败：{clip.name}\n{(r.stderr or '')[-300:]}", file=sys.stderr)
+        return None
+    x = max(0, int(W * (1 - mr)) - pipw)
+    y = max(16, int(H * bed) - ph)
+    side.write_text(json.dumps({"w": pipw, "h": ph, "x": x, "y": y}))
+    return {"path": dst, "dur": round(dur, 3), "w": pipw, "h": ph, "x": x, "y": y}
+
+
+def pip_overlay(raw: Path, dst: Path, pips: list[dict], crf: int = 17) -> int:
+    """把 PiP 层贴回成片。与 cover_fg 同一套纪律：
+    ① 读 alpha webm 必须显式 `-c:v libvpx-vp9`（自带解码器不解 alpha）；
+    ② PTS 整体挪到成片里的起点（只靠 enable 窗口，到窗口时输入早就 EOF 了）；
+    ③ 音频照抄底片（`-map 0:a? -c:a copy`），PiP 本身不发声。"""
+    if not pips:
+        return 1
+    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-i", str(raw)]
+    for p in pips:
+        cmd += ["-c:v", "libvpx-vp9", "-i", str(p["path"])]
+    parts, prev = [], "[0:v]"
+    for i, p in enumerate(pips, 1):
+        parts.append(f"[{i}:v]setpts=PTS+{p['start']:.3f}/TB,"
+                     f"scale={p['w']}:{p['h']}[pp{i}]")
+        parts.append(f"{prev}[pp{i}]overlay=x={p['x']}:y={p['y']}:eof_action=pass:"
+                     f"enable='between(t,{p['start']:.3f},{p['start'] + p['dur']:.3f})'[pv{i}]")
+        prev = f"[pv{i}]"
+    parts.append(f"{prev}format=yuv420p[v]")
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[v]", "-map", "0:a?",
+            "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
+            "-c:a", "copy", str(dst)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print("  ！PiP 贴回失败：" + (r.stderr or "").strip().splitlines()[-1], file=sys.stderr)
+        return r.returncode
+    return 0
+
+
 # ------------------------------------------------------------------ 抠像
 
 MASK_BIN = Path(__file__).resolve().parent / "native" / "person_mask"
@@ -1408,7 +1615,7 @@ def main():
             amap = None
     videos, gens, clips_like, t, n_fail = [], [], [], 0.0, 0
     gen_spans = []   # 代码画面占用的时间段：字幕压上去要换字色
-    scenes, audios = [], []          # 代码画的整屏格 + 它下面要接着播的口播原声
+    scenes, audios, pips = [], [], []   # 整屏代码格 + 口播原声 + B 轴人物小窗
     gd = GRADE.get(str(style.get("grade") or ""), "")
     for el in segs:
         kind = el.get("kind") or "clip"
@@ -1463,6 +1670,12 @@ def main():
                 else:
                     print(f"  ！格 {el['n']} 是整屏代码画面，却没给 audio："
                           f"这几秒会没有声音", file=sys.stderr)
+                pc = pip_clip(lib, proj, el, FPS, W, H, grade=a.grade)
+                if pc:
+                    pips.append({"n": el["n"], "path": str(pc["path"]),
+                                 "start": round(t, 3), "dur": pc["dur"],
+                                 "w": pc["w"], "h": pc["h"], "x": pc["x"], "y": pc["y"]})
+                    print(f"  PiP 格 {el['n']}  小窗 {pc['w']}x{pc['h']} @ ({pc['x']},{pc['y']})")
                 t = round(t + sdur, 3)
             else:
                 gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
@@ -1735,6 +1948,9 @@ def main():
         {"from": tl_src, "style": name, "elements": len(segs),
          "clips": len(videos), "gen": len(gens), "total_s": total,
          "captions": len(caps), "cards": len(cards),
+         "pips": pips,
+         # 先落 false，贴回成功（5.6 步）才改 true——中途崩了验收必须红，不能假绿
+         "pips_applied": False,
          "fonts": fonts, "engine": "hyperframes"}, ensure_ascii=False, indent=1))
 
     kinds: dict[str, int] = {}
@@ -1816,6 +2032,23 @@ def main():
             raw = fgd
         else:
             print("  ！抠像层没贴上，成片不带大字在人物背后", file=sys.stderr)
+
+    # 5.6) B 轴人物 PiP：ffmpeg 贴回。alpha 层不过浏览器，理由同 5.5 的 fg 层；
+    # 位置/尺寸在 pip_clip 里按遮罩框定死，这里只照单贴。
+    # meta 里 pips_applied 只有贴回成功后才写 true（T-005 复核①：原来 meta 在
+    # 贴回之前就写 pips，贴失败验收还拿着声明当真值）。
+    if pips:
+        pd = proj / "out" / "_hf_pip.mp4"
+        _mp = hf / "meta.json"
+        _mj = json.loads(_mp.read_text())
+        if pip_overlay(raw, pd, pips) == 0:
+            raw = pd
+            _mj["pips_applied"] = True
+            print(f"  PiP 贴回 {len(pips)} 格人物小窗")
+        else:
+            _mj["pips_applied"] = False
+            print("  ！PiP 没贴上，成片只有代码场景没有人物小窗", file=sys.stderr)
+        _mp.write_text(json.dumps(_mj, ensure_ascii=False, indent=1))
 
     # 5.8) BGM：先归一，再让人声压住它
     bgm_p = None

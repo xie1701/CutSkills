@@ -369,6 +369,16 @@
 | `--tolerance-from` | 反推：要多宽的窗口才能让这支片自己达到这个同步率 |
 | `--json` | 开关 |
 
+### `calibrate_marks.py`
+*三幕时长标定：把 B 轴场景格的 marks 从「拍的比例」变成「跟着旁白走的」。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填**　项目 slug（--root 下的目录名） |
+| `--root` | （默认 os.environ.get('CUTSKILLS_PROJECTS', DEF_ROOT)） |
+| `--lib` | 素材根目录，默认 --root 的上两级 |
+| `--write` | 把采纳的新 marks 写回 timeline.json |
+
 ### `cc0_lib.py`
 *从 CC0 库里挑 BGM 和音效——不再自己合成。*
 
@@ -675,7 +685,7 @@
 
 | 参数 | 说明 |
 |---|---|
-| `--dir` | （默认 '/tmp/cutskills-selftest'） |
+| `--dir` | （默认 f'/tmp/cutskills-selftest-{_station()}'） |
 | `--keep` | 跑完不删（想看成片时用） |
 
 ### `shot_match.py`
