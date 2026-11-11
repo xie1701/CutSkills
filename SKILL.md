@@ -66,7 +66,7 @@ python3 scripts/check_timeline.py --project <项目>     # error 必改，warnin
 
 # 3.5 给人审：出看板 → 人拖完批完 → 补丁落回 timeline → 上锁
 python3 scripts/board_from_timeline.py --project <项目>       # 出 board/board.html + 声音轨
-python3 scripts/board_check.py --project <项目> --xml --md     # 13 条不变式 + XML 应有对照表
+python3 scripts/board_check.py --project <项目> --xml --md     # 14 条不变式 + XML 应有对照表
 python3 scripts/test_board_clips.py                          # clips.ov 对账回归：overlay 不推歪主轨起点
 node scripts/board_smoke.js <项目>/board/board.html <项目>/board   # 真开一次浏览器：报错/截图/导出 XML
 pbpaste | python3 scripts/board_patch.py --project <项目> --dry-run  # 粘回来的评论 → 看 diff
@@ -173,7 +173,7 @@ timeline.json  ──I1 board_from_timeline──▶  board/board.html（人看�
 3. **改动必须经 I2 落地。** 浏览器里拖了什么不会自己变回时间轴。
 
 看板引擎是 vendored 的 `vendor/production-board/`（MIT，见其 `THIRD_PARTY_NOTICES.md`）：
-**只换数据块，不改样式和引擎**。`board_check.py` 验 13 条不变式；`board_smoke.js` 用真 Chrome
+**只换数据块，不改样式和引擎**。`board_check.py` 验 14 条不变式；`board_smoke.js` 用真 Chrome
 开一次，报 JS 错误、截图、把导出的 XML 存下来对账——「报告全绿但画面是空」吃过两次亏，不能再只读 JSON。
 
 ## 阶段 A · 索引

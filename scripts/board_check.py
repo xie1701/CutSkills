@@ -121,6 +121,17 @@ def checks(board: dict, proj: Path, tl: dict) -> list[tuple[str, str, str]]:
     else:
         out.append(("ok", "clips.ov 与时间轴叠加层对账", f"{n_proj} 块投影 = {len(ovs)} 个叠加层"))
 
+    # 3c. 看板 clips 只认 ov：br / rec / a 在本管线没有落点（T-011）
+    # 回写链只有一条视频轨 + 一层 overlay；br 是看板引擎的整屏 B-roll 轨道，
+    # 既没有第二视频层，也没有素材指针（board 数据里只有 offset/dur，没有 asset）。
+    # 所以「看板上拖得动」不等于「本管线落得了」，在检查层就拦住，别让它悄悄消失。
+    bad_clips = [f"{s['id']}:{k}" for s in shots
+                 for k in (s.get("clips") or {}) if k != "ov"]
+    out.append(("error" if bad_clips else "ok",
+                "clips 只认 ov（br 无第二视频层/素材指针）",
+                "干净" if not bad_clips
+                else f"多出 {bad_clips[:6]}——看板可拖，但本管线只能回写 ov（T-011）"))
+
     # 4. 分镜元素：坐标在 0–100，字不压底部 12% 字幕区
     over, low = [], []
     for s in shots:

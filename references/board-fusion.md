@@ -74,13 +74,13 @@
 
 - 输入：项目目录（`timeline.json` / `audio-map.json` / `index.json` / `scenes.json` / `cards.json` / `brief.json` / `thesis.json`）
 - 输出：`<项目>/board/board.js`、`board.html`
-- 判据：`board_check.py` 全绿（13 条不变式，含 `clips.ov` ↔ 时间轴叠加层逐块对账）；`build_board.py --extract` 与原 `board.js` 逐字相同（往返无损）；镜头数 = 时间轴格数；回归 `scripts/test_board_clips.py`（overlay 夹在主轨中间时镜起点仍等于视频格累加）
+- 判据：`board_check.py` 全绿（14 条不变式，含 `clips.ov` ↔ 时间轴叠加层逐块对账、`clips` 非 ov 键拦截）；`build_board.py --extract` 与原 `board.js` 逐字相同（往返无损）；镜头数 = 时间轴格数；回归 `scripts/test_board_clips.py`（overlay 夹在主轨中间时镜起点仍等于视频格累加）
 
 ### I2 `board_patch.py` — 看板 → 真值
 
 - 输入：粘回来的 `【制作看板评论…` 文本
 - 输出：改写后的 `timeline.json` + diff + `decisions.md` 一行
-- `clips` 只支持 `ov`：改的是该镜时间轴上已有的那块 overlay（原地改 `at`/`dur`，不新增）；该镜没有 overlay 时只记一条提示，不凭空造卡片。`br` 是整屏 B-roll 轨道、不是 overlay，暂不支持（T-011）
+- `clips` 只支持 `ov`：改的是该镜时间轴上已有的那块 overlay（原地改 `at`/`dur`，不新增）；该镜没有 overlay 时只记一条提示，不凭空造卡片。`br` 是看板引擎的并行 B-roll 轨道：本管线只有单视频轨，没有第二视频层，board 的 `clips` 也只有 offset/dur、没有 asset 指针，所以不接——`board_check.py` 第 14 条会拦，回写只提示、不改时间轴（T-011）
 - 支持四类：`镜头号：{"gap"/"fixed"/"clips"}`、`镜头号：[…]`（画布元素）、`镜头号 ← 参考对象，说明：…`（连线→`ref`）、`镜头顺序：S01 → S03 …`
 - 判据：改完 `check_timeline.py` 与 `check_edl.py` 仍绿；`duration_s` 重算一致
 
@@ -109,7 +109,7 @@
 | 步 | 做什么 | 验什么 | 状态 |
 |---|---|---|---|
 | 1 | I1 `board_from_timeline.py` + `vendor/production-board` | 真看板能开、能预演、往返无损 | ✅ 三条片全绿 |
-| 2 | `board_check.py`（13 条不变式）+ `board_smoke.js`（真 Chrome） | 无 JS 错误、XML 能导出 | ✅ |
+| 2 | `board_check.py`（14 条不变式）+ `board_smoke.js`（真 Chrome） | 无 JS 错误、XML 能导出 | ✅ |
 | 3 | I2 `board_patch.py` | 改时长/空档/顺序/画布/连线 → timeline 变 → 检查仍绿 | ✅ |
 | 4 | I3 `lock.py` + 接进 `render_hf` / `plan_card --approve` | 改一个字节 → 渲染被拒（exit 4） | ✅ |
 | 5 | `gen_scene` 补两处场景 + 画布连线 | 看板上「生成动效任务」直接给出可执行命令 | ✅ 三处均有样片 |
