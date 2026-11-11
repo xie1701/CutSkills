@@ -45,10 +45,15 @@ python3 scripts/hooks.py --project <项目> --render
   不在选哪个；这时该回第 1 层改 `audience_present_state`（可能你猜错了观众现在信什么）。
 - 一个人都没选出来 → 没过，同上。
 
-## 留痕
+## 留痕与门禁
 
-`--choose` 会把定案写进 `decisions.md`（一行，附录用原话）。良率卡读 `hooks.json`
-的 `chosen` 与 `passed` 字段：**没做就写「没做」，不许默认算过**。
+- `--choose` 会把定案写进 `decisions.md`（一行，附录用原话）。
+- `--vote` 记真人投票（如 `--vote B,B,A`），达成共识多数时写进 `votes` 并触发策略真判定。
+- `--check` 进行前 3 秒策略合规性与通过性门禁检验：
+  - `passed: true`（时长 ≤3.6s + 多数达成 + 定案对齐）→ 🟢 0 退出；
+  - `passed: null`（未投票验过）→ 🟡 0 退出（良率卡如实记为「未验」）；
+  - `passed: false`（超长/平票/定案与共识冲突）→ 🔴 1 阻断退出。
+- 良率卡读 `hooks.json` 的 `chosen` 与 `passed` 字段：**没做就写「没做」，未验写「未验」，不许默认算过**。
 
 ## 已知的坑
 

@@ -217,6 +217,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_board_clips.py")])
     must("clips.ov 对账回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑨ 钩子策略真判定回归（T-006：passed 闭环与 7 组正负样本）")
+    r = sh([PY, str(ROOT / "scripts" / "test_hooks_policy.py")])
+    must("钩子策略真判定回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:

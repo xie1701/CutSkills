@@ -100,7 +100,98 @@ def pick_gen(brief: dict) -> dict:
             "why": "反差提问：把观众现在的想法直接打在画面上，制造「说的就是我」"}
 
 
-def build(proj: Path, lib: Path, index: dict, keep_chosen: str | None = None) -> dict:
+def evaluate_hook_policy(h: dict | None) -> tuple[bool | None, list[str]]:
+    """前 3 秒策略真判定引擎。
+    返回: (passed, reasons)
+      - passed is True:  全规则放行（候选有效、时长合规、达成 ≥2 票共识且定案一致）
+      - passed is False: 存在硬性违规或未过门禁（超时、平票、冲突、残缺）
+      - passed is None:  仅定案未投票或初生状态（未验，良率卡记为未验）
+    """
+    if not h:
+        return None, ["没有 hooks.json"]
+
+    reasons: list[str] = []
+    cands = h.get("candidates") or []
+    cand_map = {c["id"]: c for c in cands if isinstance(c, dict) and "id" in c}
+
+    if not cands:
+        return False, ["无可用候选"]
+
+    chosen = h.get("chosen")
+    votes_data = h.get("votes") or {}
+    raw_votes = votes_data.get("raw") or []
+    majority = votes_data.get("majority")
+
+    # 1. 候选元素有效性与时长基础校验
+    for c in cands:
+        cid = c.get("id")
+        dur = float(c.get("duration_s") or 0.0)
+        if dur <= 0:
+            reasons.append(f"候选 {cid} 时长异常 ({dur}s)")
+        elements = c.get("elements") or []
+        if not elements:
+            reasons.append(f"候选 {cid} 缺少元素")
+        for el in elements:
+            if el.get("kind") == "clip":
+                if not el.get("asset") or el.get("in") is None or el.get("out") is None:
+                    reasons.append(f"候选 {cid} clip 元素缺少素材 asset 或起止点")
+            elif el.get("kind") == "gen":
+                text = (el.get("props") or {}).get("text")
+                if not text:
+                    reasons.append(f"候选 {cid} gen 元素缺少文本 props.text")
+
+    # 2. 真人投票策略共识校验（如果有投票）
+    has_votes = bool(raw_votes)
+    vote_passed = False
+    if has_votes:
+        tally = votes_data.get("tally") or {}
+        max_n = max(tally.values()) if tally else 0
+        if max_n < 2:
+            reasons.append(f"真人投票未达成多数共识（最高仅 {max_n}/{len(raw_votes)} 票，需 ≥2 票同选）")
+        elif not majority:
+            reasons.append("真人投票缺少 majority 胜出者记录")
+        else:
+            vote_passed = True
+
+    # 3. 定案与共识对账及黄金 3 秒时长硬红线
+    target_cand_id = chosen or (majority if (has_votes and vote_passed) else None)
+    if target_cand_id:
+        if target_cand_id not in cand_map:
+            reasons.append(f"候选 {target_cand_id} 不在候选列表内")
+        else:
+            cand = cand_map[target_cand_id]
+            dur = float(cand.get("duration_s") or 0.0)
+            if dur > HOOK_MAX_S:
+                reasons.append(f"候选 {target_cand_id} 时长超标：{dur:.2f}s > {HOOK_MAX_S}s 上限")
+
+    if chosen and has_votes and vote_passed and majority:
+        if chosen != majority:
+            reasons.append(f"定案候选 {chosen} 与投票多数 {majority} 冲突（言行不一致）")
+
+    # 综合裁决
+    if reasons:
+        return False, reasons
+
+    # 达成多数共识，且定案候选与多数一致（或已由多数锁定）
+    if has_votes and vote_passed:
+        if chosen and chosen == majority:
+            return True, []
+        if not chosen:
+            return True, []
+
+    # 尚未投票
+    if not has_votes:
+        if chosen:
+            return None, [f"定案 {chosen} 尚未进行真人投票验过"]
+        return None, ["尚未选定候选且未进行真人投票"]
+
+    return False, ["未满足放行条件"]
+
+
+def build(proj: Path, lib: Path, index: dict,
+          keep_chosen: str | None = None,
+          keep_votes: dict | None = None,
+          keep_passed: bool | None = None) -> dict:
     brief = load(proj / "brief.json") or {}
     plan = load(proj / "plan.json")
     cands = []
@@ -121,9 +212,16 @@ def build(proj: Path, lib: Path, index: dict, keep_chosen: str | None = None) ->
             total = round(total + (float(el["out"]) - float(el["in"]) if el["kind"] == "clip"
                                    else float(el.get("dur") or 2)), 3)
         c["duration_s"] = total
-    return {"version": 1, "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-            "basis": {k: brief.get(k) for k in ("audience", "audience_present_state", "change")},
-            "candidates": cands, "chosen": keep_chosen}
+
+    doc = {"version": 1, "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+           "basis": {k: brief.get(k) for k in ("audience", "audience_present_state", "change")},
+           "candidates": cands, "chosen": keep_chosen}
+    if keep_votes is not None:
+        doc["votes"] = keep_votes
+    # 重新根据新生成的候选与既有投票/定案进行策略真判定
+    passed, _ = evaluate_hook_policy(doc)
+    doc["passed"] = passed
+    return doc
 
 
 def render_one(proj: Path, lib: Path, cand: dict, style: str) -> Path | None:
@@ -159,11 +257,34 @@ def main() -> int:
     ap.add_argument("--kit", action="store_true", help="出一份给人看的评审包（说明+评分表）")
     ap.add_argument("--vote", default=None,
                     help="记真人投票：逗号分隔，A/B/C 顺序对应看片顺序，如 A,B,C")
+    ap.add_argument("--check", action="store_true", help="校验前 3 秒策略合规性与通过性")
     a = ap.parse_args()
 
     proj = Path(a.project).expanduser().resolve()
-    lib = Path(a.library).expanduser().resolve() if a.library else resolve_lib(proj, None)
     hp = proj / "hooks.json"
+
+    if a.check:
+        h = load(hp)
+        if not h:
+            print("🔴 FAIL: 还没有 hooks.json，先跑 hooks.py 生成候选", file=sys.stderr)
+            return 1
+        passed, reasons = evaluate_hook_policy(h)
+        chosen = h.get("chosen")
+        cands = h.get("candidates") or []
+        cand = next((c for c in cands if c.get("id") == chosen), None) if chosen else None
+        dur_str = f" · 时长 {cand['duration_s']:.2f}s" if cand else ""
+        if passed is True:
+            votes = (h.get("votes") or {}).get("raw") or []
+            v_str = f" · 投票 {'/'.join(votes)}" if votes else ""
+            print(f"🟢 OK: 前 3 秒策略通过（定案 {chosen}{dur_str}{v_str}）")
+            return 0
+        elif passed is None:
+            r_str = f"（{reasons[0]}）" if reasons else ""
+            print(f"🟡 WARN: 前 3 秒策略未验{r_str}：已选定候选，但未做真人投票（良率卡将记为未验）")
+            return 0
+        else:
+            print(f"🔴 FAIL: 前 3 秒策略未通过：{'；'.join(reasons)}", file=sys.stderr)
+            return 1
 
     if a.show:
         h = load(hp)
@@ -172,7 +293,8 @@ def main() -> int:
         for c in h["candidates"]:
             mark = "★" if h.get("chosen") == c["id"] else " "
             print(f" {mark}{c['id']}. {c['label']:<6} {c['duration_s']:.2f}s  {c['elements'][0]['why']}")
-        print(f"定案：{h.get('chosen') or '还没定'}")
+        status_str = "过" if h.get("passed") is True else ("没过" if h.get("passed") is False else "未验")
+        print(f"定案：{h.get('chosen') or '还没定'} · 策略状态：{status_str}")
         return 0
 
     if a.kit:
@@ -228,23 +350,27 @@ python3 scripts/hooks.py --project <项目> --vote B,B,A
         for v in votes:
             tally[v] = tally.get(v, 0) + 1
         win, n = max(tally.items(), key=lambda kv: kv[1])
-        passed = n >= 2
-        h["votes"] = {"raw": votes, "tally": tally, "majority": win if passed else None,
+        has_majority = n >= 2
+        h["votes"] = {"raw": votes, "tally": tally, "majority": win if has_majority else None,
                       "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+        if has_majority and not h.get("chosen"):
+            h["chosen"] = win
+        # 统一执行策略真判定
+        passed, reasons = evaluate_hook_policy(h)
         h["passed"] = passed
         hp.write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding="utf-8")
         try:
             from log_decision import append_row
             append_row(proj, said=f"前 3 秒真人投票：{'/'.join(votes)}",
                        did=(f"多数选 {win}（{n}/{len(votes)}），判过" if passed
-                            else f"没有 2 票同一（{tally}），该重做"))
+                            else f"策略未过（{'；'.join(reasons) if reasons else '未达共识'}），该重做"))
         except Exception as e:
             print(f"  ！decisions.md 没写进去：{e}", file=sys.stderr)
-        said = (f"多数选 {win}（{n}/{len(votes)}）" if passed
+        said = (f"多数选 {win}（{n}/{len(votes)}）" if has_majority
                 else f"没人拿到 2 票（{tally}）")
-        print(f"投票 {'/'.join(votes)} → {said}；{'过' if passed else '没过，回去重做候选'}")
-        if passed and h.get("chosen") and h["chosen"] != win:
-            print(f"  ⚠ 投票选的是 {win}，但当前定的是 {h['chosen']}——重新 --choose {win}")
+        print(f"投票 {'/'.join(votes)} → {said}；{'策略判过 (passed: true)' if passed else '策略未过 (passed: false)，回去重做候选'}")
+        if has_majority and h.get("chosen") and h["chosen"] != win:
+            print(f"  ⚠ 投票多数选的是 {win}，但当前定的是 {h['chosen']}——定案与共识冲突，需 --choose {win} 对齐")
         return 0
 
     if a.choose:
@@ -255,6 +381,8 @@ python3 scripts/hooks.py --project <项目> --vote B,B,A
         if a.choose not in ids:
             raise SystemExit(f"候选「{a.choose}」不在里面（有 {sorted(ids)}）")
         h["chosen"] = a.choose
+        passed, reasons = evaluate_hook_policy(h)
+        h["passed"] = passed
         hp.write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding="utf-8")
         try:
             from log_decision import append_row   # decisions.md 只有这一个写入实现
@@ -264,9 +392,11 @@ python3 scripts/hooks.py --project <项目> --vote B,B,A
                            f"{next(c['duration_s'] for c in h['candidates'] if c['id'] == a.choose)}s")
         except Exception as e:  # 留痕失败不许静默
             print(f"  ！decisions.md 没写进去：{e}", file=sys.stderr)
-        print(f"定案 {a.choose}，已记进 decisions.md。timeline.py 会把这一段接到片头。")
+        status_txt = "策略真判通过" if passed is True else ("未验（需真人投票）" if passed is None else f"策略未通过（{'；'.join(reasons)}）")
+        print(f"定案 {a.choose}，已记进 decisions.md。当前状态：{status_txt}。")
         return 0
 
+    lib = Path(a.library).expanduser().resolve() if a.library else resolve_lib(proj, None)
     idx = {}
     try:
         idx = {x["id"]: x for x in (load(lib / "_cutskills" / "index.json") or {"assets": []})["assets"]}
@@ -279,7 +409,11 @@ python3 scripts/hooks.py --project <项目> --vote B,B,A
 
     # 重跑候选不许把已定的选择冲掉——冲掉了 decisions.md 说「定 B」、hooks.json 说空，
     # 良率卡就会撒谎说「没做 A/B」。
-    h = build(proj, lib, idx, keep_chosen=(load(hp) or {}).get("chosen"))
+    old_h = load(hp) or {}
+    h = build(proj, lib, idx,
+              keep_chosen=old_h.get("chosen"),
+              keep_votes=old_h.get("votes"),
+              keep_passed=old_h.get("passed"))
     hp.write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"前 3 秒候选 {len(h['candidates'])} 个 → {hp}")
     for c in h["candidates"]:
