@@ -7,7 +7,9 @@
   A. 两个视频格中间夹一块 overlay，第二格挂 clips.ov → 必须绿；
   B. 把 clips.ov 挪 0.2s → 必须红（负样本，防判据被改松）；
   C. 视频格缺 `n` → 缺省镜号按「第几个视频格」补，仍必须绿
-     （与 board_from_timeline.enumerate(video_rows, 1) 对齐）。
+     （与 board_from_timeline.enumerate(video_rows, 1) 对齐）；
+  D. 看板带 `clips.br` → 必须红：br 是并行轨道，本管线没有第二视频层/素材指针；
+  E. `board_patch` 收到 `clips.br` → 只提示，不许改时间轴、不许再叠 overlay。
 
 用法：python3 scripts/test_board_clips.py
 """
@@ -95,7 +97,35 @@ def main() -> int:
         assert r.returncode == 0, f"C 应绿，实际退出 {r.returncode}\n{r.stdout}\n{r.stderr}"
         assert "1 块投影 = 1 个叠加层" in r.stdout, f"C 对账读数不对\n{r.stdout}"
 
-        print("✅ clips.ov 对账回归通过：overlay 不推歪主轨起点；漂移判红；缺省镜号对齐")
+        # D. 看板带 clips.br：本管线没有第二视频层/素材指针，检查必须红
+        b = board_obj()
+        b["shots"][1]["clips"] = {"br": [0.5, 2.0]}
+        write_case(proj, b, tl_obj())
+        r = run(proj)
+        assert r.returncode == 1, f"D 应红，实际退出 {r.returncode}\n{r.stdout}"
+        assert "clips 只认 ov" in r.stdout, f"D 没有拦住 br\n{r.stdout}"
+
+        # E. board_patch 收到 clips.br：只提示，不许改时间轴（T-011 旧实现会叠 overlay）
+        pj = tmp / "patch_proj"
+        write_case(pj, board_obj(), tl_obj())
+        before = json.loads((pj / "timeline.json").read_text())
+        before_ov = sum(1 for e in before["elements"] if e.get("track") == "overlay")
+        cf = tmp / "br_comment.txt"
+        cf.write_text('【制作看板评论 v1】\n时间线改动\nS02：{"clips":{"br":[0.5,2.0]}}\n',
+                      encoding="utf-8")
+        r = subprocess.run([sys.executable, str(ROOT / "scripts" / "board_patch.py"),
+                            "--project", str(pj), "--file", str(cf)],
+                           capture_output=True, text=True)
+        after = json.loads((pj / "timeline.json").read_text())
+        out = (r.stdout or "") + (r.stderr or "")
+        assert "回写不了" in out, f"E 没有明说 br 回写不了\n{out}"
+        assert "Traceback" not in out, f"E 崩了\n{out}"
+        after_ov = sum(1 for e in after["elements"] if e.get("track") == "overlay")
+        assert len(after["elements"]) == len(before["elements"]), f"E 改了格数\n{out}"
+        assert after_ov == before_ov, f"E 又叠了 overlay（{before_ov} → {after_ov}）\n{out}"
+
+        print("✅ clips 回归通过：ov 对账不被 overlay 推歪；漂移判红；缺省镜号对齐；"
+              "br 在检查层被拦、回写只提示不改时间轴")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

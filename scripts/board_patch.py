@@ -193,9 +193,11 @@ def apply(tl: dict, got: dict) -> tuple[dict, list[str]]:
         if patch.get("clips"):
             for track, val in patch["clips"].items():
                 if track != "ov":
-                    # br 是看板里整屏 B-roll 的轨道，不是 overlay；旧实现把它也 append 成
-                    # 一块 overlay，是错的。要接 br 得先有「B-roll 从第几秒起」的真值字段（T-011）。
-                    notes.append(f"{sid} 的轨道 {track} 暂不支持单独定位")
+                    # br / rec / a 是看板里的并行轨道；本管线只有单视频轨 + 一层 overlay，
+                    # 没有第二视频层，也没有「另一条轨用哪个素材」的指针（T-011）。
+                    # 旧实现把 br 也 append 成一块 overlay，是错的；现在只提示，不改时间轴。
+                    notes.append(f"{sid} 的 {track} 回写不了：看板 {track} 是并行轨道，"
+                                 f"本管线单视频轨、没有第二视频层/素材指针；只支持 ov")
                     continue
                 off, dur = float(val[0]), float(val[1])
                 base = starts().get(sid, 0.0)
