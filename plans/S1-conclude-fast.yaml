@@ -24,7 +24,7 @@ tempo:
 
 shot_logic:
   jump_cut: dense          # dense / normal / sparse
-  punch_scale: [1.0, 1.08, 1.16]   # 同机位跳切时的推近倍率，一句内不重复
+  punch_scale: [1, 1.16]   # 同机位跳切时的推近倍率，一句内不重复
   medium_change_within_s: 14
   axis_rotate: every_2      # 每两格换一次 A/B
 

@@ -35,10 +35,13 @@ SUBTITLE_SYSTEMS = {"single-line", "bilingual", "none"}
 KNOWN_FX = {
     "hard_cut", "nudge_in", "cover_fg", "page_turn", "note_drop", "wipe",
     "type_on", "count_up", "draw_line", "blur_in", "shake", "none",
+    # 2026-11-11 实现：sweep / particles 是 gen_scene 的绘制原语，
+    # morph_carry 是 gen 格的「不重新入场」（承接不闪）。
+    "sweep", "particles", "morph_carry",
 }
 # 方案里点了名、代码还没做的原语。声明可以先行，但必须显形——不能像以前那样
 # 「fx 里写了什么」和「片子会做什么」是两件互不相干的事。
-PLANNED_FX = {"morph_carry", "sweep", "particles"}
+PLANNED_FX: set[str] = set()
 # 这些键名一出现就说明包装包伸到骨架里去了
 TIMING_KEYS = {
     "tempo", "tempos", "band", "target_median_s", "cv_min", "cut", "cuts",
@@ -211,6 +214,30 @@ def main() -> int:
             print(f"    ! {w}")
 
     # ② 渲染级：同一份时间轴，逐包比切点
+    # 副作用要收拾：这里靠 `render_hf --no-render` 出 HTML，会覆盖那个项目的
+    # hf/index.html 与 meta.json（成片还是旧的）。跑完必须还原，否则下一个环节
+    # （验收按 meta.json 认包装）会认错包 —— 本轮踩过一次。
+    _saved = {}
+    if a.project:
+        _proj = Path(a.project).expanduser().resolve()
+        for _rel in ("hf/index.html", "hf/meta.json"):
+            _f = _proj / _rel
+            if _f.exists():
+                _saved[_rel] = _f.read_bytes()
+    try:
+        ok = _cut_checks(a, report, ok)
+    finally:
+        for _rel, _blob in _saved.items():
+            (_proj / _rel).write_bytes(_blob)
+        if _saved:
+            print("  已还原项目的 hf/index.html 与 meta.json")
+    if a.json:
+        print(json.dumps(report, ensure_ascii=False, indent=1))
+    print(f"\n结论：{'过' if ok else '没过'}")
+    return 0 if ok else 1
+
+
+def _cut_checks(a, report: dict, ok: bool) -> bool:
     if a.project:
         proj = Path(a.project).expanduser().resolve()
         base = None
@@ -231,10 +258,7 @@ def main() -> int:
                   + ("" if same else f"，和基准不一样：{cuts[:4]}"))
             report[pid]["cuts_match"] = same
 
-    if a.json:
-        print(json.dumps(report, ensure_ascii=False, indent=1))
-    print(f"\n结论：{'过' if ok else '没过'}")
-    return 0 if ok else 1
+    return ok
 
 
 if __name__ == "__main__":

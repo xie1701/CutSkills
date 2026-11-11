@@ -23,7 +23,7 @@ tempo:
 
 shot_logic:
   jump_cut: sparse
-  punch_scale: [1.0]
+  punch_scale: [1, 1.10]
   medium_change_within_s: 22
   axis_rotate: only_evidence
 

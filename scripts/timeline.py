@@ -68,8 +68,10 @@ GEN_TEMPLATES = {
                 "props": {"title": 12, "bars": None, "unit": 6}, "required": ["bars"]},
     # 场景生成器（scripts/gen_scene.py）画的整屏：不是文字卡，是**一件事在变**。
     # 位图由 gen_scene 逐帧画好再当画面播；声音必须另给 `audio`，否则那几秒是哑的。
-    "scene":   {"min_dur": 2.0, "max_dur": 9.0,
-                "props": {"scene": 16, "label": 8}, "required": ["scene"]},
+    # B 轴准入就要求 ≥8s（连续场景才讲得完一件事），上限 9s 和它自相矛盾：
+    # 一支「一块石灰基的一生」13.9s，超过 9s 就被判「会显得空」。
+    "scene": {"min_dur": 2.0, "max_dur": 16.0,
+              "props": {"scene": 16, "label": 8}, "required": ["scene"]},
 }
 
 KINDS = {"clip", "image", "gen", "silence"}

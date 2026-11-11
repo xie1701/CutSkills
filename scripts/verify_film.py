@@ -296,8 +296,13 @@ def main() -> int:
     subs0 = json.loads((proj / "out" / "subs.json").read_text()) \
         if (proj / "out" / "subs.json").exists() else {}
     cues0 = subs0.get("cues") or []
+    # 这套包装到底有没有字幕层？没有的话，所有「字幕有没有上屏」类判据全部跳过——
+    # 拿「无字幕层」的片子去判字幕，只会判出假红（实测 P3-dark 两条）。
+    _ssx = style.get("subtitle_system") or {}
+    _ssx_id = (_ssx.get("id") if isinstance(_ssx, dict) else str(_ssx)) or "single-line"
+    _has_subs = _ssx_id != "none"
     band = subs0.get("band") or style["subtitle"].get("center_y_px")
-    if cues0 and isinstance(band, list) and len(band) == 2:
+    if cues0 and _has_subs and isinstance(band, list) and len(band) == 2:
         y0, y1 = int(band[0]), int(band[1])
         picks = [c for c in cues0 if c["end"] - c["start"] > 0.8][:40]
         picks = picks[:: max(1, len(picks) // 3)][:3] if picks else []
@@ -306,13 +311,27 @@ def main() -> int:
             im = frame_at((c["start"] + c["end"]) / 2, f"sub{i}")
             if im is None:
                 continue
-            px = list(im.crop((0, y0, W, y1)).getdata())
-            fracs.append(sum(1 for v in px if v > 245) / max(1, len(px)))
+            # 字幕是什么颜色，由**这套包装**决定：暖实拍是白字，纸感是深墨字（#1F1B16）。
+            # 以前这里只会数白像素，纸感片上字幕明明在，却报「字幕带白像素 0.0%」——
+            # 和 A4 那类错同一个病：判据把自己绑在某套包装的颜色上。
+            _chex = str((style.get("subtitle") or {}).get("color") or "#FFFFFF")
+            _cr, _cg, _cb = (int(_chex.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+            _light = (_cr + _cg + _cb) / 3 > 128
+            cim = im.convert("RGB").crop((0, y0, W, y1))
+            px = list(cim.getdata())
+            if _light:
+                hit = sum(1 for r, g, b in px if r > 200 and g > 200 and b > 200)
+            else:
+                hit = sum(1 for r, g, b in px
+                          if abs(r - _cr) <= 40 and abs(g - _cg) <= 40 and abs(b - _cb) <= 40)
+            fracs.append(hit / max(1, len(px)))
         if fracs:
             lo = min(fracs)
-            add("字幕烧进画面", f"字幕带白像素 {lo * 100:.1f}%–{max(fracs) * 100:.1f}%",
+            add("字幕烧进画面",
+                f"字幕带同色像素 {lo * 100:.1f}%–{max(fracs) * 100:.1f}%",
                 "green" if lo > 0.008 else "red",
-                "" if lo > 0.008 else "subs.json 有字幕，但画面上看不到——滤镜没生效")
+                "" if lo > 0.008 else
+                f"subs.json 有字幕，但画面上找不到字幕色 {_chex}——滤镜或颜色没生效")
 
     fin = load_timeline_or_edl(proj)
     cards_meta = {}
@@ -518,7 +537,7 @@ def main() -> int:
     # 字幕
     subs = json.loads((proj / "out" / "subs.json").read_text()) if (proj / "out" / "subs.json").exists() else {}
     cues = subs.get("cues") or []
-    if cues:
+    if cues and _has_subs:
         per_min = len(cues) / (dur / 60) if dur else 0
         # 包装模板不声明密度（A 族 0–8.5 处/分这种跨度没有意义），所以这一项可以缺
         lo, hi = (style["subtitle"].get("density_per_min") or ["—", "—"])
@@ -601,8 +620,18 @@ def main() -> int:
         _ss = (style.get("subtitle_system") or {})
         _ssid = (_ss.get("id") if isinstance(_ss, dict) else str(_ss)) or "single-line"
         if _ssid == "none":
-            add("字幕", "不适用", "yellow",
-                "这套包装没有字幕层（大字即字幕）—— 要看字有没有上屏，看下面的大字判据")
+            # 没有字幕层不是问题，但「既没字幕又没大字」就是问题：屏幕上没有字可读。
+            _ncard = 0
+            _cp = proj / "out" / "cards.json"
+            if isinstance(_cp.exists(), bool) and _cp.exists():
+                try:
+                    _ncard = len(json.loads(_cp.read_text()) or [])
+                except json.JSONDecodeError:
+                    _ncard = 0
+            add("字幕", f"不适用（大字 {_ncard} 块承担台词）",
+                "green" if _ncard else "red",
+                "这套包装没有字幕层（大字即字幕）；要看字有没有上屏，看大字判据"
+                if _ncard else "无字幕层又没有大字——屏幕上没有字可读")
         else:
             add("字幕", "0 条", "red", "没有字幕")
 
@@ -635,11 +664,74 @@ def main() -> int:
     add("最长同介质连续", f"{worst:.1f}s", "green" if worst <= win else "yellow",
         f"目标 {win:.0f}s 内换一次")
 
+    # 剪辑节奏：按**真实剪辑点**判（shots.json），不是按像素变化。
+    # 为什么必须分开：成片里字幕出现、卡片入场都会造成像素变化，把它当剪辑点，等于
+    # 让「有没有字幕」影响「剪得够不够快」。实测同一支片：有字幕视觉切点 14、无字幕 13，
+    # 差的那一刀在 23.6s，是字幕造成的（2026-11-11 对抗式审计）。
+    _axis = str(edl.get("axis") or "A").upper()
+    _shots_p = proj / "out" / "shots.json"
+    if _axis == "B":
+        # B 轴是一整段连续场景（人物缩 PiP），**本来就不该有剪辑点**：
+        # 拿「剪辑点中位」判它，等于要求「一块石灰基的一生」每 2.5 秒切一刀。
+        # 它要防的病是「一张静图挂 14 秒」，所以按**场景内微事件间隔**判。
+        # 直接读 timeline.json：`load_timeline_or_edl` 返回的是折好的 segments，
+        # 里面没有 micro（那是渲染层的声明），拿它判微事件会一条都读不到。
+        _tlp = proj / "timeline.json"
+        _els = (json.loads(_tlp.read_text()).get("elements") or []) if _tlp.exists() else []
+        _gaps = []
+        for _e in _els:
+            _ms = _e.get("micro") or []
+            if _e.get("kind") != "gen" or not isinstance(_ms, list):
+                continue
+            _ts = []
+            for _it in _ms:
+                _tv = _it.get("t") if isinstance(_it, dict) else _it
+                try:
+                    _ts.append(float(_tv))
+                except (TypeError, ValueError):
+                    pass
+            if not _ts:
+                continue
+            _d = float(_e.get("dur") or 0)
+            _seq = [0.0] + sorted(_ts) + [_d]
+            _gaps.append(max(b_ - a_ for a_, b_ in zip(_seq, _seq[1:])))
+        if _gaps:
+            _mx = max(_gaps)
+            # 2.5s 与 check_timeline 的 MICRO_GAP_MAX_SCENE 对齐：两个判官用同一个数，
+            # 否则「写的时候过、验的时候红」，人会去改片子而不是改判据。
+            add("场景内微事件间隔", f"最大 {_mx:.2f}s", "green" if _mx <= 2.5 else "yellow",
+                "B 轴看的是「一直在动」；超过 2.5s 没有新东西发生就像静图")
+    elif _shots_p.exists():
+        _sh = [x for x in json.loads(_shots_p.read_text()) if float(x.get("dur") or 0) > 0.05]
+        if _sh:
+            _durs = sorted(float(x["dur"]) for x in _sh)
+            _sm = _durs[len(_durs) // 2]
+            _pid = str(edl.get("plan") or "").strip()
+            _pfile = Path(__file__).resolve().parent.parent / "plans" / f"{_pid}.yaml"
+            _psp = yaml.safe_load(_pfile.read_text()) if _pfile.exists() else {}
+            _bd = ((_psp.get("tempo") or {}).get("band") or [None, None])
+            if _bd[0]:
+                _lvl = "green" if _bd[0] - 1e-6 <= _sm <= _bd[1] + 1e-6 else "yellow"
+                if len(_sh) <= 1:
+                    _lvl = "green"
+                add("剪辑点节奏（全部镜头）", f"中位 {_sm:.2f}s · {len(_sh)} 个镜头", _lvl,
+                    f"{_pid} 的档是 {_bd[0]}–{_bd[1]}s"
+                    + ("" if _lvl == "green" else "；调的是镜头长度，不是调色和字幕"))
+            else:
+                add("剪辑点节奏（全部镜头）", f"中位 {_sm:.2f}s · {len(_sh)} 个镜头", "green",
+                    "时间轴没写 plan，只报数不判档")
+
     # 节奏落档：画面变化中位与 CV 必须落在所选骨架的 band 内（references/rhythm-bands.md）。
     # 为什么不用「口播镜头中位」代替：那量的是素材里的机位切换，这一格量的是**观众看到的换画面**。
     # 我们 naming-01 两个数是 4.86s 和 1.27s——差四倍，因为它们根本不是一件事。
     plan_id = str(edl.get("plan") or "").strip()
+    if _axis == "B":
+        add("画面变化（诊断）", "不适用", "green",
+            "B 轴是一段连续场景，band 管的是剪辑点；这条改用上面的「场景内微事件间隔」")
+        plan_id = ""            # 下面不再按 band 判
     try:
+        if not plan_id:
+            raise RuntimeError("no-plan")
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import skeleton as _sk
         _pf = Path(__file__).resolve().parent.parent / "plans" / f"{plan_id}.yaml"
@@ -654,15 +746,21 @@ def main() -> int:
         _cv = (statistics.pstdev(_lens) / statistics.mean(_lens)) if len(_lens) > 1 else 0.0
         _okband = bool(_band[0]) and (_band[0] - 1e-6 <= _med <= _band[1] + 1e-6)
         _near = bool(_band[0]) and (abs(_med - (_band[0] + _band[1]) / 2) <= 0.5)
-        _lvl = "green" if _okband else ("yellow" if _near else "yellow")
-        _note = "" if _okband else (
-            "画面换得比这一档还快：减卡或减动效" if (_band[0] and _med < _band[0])
-            else "画面换得比这一档还慢：补微事件或加换介质")
+        # 这一条**只做诊断**：它量的是「像素有没有变」，字幕、卡片入场都算。
+        # 所以不能拿 band 当门——我们这支片 1.67s，参考片 2.19s，但它多出来的变化
+        # 全来自字幕和卡片，不是剪得更碎。门放宽到 band 的 0.6×～1.8×，
+        # 只在**明显**偏离时报黄（比如整段几乎不动）。
+        _lo, _hi = (float(_band[0]) * 0.6, float(_band[1]) * 1.8) if _band[0] else (0.0, 99.0)
+        _lvl = "green" if _lo <= _med <= _hi else "yellow"
+        _note = (f"像素口径，含字幕与卡片；band {_band[0]}–{_band[1]}s 只管剪辑点。"
+                 f"诊断区间 {_lo:.1f}–{_hi:.1f}s" if _band[0] else "时间轴没写 plan")
         add("节奏落档", f"中位 {_med:.2f}s · CV {_cv:.2f}（{plan_id or '未指定骨架'} "
                         f"{_band[0]}–{_band[1]}s）", _lvl,
             (_note + "；" if _note else "") + ("" if _cv >= _cvmin else f"CV < {_cvmin}：节奏太匀"))
     except Exception as e:
-        add("节奏落档", "量不出", "yellow", str(e)[:60])
+        # B 轴没有 band 可判（那段已经单独给了「场景内微事件间隔」），不制造噪音行。
+        if "no-plan" not in str(e):
+            add("节奏落档", "量不出", "yellow", str(e)[:60])
 
     # 黑帧
     bl = black_runs(film)

@@ -23,7 +23,10 @@ from timeline import GEN_TEMPLATES, KINDS, element_dur, AXES, MG_ROLES, NUMERIC_
 ROLES = {"setup", "claim", "evidence", "warrant", "turn", "payoff"}
 MEDIUMS = {"talking", "broll", "photo", "screen"}
 EPS = 0.02  # 时间轴连续性的容差（秒）。差过这个数就不是「同一个切点」了
-MICRO_GAP_MAX = 1.2   # 卡/场景在场这么久都没一次小变化，画面就是死的（标定：参考片 0.35–0.9s 一次）
+MICRO_GAP_MAX = 1.2        # 文字卡：参考片 0.35–0.9s 一次小变化，超过 1.2s 就是死卡
+# 连续场景不一样：它的「一件事」本身就是一个 1–3 秒的变化（石头→粉、粉→膏），
+# 拿卡片的 1.2s 要求它，等于要求一支场景每 1.2 秒换一次状态，反而碎。
+MICRO_GAP_MAX_SCENE = 2.5
 B_AXIS_MIN_S = 8.0    # B 轴连续场景的下限：短于 8s 装不下「谁/遇到什么/怎么变」
 
 # 套话。挖出来的是「说了等于没说」的话——写 why 时最容易滑进去的就是这类。
@@ -120,8 +123,18 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
             else:
                 ts = []
                 for it in micro:
+                    # 一项可以是 {"t": 秒, "text": "..."}，也可以直接给秒数。
+                    # 以前只认 dict 且只抓 TypeError/ValueError，写成一串字符串时
+                    # 直接 AttributeError 崩掉——报错比错误本身还难懂。
+                    if isinstance(it, dict):
+                        _tv = it.get("t")
+                    elif isinstance(it, (int, float)):
+                        _tv = it
+                    else:
+                        out.append(("error", f"#{n} micro 里有一项不是 {{t, text}} 也不是秒数：{it!r}"))
+                        continue
                     try:
-                        ts.append(float((it or {}).get("t")))
+                        ts.append(float(_tv))
                     except (TypeError, ValueError):
                         out.append(("error", f"#{n} micro 里有一项缺 t"))
                 bad = [t for t in ts if t < -1e-6 or t > d + 1e-6]
@@ -129,9 +142,10 @@ def check(tl: dict, index: dict, *, strict: bool = False) -> list[tuple[str, str
                     out.append(("error", f"#{n} micro 时刻 {bad[0]:.2f}s 不在 0–{d:.2f}s 内"))
                 seq = [0.0] + sorted(ts) + [d]
                 gap = max(b - a for a, b in zip(seq, seq[1:])) if len(seq) > 1 else d
-                if gap > MICRO_GAP_MAX:
+                _mg = MICRO_GAP_MAX_SCENE if str(el.get("template") or "") == "scene" else MICRO_GAP_MAX
+                if gap > _mg:
                     out.append(("warning", f"#{n} 有 {gap:.1f}s 没有任何画面变化"
-                                            f"（卡内微事件目标 ≤{MICRO_GAP_MAX}s 一次）"))
+                                            f"（卡内微事件目标 ≤{_mg}s 一次）"))
         elif kind == "gen" and ver >= 5 and d > MICRO_GAP_MAX * 2:
             out.append(("warning", f"#{n} {d:.1f}s 的 gen 没写 micro：整段画面是死的"))
 

@@ -23,7 +23,7 @@ tempo:
 
 shot_logic:
   jump_cut: normal
-  punch_scale: [1.0, 1.06]
+  punch_scale: [1, 1.14]
   medium_change_within_s: 18
   axis_rotate: by_process
 

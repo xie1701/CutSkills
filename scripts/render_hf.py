@@ -151,7 +151,7 @@ def probe_color(path: Path) -> dict:
 
 
 def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
-                crf: int = 16, W: int = 1080, H: int = 1920,
+                crf: int = 16, W: int = 1080, H: int = 1920, overscan: float = 1.0,
                 grade: str = "", aud: tuple[Path, float, float] | None = None) -> None:
     """自己切一段：HDR 走 zscale 色调映射，旋转由 ffmpeg 自动应用。
 
@@ -167,8 +167,12 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
     # 先在原分辨率上缩放到画布大小再裁（`object-fit: cover` 的等价操作），
     # 顺序很重要：zscale 在 4K 上跑一段要 60 秒，缩到 1080×1920 之后是十几秒，
     # 而且裁掉的边本来就是浏览器里看不见的。
-    vf = [f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos",
-          f"crop={W}:{H}"]
+    # overscan：切片比画布大一圈（默认 1.2 倍）。因为「跳切推近」是用 CSS 放大实现的，
+    # 若切片就是 1080×1920，放大 1.14 倍＝把画面拽糊（视觉复核原话：「面部出现数字模糊」）。
+    # 切大一圈之后，CSS 放大到 1.2 之前都还有真实像素可用。
+    OW, OH = max(2, int(round(W * overscan / 2)) * 2), max(2, int(round(H * overscan / 2)) * 2)
+    vf = [f"scale={OW}:{OH}:force_original_aspect_ratio=increase:flags=lanczos",
+          f"crop={OW}:{OH}"]
     vf.append(TONEMAP if hdr else "format=yuv420p")
     if grade:
         vf.append(grade)
@@ -323,7 +327,9 @@ def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None
     dur = round(float(el.get("dur") or 2), 3)
     cls = "gen gen-ov" if ov else "clip gen"
     ct_attr = (f' data-ct="{",".join(f"{x:.2f}" for x in ct)}"' if ct else "")
-    head = (f'<div class="{cls} gen-{tpl}" data-start="{start}" data-duration="{dur}"{ct_attr}>')
+    carry_attr = ' data-carry="1"' if el.get("carry") else ""
+    head = (f'<div class="{cls} gen-{tpl}" data-start="{start}" data-duration="{dur}"'
+            f'{ct_attr}{carry_attr}>')
     body = ""
     if tpl == "keyword":
         body = (f'<div class="big" style="font-size:{int(H * 0.105)}px">{esc(p.get("text"))}</div>'
@@ -445,7 +451,7 @@ def get_photo(lib: Path, proj: Path, el: dict, *, W: int, H: int, FPS: int,
 
 def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
              extractor: str = "auto", W: int = 1080, H: int = 1920,
-             FPS: int = 30, grade: str = "") -> dict:
+             FPS: int = 30, grade: str = "", overscan: float = 1.0) -> dict:
     """把一段切出来。**缓存**：同一段再渲不再切（切一段 6.7s 素材要约 38 秒）。
 
     切好的片段是"已经标准化的素材"——旋转过的 HEVC 竖屏、杜比视界，到这一步
@@ -464,7 +470,7 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
     # 再压一遍——颜色被连着校了三次，越校越暗越偏（luma 0.346 → 0.316 → 仍在降），
     # 而日志每行都说成功。
     import hashlib
-    _want = hashlib.sha1(f"{grade}|{W}x{H}@{FPS}".encode()).hexdigest()[:10]
+    _want = hashlib.sha1(f"{grade}|{W}x{H}@{FPS}|os{overscan:.2f}".encode()).hexdigest()[:10]
     _stamp = clips / ".grade"
     if _stamp.exists() and _stamp.read_text().strip() != _want:
         force = True
@@ -481,7 +487,8 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
                 aud = (a_src, float(a.get("in") or 0), float(a.get("out") or 0))
         if use_own:
             extract_own(src, float(seg["in"]), float(seg["out"]), dst,
-                        W=int(W), H=int(H), fps=int(FPS), grade=grade or "", aud=aud)
+                        W=int(W), H=int(H), fps=int(FPS), overscan=float(overscan),
+                        grade=grade or "", aud=aud)
             _stamp.write_text(_want)
         else:
             r = subprocess.run(
@@ -735,6 +742,10 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 #grade {{ position:absolute; inset:0; {grade} }}
 .cap {{ position:absolute; left:0; right:0; top:{cap_top}%; display:flex; justify-content:center;
         padding:0 {cap_pad}px; }}
+.cap.cap-bi {{ flex-direction:column; align-items:center; gap:{cap_en_gap}px; }}
+.cap.cap-bi .en {{ font-family:"SC-Sub", sans-serif; font-style:normal; font-weight:600;
+  letter-spacing:0.02em; white-space:nowrap; opacity:0.92;
+  text-shadow:0 1px 0 rgba(255,255,255,.35); }}
 .cap span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:{cap_px}px;
   color:{cap_color}; letter-spacing:0.01em; line-height:1.28; text-align:center;
   text-shadow:{cap_shadow}; white-space:nowrap; {cap_extra} }}
@@ -773,6 +784,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 <script src="assets/gsap.min.js"></script>
 <script>
 const tl = gsap.timeline({{ paused: true }});
+{punch_js}
 // 字幕：{cap_entry}
 document.querySelectorAll(".cap").forEach((c) => {{
   const t = parseFloat(c.dataset.start);
@@ -800,6 +812,9 @@ document.querySelectorAll(".idcard > span").forEach((el, i) => {{
 // 生成元素的子件按顺序进场：一句一条，不是一屏同时亮
 document.querySelectorAll(".gen").forEach((c) => {{
   const t = parseFloat(c.dataset.start);
+  // morph_carry：这一格是**接着上一格**的（同一块东西没换），所以不许重新入场。
+  // 重新淡入＝观众看到「又一页」，那正是「像 PPT 翻页」的来源。
+  const carry = c.dataset.carry === "1";
   const d = parseFloat(c.dataset.duration);
   const kids = c.querySelectorAll(".col, ol li, .bar, .chn, blockquote, .num, .fnode, .layer");
   // 每条子件的入场时刻：优先用「这句台词的重音点」（data-ct），没有才均分。
@@ -820,8 +835,12 @@ document.querySelectorAll(".gen").forEach((c) => {{
       {{ opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
          immediateRender: false }}, when);
   }});
-  tl.fromTo(c, {{ opacity: 0, y: 24 }},
-    {{ opacity: 1, y: 0, duration: 0.32, ease: "power2.out", immediateRender: false }}, t);
+  if (carry) {{
+    tl.set(c, {{ opacity: 1, y: 0 }}, t);
+  }} else {{
+    tl.fromTo(c, {{ opacity: 0, y: 24 }},
+      {{ opacity: 1, y: 0, duration: 0.32, ease: "power2.out", immediateRender: false }}, t);
+  }}
   if (d > 0.8) {{
     tl.to(c, {{ opacity: 0, duration: 0.2, ease: "power1.in" }}, t + d - 0.2);
   }}
@@ -844,6 +863,7 @@ def esc(t: str) -> str:
 
 
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
+               punch_map=None,
                fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
@@ -916,10 +936,21 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="3" '
         f'data-has-audio="true"></audio>'
         for v in (audios or []))
+    # 双语双行：中文主行 + 英文小字。第二行只在 cue 真有 en 时才出现——
+    # 没英文稿就还是单行（`subtitle_system: bilingual` 不等于「自动有英文」）。
+    _sy = style.get("subtitle_system") or {}
+    _sy_id = (_sy.get("id") if isinstance(_sy, dict) else str(_sy)) or "single-line"
+    _en_px = int((_sy.get("en_size_px") if isinstance(_sy, dict) else 0) or 34)
+    _en_col = (_sy.get("en_color") if isinstance(_sy, dict) else "") or "#8A8178"
     c_html = "\n".join(
-        f'      <div id="cap-{i:03d}" class="clip cap" data-start="{c["start"]}" '
+        f'      <div id="cap-{i:03d}" class="clip cap'
+        f'{" cap-bi" if (_sy_id == "bilingual" and c.get("en")) else ""}" '
+        f'data-start="{c["start"]}" '
         f'data-duration="{round(c["end"] - c["start"], 3)}">'
-        f'<span>{c.get("html") or esc(c["text"])}</span></div>'
+        f'<span>{c.get("html") or esc(c["text"])}</span>'
+        + (f'<i class="en" style="font-size:{_en_px}px;color:{_en_col}">'
+           f'{esc(c["en"])}</i>' if (_sy_id == "bilingual" and c.get("en")) else "")
+        + '</div>'
         for i, c in enumerate(caps, 1))
     card_html = []
     for i, c in enumerate(cards, 1):
@@ -946,6 +977,19 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                 f'data-duration="{d}"><span style="font-size:{_px}px">'
                 f'{esc(c["text"])}</span></div>')
 
+    # 跳切推近：硬切式换倍率（不是缓推）。缓推看不出「换了一镜」，
+    # 而观众读到换镜靠的就是那一下跳变。transform-origin 在中心，只放大不位移。
+    punch_js = ""
+    if punch_map:
+        for n, plist in punch_map.items():
+            for item in plist:
+                tt, sc = item[0], item[1]
+                dx = item[2] if len(item) > 2 else 0.0
+                punch_js += (f'  tl.set("#v{n}", {{ scale: {sc}, x: "{dx}%", '
+                             f'transformOrigin: "50% 50%" }}, {tt});\n')
+        punch_js = ('// 口播跳切推近：同一段画面换景别，声音不断、时间轴不动\n'
+                    + punch_js)
+
     return CSS_TMPL.format(
         res="portrait" if H > W else "landscape", W=W, H=H, FPS=FPS, total=total, slug=slug,
         fr=fonts["sub"], fb=fonts["big"],
@@ -961,7 +1005,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                   "-webkit-background-clip:text;color:transparent;" %
                   tuple((emph.get("gradient") or ["#FFE53B", "#FFB000"])[:2])
                   if emph.get("gradient") else ""),
-        pack_vars=pack_vars, idc_x=idc_x, idc_y=idc_y,
+        pack_vars=pack_vars, punch_js=punch_js, cap_en_gap=max(6, int(cap_px * 0.10)),
+        idc_x=idc_x, idc_y=idc_y,
         videos=v_html, caps=c_html, cards="\n".join(card_html), fg=fg_html,
         s_html=s_html, a_html=a_html,
         gens="\n".join(gens or []), gen_css=GEN_CSS,
@@ -1206,6 +1251,13 @@ def main():
                     help="逐镜把亮度/白平衡往参考片拉（0=不做，1=全拉）。默认 0.7")
     ap.add_argument("--extractor", choices=["auto", "own", "hf"], default="auto",
                     help="auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract")
+    ap.add_argument("--overscan", type=float, default=1.2, metavar="K",
+                    help="切片比画布大几倍（默认 1.2）：跳切推近靠 CSS 放大，"
+                         "切片不留富余就会越推越糊。1.0 = 不留富余")
+    ap.add_argument("--punch", dest="punch", action="store_true", default=True,
+                    help="口播长段拆镜（跳切推近）：默认开。关掉用 --no-punch")
+    ap.add_argument("--no-punch", dest="punch", action="store_false",
+                    help="不拆镜：一条长口播就一个镜头，「口播镜头中位」会顶在 4.9s")
     ap.add_argument("--no-cutout", action="store_true",
                     help="不做人物抠像层（大字会压在人前面）")
     a = ap.parse_args()
@@ -1301,7 +1353,7 @@ def main():
                     cl = get_photo(lib, proj, el, W=W, H=H, FPS=FPS, grade=gd)
                 else:
                     cl = get_clip(lib, proj, el, force=a.force_extract, extractor=a.extractor,
-                                  W=W, H=H, FPS=FPS, grade=gd)
+                                  W=W, H=H, FPS=FPS, grade=gd, overscan=a.overscan)
             except SystemExit as e:
                 print(f"  ！格 {el.get('n')} 造不出来：{e}", file=sys.stderr)
                 n_fail += 1
@@ -1346,7 +1398,9 @@ def main():
         else:
             raise SystemExit(f"格 {el.get('n')} 的 kind「{kind}」不认识（clip/image/gen/silence）")
     total = round(t, 3)
-    if not videos and not gens:
+    # scenes 也算画面：B 轴片（整支都是代码画的连续场景）就是只有 scenes 的情况，
+    # 以前漏了它，于是「一块石灰基的一生」这种片子直接报「一格画面都没造出来」。
+    if not videos and not gens and not scenes:
         raise SystemExit("一格画面都没造出来")
 
     index = json.loads((lib / "_cutskills" / "index.json").read_text())
@@ -1384,10 +1438,25 @@ def main():
     #   none        —— 关掉字幕层（P3 暗调：大字即字幕）
     # 2026-11-11 对抗式审查抓到的：这个字段以前只有样张脚本和检查器读，渲染器根本不认，
     # 于是「无字幕层」这套包渲出来照样有字幕——配置写了一件事，片子做了另一件事。
+    # 双语第二行的**唯一来源**是项目里的 `subs-en.json`（{"1": "No grand theories, but..."}，
+    # 键是字幕序号）。没有它就没有第二行——不许拿机翻糊上去，也不许假装有。
+    _en_p = proj / "subs-en.json"
+    _en_map = {}
+    if _en_p.exists():
+        try:
+            _en_map = json.loads(_en_p.read_text()) or {}
+        except json.JSONDecodeError:
+            _en_map = {}
     _ss = style.get("subtitle_system") or {}
     ss_id = (_ss.get("id") if isinstance(_ss, dict) else str(_ss)) or "single-line"
     caps = subs.build(active, by_id, chars_cache, lib, load_chars, colorize=colorize, fps=FPS)
     caps = [c for c in caps if c["start"] < total]
+    # 英文挂到 cue 上（必须在 caps 建好之后——挂早了一个变量都没定义就崩了）
+    if _en_map:
+        for _i, _c in enumerate(caps, 1):
+            _e = (_en_map.get(str(_i)) or _en_map.get(_c.get("text") or "") or "").strip()
+            if _e:
+                _c["en"] = _e
     # subs.json 记的是**这句片子里真实存在的字幕**，不是「这一轮渲了几条」。
     # 以前这里直接 caps = []，于是拿 P3 试渲一次，项目的 18 条字幕就被写成 0 条——
     # 换个包装看一眼，数据没了（2026-11-11 对抗式审查抓到，且真的踩了一次）。
@@ -1402,6 +1471,88 @@ def main():
               "（要双语得先有英文稿——subs.py 认 cue 的 en 字段）", file=sys.stderr)
     for c in caps:
         c["end"] = min(round(c["end"], 3), total)
+
+    # 口播长段拆镜（跳切推近）—— HyperFrames 链一直缺这一步，所以「口播镜头中位」
+    # 永远顶在 4.9s（目标 2.4s）。做法不是再切素材，而是**同一段画面换景别**：
+    # 在一个句内 2–2.8s 处硬切一次，倍率换一档（1.0 → 1.12）。眼睛看到的是换镜，
+    # 声音一点没断，时间轴一格都没动（所以包装/骨架都不会因此错位）。
+    # 20 支参考片就是这么干的：口播中位 2.83s、画面变化中位 2.19s 几乎相等。
+    _plan_id = str(tl_doc.get("plan") or "").strip()
+    _pspec = {}
+    _pp = SKILL / "plans" / f"{_plan_id}.yaml"
+    if _pp.exists():
+        try:
+            _pspec = yaml.safe_load(_pp.read_text()) or {}
+        except yaml.YAMLError:
+            _pspec = {}
+    _pl_tempo = _pspec.get("tempo") or {}
+    _pl_shot = _pspec.get("shot_logic") or {}
+    _punch_target = float(_pl_tempo.get("target_median_s")
+                          or (style.get("shots") or {}).get("talking_median_s") or 2.4)
+    _punch_pair = _pl_shot.get("punch_scale") or [1.0, 1.06]
+    _jump = str(_pl_shot.get("jump_cut") or "normal")
+    _punch_ratio = {"dense": 1.25, "normal": 1.45, "sparse": 1.8}.get(_jump, 1.45)
+    shots_out, punch_map = [], {}
+    for v in videos:
+        el = next((e for e in segs if int(e.get("n") or 0) == int(v["n"])), {})
+        medium = str(el.get("medium") or "")
+        d = float(v["dur"])
+        cuts = []
+        # B-roll 也拆：参考片的画面变化中位是 2.19s，不分口播还是空镜。
+        # 我们 long B-roll 一镜 5–7.6s，只拆口播的话「全部镜头」中位仍顶在 3.5s。
+        # 拆法一样是换景别（不换素材、不动时间轴）；代码画面不拆——那是连续场景，
+        # 中间切一刀正好把它要讲的「一件事在变」打断。
+        if (a.punch and medium in ("talking", "broll", "photo")
+                and d > _punch_target * _punch_ratio):
+            k = max(2, int(round(d / _punch_target)))
+            aid = (el.get("audio") or {}).get("asset") or el.get("asset")
+            starts = [c[1] for c in (chars_cache.get(aid) or [])] if aid else []
+            rel = [0.0]
+            for j in range(1, k):
+                want = d * j / k
+                if starts:
+                    # 切点吸附到字界：切在词中间最刺眼（画面换的那一下刚好切掉半个字）
+                    near = min(starts, key=lambda x: abs(x - want))
+                    if abs(near - want) <= 0.35:
+                        want = near
+                if want - rel[-1] >= 0.8 and d - want >= 0.8:
+                    rel.append(round(want, 3))
+            rel.append(round(d, 3))
+            cuts = rel[1:-1]
+        # 带一点横向位移：纯中心放大读作「缓慢推镜头」，加 2% 位移才读作「换了一镜」。
+        # 位移交替方向，别让整支片往同一边偏。
+        punches = [(round(float(v["start"]) + r, 3),
+                    float(_punch_pair[(i + 1) % len(_punch_pair)]),
+                    (2.0 if (i % 2 == 0) else -2.0))
+                   for i, r in enumerate(cuts)]
+        if punches:
+            punch_map[int(v["n"])] = punches
+        bnds = [0.0] + cuts + [round(d, 3)]
+        for i in range(len(bnds) - 1):
+            shots_out.append({"n": len(shots_out) + 1, "seg": int(v["n"]),
+                              "in": round(bnds[i], 3), "out": round(bnds[i + 1], 3),
+                              "dur": round(bnds[i + 1] - bnds[i], 3),
+                              "zoom": (_punch_pair[i % len(_punch_pair)]
+                                       if cuts else 1.0),
+                              "medium": medium or "unknown"})
+    # 整屏代码画面也是「观众看到换了画面」，得进镜头清单：否则「最长同介质连续」
+    # 会把两段口播之间的代码画面当成没换过介质，越判越松。
+    for v in (scenes or []):
+        shots_out.append({"n": len(shots_out) + 1, "seg": int(v["n"]),
+                          "in": 0.0, "out": round(float(v["dur"]), 3),
+                          "dur": round(float(v["dur"]), 3), "zoom": 1.0, "medium": "gen"})
+    shots_out.sort(key=lambda x: (x["seg"], x["in"]))
+    for i, s_ in enumerate(shots_out, 1):
+        s_["n"] = i
+    if shots_out:
+        (proj / "out").mkdir(parents=True, exist_ok=True)
+        (proj / "out" / "shots.json").write_text(
+            json.dumps(shots_out, ensure_ascii=False, indent=1))
+        _tk = [s for s in shots_out if s["medium"] == "talking"]
+        if _tk:
+            _dm = sorted(x["dur"] for x in _tk)[len(_tk) // 2]
+            print(f"  口播拆镜：{len(_tk)} 个镜头，中位 {_dm:.2f}s（目标 {_punch_target}s）"
+                  f"· 只换景别，时间轴未动")
 
     # overlay 生成物占着的那几秒，大字必须先让开（同屏只讲一件事：
     # 实测黄字压在对比屏上，卡里的小字全糊成一团）。
@@ -1488,6 +1639,7 @@ def main():
     html_txt = build_html(slug=proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
+                          punch_map=punch_map,
                           fg_mode=a.fg_layer, gens=gens, scenes=scenes, audios=audios)
     (hf / "index.html").write_text(html_txt)
     (hf / "meta.json").write_text(json.dumps(

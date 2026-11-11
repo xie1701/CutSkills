@@ -23,7 +23,7 @@ tempo:
 
 shot_logic:
   jump_cut: dense
-  punch_scale: [1.0, 1.10]
+  punch_scale: [1, 1.16]
   medium_change_within_s: 12
   axis_rotate: by_reverse_time
 

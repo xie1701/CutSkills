@@ -531,6 +531,48 @@ def draw_subject(d: ImageDraw.ImageDraw, W: int, H: int, pts, st: State,
     d.line([*pts, pts[0]], fill=outline, width=2)
 
 
+# ---------------------------------------------------------------- 效果原语
+# 包装包 `fx` 里点了名的效果，得真能画出来，否则那行字只是声明。
+
+def draw_particles(d: ImageDraw.ImageDraw, W: int, H: int, t: float, *, n: int = 16,
+                   color=(210, 205, 190), rise: float = 0.0, alpha: int = 120,
+                   region=(0.22, 0.78, 0.08, 0.92), seed: int = 7) -> None:
+    """持续飘的粒子（尘埃 / 热粒 / 碎屑）。
+
+    `rise` > 0 向上飘（热），= 0 向下落（屑）。位置由 t 直接算，确定性，
+    同一秒永远同一帧——重渲能对上，验收也能复现。
+    """
+    x0, x1, y0, y1 = region
+    for i in range(n):
+        fx = x0 + (x1 - x0) * (((i * 7919 + seed * 131) % 997) / 997.0)
+        ph = ((i * 6151 + seed * 37) % 991) / 991.0
+        if rise > 0:
+            fy = y1 - ((t * rise + ph) % 1.0) * (y1 - y0)
+            a = int(alpha * (1 - (y1 - fy) / max(1e-6, y1 - y0)))
+        else:
+            fy = y0 + ((t * max(0.05, rise + 0.06) + ph) % 1.0) * (y1 - y0)
+            a = int(alpha * 0.8)
+        r = 2 + (i % 3)
+        d.ellipse([W * fx - r, H * fy - r, W * fx + r, H * fy + r],
+                  fill=(*color[:3], max(0, min(255, a))))
+
+
+def draw_sweep(d: ImageDraw.ImageDraw, W: int, H: int, k: float, *,
+               color=(255, 255, 255), band: float = 0.16, alpha: int = 90) -> None:
+    """扫光 / 擦除：一条亮带从左划到右（k = 0..1）。
+
+    用途是**换幕**：两块内容之间不想硬切、又没有真素材承接时，用它把观众的注意力
+    从左边带过去。带宽按画幅宽算，斜着走（纯竖直的亮带会被看成「翻页插件」）。
+    """
+    if k <= 0 or k >= 1:
+        return
+    cx = -band + (1 + band * 2) * k
+    x0 = (cx - band) * W
+    x1 = (cx + band) * W
+    d.polygon([(x0, 0), (x1 + W * 0.08, 0), (x1 - W * 0.12, H), (x0 - W * 0.16, H)],
+              fill=(*color[:3], alpha))
+
+
 def scene_lime(t: float, W: int, H: int, dur: float) -> Image.Image:
     """一块石灰基艺术涂料的一生（B 轴第一支 demo）。
 
@@ -590,27 +632,23 @@ def scene_lime(t: float, W: int, H: int, dur: float) -> Image.Image:
     # 每一幕都得有一件**一直在动**的小东西，否则 12 秒里会有 3 秒完全静止——
     # 视觉复核原话：「0.5s 和 4s 完全一样」。冻结不是靠加转场治的，是靠这个。
     if t < dur * m[0]:                                   # 一幕：石屑在落
-        for i in range(14):
-            fx = 0.26 + 0.48 * (((i * 7919) % 997) / 997.0)
-            fy = ((t * 0.06 + i / 14.0) % 1.0) * 0.9 + 0.05
-            r = 2 + (i % 3)
-            d.ellipse([W * fx - r, H * fy - r, W * fx + r, H * fy + r],
-                      fill=(210, 205, 190, 70))
+        draw_particles(d, W, H, t, n=14, color=(210, 205, 190), alpha=90,
+                       region=(0.26, 0.74, 0.05, 0.95))
     elif t < dur * m[1]:                                 # 二幕：煅烧的热在往上走
         kk = ease((t - dur * m[0]) / max(dur * (m[1] - m[0]), 1e-6))
-        for i in range(18):
-            fx = 0.24 + 0.52 * (((i * 6151) % 991) / 991.0)
-            fy = 0.66 - ((t * 0.10 + i / 18.0) % 1.0) * 0.36
-            r = 2 + (i % 4)
-            a = int(150 * kk * (1 - (0.66 - fy) / 0.36))
-            d.ellipse([W * fx - r, H * fy - r, W * fx + r, H * fy + r],
-                      fill=(255, 150, 60, max(0, a)))
+        draw_particles(d, W, H, t, n=18, color=(255, 150, 60), alpha=int(160 * kk),
+                       rise=0.10, region=(0.24, 0.76, 0.30, 0.66), seed=3)
 
     plaster_prog = 0.0
     if lab == "上墙":
         plaster_prog = 1.0
     elif lab == "成品":
         plaster_prog = 1.0
+    for _b in (m[0], m[1]):                              # 换幕：扫光带一下注意力
+        _k = (t - dur * _b) / max(1e-6, dur * 0.12)
+        if 0 < _k < 1:
+            draw_sweep(d, W, H, _k, color=(255, 250, 235), band=0.14, alpha=70)
+
     draw_subject(d, W, H, pts, st, t, plaster=plaster_prog)
     _text_at(d, W, H, lab, 0.5, (min(p[1] for p in pts) / H) - 0.055, f_lab, (255, 255, 255, 232))
     _text_at(d, W, H, "示意", 0.5, 0.905, f_tag, (255, 255, 255, 110))
@@ -687,9 +725,15 @@ def probe_scene(fn, dur: float, W: int, H: int) -> tuple[bool, list[str]]:
         b = float((arr > 60).mean()) * 100
         rows.append((t, float(arr.mean()), b))
         bright.append(b)
-    peak = max(bright)
+    # 「最满的一帧」用**次高**，不用 max：扫光/闪一下这种瞬时会顶出一个假峰值，
+    # 拿它当基准，正常的收尾全被判「收空了」（实测加了换幕扫光之后，峰值从 30.5% 跳到 51.6%）。
+    # 判据要盯的是「典型地有多满」，不是「历史上某一帧碰巧多亮」。
+    _sb = sorted(bright)
+    peak = _sb[-2] if len(_sb) > 2 else max(bright)
+    top = max(bright)
     for t, lu, b in rows:
-        msgs.append(f"  t={t:5.2f}s  luma {lu:5.1f}  bright {b:5.2f}%{' ←' if b == peak else ''}")
+        msgs.append(f"  t={t:5.2f}s  luma {lu:5.1f}  bright {b:5.2f}%"
+                    f"{' ←' if b == peak else ('  (瞬间峰值)' if b == top and top > peak else '')}")
     if bright[-1] < 5.0:
         msgs.append(f"⚠ 结尾几乎全黑（{bright[-1]:.1f}%）——收尾没落下东西")
         bad = True
