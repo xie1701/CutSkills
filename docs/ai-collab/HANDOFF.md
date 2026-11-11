@@ -254,3 +254,19 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 - **其它**：只判 pips 有无、不判数量；缓存键不含 pip 参数；`props.pip`/`anchors` 未进 schema，`calibrate_marks`/PiP 未进 SKILL/STATUS；深底判据改三帧中位没有负样本；`selftest --dir` 按 cwd 名隔离（同名目录仍撞）；分支 TASKS/HANDOFF 与新规程冲突，需 rebase 到当前 master。
 - **通过并应保留**：PiP 渲染本身有效；`meta` 无 pips 负样本确实红（23/0/1）；`calibrate_marks` 对「水化」锚顺序冲突如实报并保持原值（只落实 1/2，剩下一处是内容决策）。
 - **状态**：T-005 留在 `ai/cola/T-005`，**打回**；master 状态行已更新。T-010 已判收并入 master（`48a7074`）。
+
+### 2026-11-11 19:24 · DeepSeek · T-011 完成待复核（br 的边界收口）
+
+- **分支 / 工作树**：`ai/deepseek/T-011` @ `52570bf`，worktree `/Users/jerry/Downloads/AIworks/review/T011/CutSkills`（主树在跑 Gemini 的 T-006，未动）。
+- **决策**：`clips.br` **不做渲染支持**。它需要第二视频层 + 素材指针；看板的 `clips` 只有 offset/dur，没有 asset，本管线只有单视频轨 + 一层 overlay。硬接只能变出黑场或猜素材。
+- **落地**：① `board_check.py` 第 14 条「clips 只认 ov」，br/rec/a 一律红；② `board_patch.py` 对非 ov 轨道明说「回写不了」，不改时间轴（旧实现会叠 overlay）；③ `test_board_clips.py` 加 D（br 被拦）与 E（回写不动格数/overlay）；④ `SKILL.md` / `board-fusion.md` 13→14 条。
+- **验证**：`test_board_clips` 0；`board_check` 三项目 0/0/13 → **0/0/14**；`selftest` 0（16/4/0，第⑧步已覆盖 br 案）；`golden` 0（3×26/0/0）；`audit` 0红0黄🟢8；`check_timeline` naming 0e/11w；`check_subs` ground 过；`gen_cli_ref` 重生成无差异。
+- **复核命令**：
+  ```bash
+  cd /Users/jerry/Downloads/AIworks/review/T011/CutSkills
+  python3 scripts/test_board_clips.py
+  for p in qizao-naming-01 qizao-ground-01 qizao-protect-01; do python3 scripts/board_check.py --project .../$p; done
+  python3 scripts/selftest.py --dir /tmp/cutskills-selftest-review-t011
+  python3 scripts/golden.py && python3 scripts/audit_skill.py
+  ```
+- **下一步**：T-011 待复核；T-006 已由 Gemini 推到待复核；T-005 仍待复核 @ `548ce52`。要真支持 br，另开「多视频层 + B-roll 素材指针」任务，不属于本任务。
