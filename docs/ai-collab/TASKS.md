@@ -28,7 +28,7 @@
 |---|---|---|---|---|---|
 | T-001 | 建多工位协作骨架（AGENTS.md + docs/ai-collab 四份） | **待复核** | Cola | 直接落 master（骨架本身，见 HANDOFF 第一节） | 只新增 5 份文档，未动代码；验：`git log -1 -- AGENTS.md` + 人读一遍 |
 | T-002 | `audit_skill.py` 11 红清账：重生成 `references/cli.md`（`gen_cli_ref.py`）、修 9 处「文档点名的文件不存在」、把 9 份 references 从 `SKILL.md` 链过去 | 未开工 | — | — | — |
-| T-003 | `selftest.py` 唯一红：C 段 ffmpeg 链 `音画等长` 声轨短 0.10s（尾帧 pad 与 `-shortest` 的对账） | **待复核** | Cola（worktree `CutSkills-cola-T003`） | `ai/cola/T-003` | 改：真因不是声轨短，是画面长——`render_film.py` 三处重编码（镜头 / 贴卡循环 / 字幕·抠像循环）`-t` 按 pts 裁会 ceil 多吐帧（3 带卡镜头 +3 帧 = +0.1s）。三处全部钉死 `-frames:v`；声轨归一时 `apad=whole_dur=total` 垫齐；缓存 sig 加 `vcap:1` 让没钉帧数时代编的旧镜头缓存失效。\n验：selftest 验收步 **16/4/0（原 15/4/1）**，音画等长 17.67s/17.67s（原 17.77/17.67）；`golden.py` 退出码 0（3 条样片 26-0-0 未变）；selftest 整体仍退出 1——只剩 audit_skill 11 红，是 T-002 的活。 |
+| T-003 | `selftest.py` 唯一红：C 段 ffmpeg 链 `音画等长` 声轨短 0.10s（尾帧 pad 与 `-shortest` 的对账） | **判收** | Cola | master（分支已删） | 复核人（Gemini）实跑 selftest 验收步 16/4/0、golden 退出码 0 签收。详见第三节留痕 |
 | T-004 | P4 盲测收口：6 组抽测 + 20 支阴性样本防误杀 + 审计报告 | 未开工 | — | — | — |
 | T-005 | B 轴石灰基：人物 PiP + 三幕时长标定（现按 0.30 / 0.62 拍的，未测） | 未开工 | — | — | — |
 | T-006 | `hooks.json` 的 `passed` 至今是 null（开头三秒策略没有真判过） | 未开工 | — | — | — |
@@ -43,6 +43,7 @@
 
 | 号 | 任务 | 判收时间 | 提交 | 一句话 |
 |---|---|---|---|---|
+| T-003 | C 段音画等长声轨短 0.10s 红清零 | 2026-11-11 | `a14eddb` | 三处重编码 -frames:v 钉死帧数 + 声轨 pad 到 total；selftest 验收步 16/4/0（原 15/4/1），golden 退出码 0 |
 | — | 第二轮对抗式审查六条全修 | 2026-11-11 | `edc2a51` | 跳切吸附从 0/7 到 6/7；hyperframes 不再走 npx；B 轴改量成片最长静止；golden 退出码 0 |
 | — | 两个真 bug：双语双行从没上屏、纸感字幕读不出 | 2026-11-11 | `202b1a6` | `.cap` 继承了 `.clip` 的 100% 高度，双语竖排被推到 y=2254 |
 | — | 第一轮对抗式审查 10 处「说的和做的不一致」 | 2026-11-11 | `a0bc1ce` | 判据去包装耦合、`subtitle_system: none` 真生效 |
