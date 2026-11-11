@@ -21,9 +21,29 @@ BRAND_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# 明确核销放行（白名单）：无需避开 / 真实施工工具保留 / 客户认可 / 已处理
+AFFIRMATIVE_PATTERN = re.compile(
+    r"无需避开|不用避开|不避开|无须避开|免避开|保留|真实工具|施工实拍|实拍出镜|客观存在|"
+    r"客户认可|已确认|认可|允许|放行|合规|没问题|可以出镜|正常出镜|"
+    r"已打码|已裁切|已换段|已处理|keep|allow|acknowledged",
+    re.IGNORECASE
+)
+
+# 否定/要求避开指示（黑名单）：明确指示不能保留、必须打码、必须换段但未处理的，坚决不予核销
+NEGATIVE_PATTERN = re.compile(
+    r"不能保留|不可保留|不许保留|不得保留|不要保留|禁止|严禁|不得出镜|不可出镜|"
+    r"必须避开|需要避开|应当避开|必须打码|需要打码|必须换|需要换|必须裁|需要裁|不能露|不可露"
+)
+
 
 def is_brand_acknowledged(seg_n: int, flags: list[str], asset_name: str, decisions_text: str | None) -> tuple[bool, str]:
-    """检查该段的第三方字样是否已在 decisions.md 中拍板确认。"""
+    """检查该段的第三方字样是否已在 decisions.md 中确认放行（例如经用户确认无需避开或已处置）。
+    
+    严谨性规则（T-007 整改）：
+      1. 必须包含明确的放行/确认语义（AFFIRMATIVE_PATTERN，如「无需避开」「真实工具保留」「已确认」）；
+      2. 若包含否定指示（NEGATIVE_PATTERN，如「不能保留」「必须打码」），坚决拒收，杜绝误核销；
+      3. 必须与对应段号（#N）或具体品牌/素材名关联，不认脱节泛指。
+    """
     if not decisions_text:
         return False, ""
 
@@ -32,21 +52,34 @@ def is_brand_acknowledged(seg_n: int, flags: list[str], asset_name: str, decisio
         ln_s = ln.strip()
         if not ln_s or ln_s.startswith("#"):
             continue
-        # 关键词匹配
-        if not any(k in ln_s for k in ("第三方", "品牌", "字样", "打码", "商标", "FESTOOL", "PPG", "保留", "核实", "认可", "裁切")):
-            continue
 
-        # 命中段号
+        # 检查段号匹配或品牌特征匹配
         hit_seg = f"#{seg_n}" in ln_s or f"第{seg_n}段" in ln_s or f"第{seg_n}格" in ln_s or f"S{seg_n:02d}" in ln_s
-        if hit_seg:
-            return True, f"decisions.md 确认留痕：{ln_s[:60]}"
-
-        # 或者命中具体素材名 / 标志名
+        hit_brand = False
         for f in flags:
             words = [w for w in re.split(r"[\s_（）()，,：:]+", f) if len(w) >= 2]
             for w in words:
-                if w in ln_s and any(action in ln_s for action in ("保留", "认可", "确认", "处置", "核实")):
-                    return True, f"decisions.md 确认留痕：{ln_s[:60]}"
+                if w.lower() in ln_s.lower():
+                    hit_brand = True
+                    break
+            if hit_brand:
+                break
+        if not hit_brand and any(b in ln_s.upper() for b in ("FESTOOL", "PPG", "第三方", "品牌", "字样", "商标")):
+            hit_brand = True
+
+        # 如果既没提到段号也没提到品牌，跳过
+        if not (hit_seg or hit_brand):
+            continue
+
+        # 如果包含明确否定整改语义（如「不能保留」「必须换段」），不予核销
+        if NEGATIVE_PATTERN.search(ln_s):
+            continue
+
+        # 必须匹配明确的肯定放行词（包含用户确认无需避开/真实工具保留）
+        if AFFIRMATIVE_PATTERN.search(ln_s):
+            # 若段号与品牌任意关联成立，即可核销
+            if hit_seg or hit_brand:
+                return True, f"decisions.md 确认留痕（无需避开/保留）：{ln_s[:60]}"
 
     return False, ""
 

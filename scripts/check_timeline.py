@@ -313,26 +313,22 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
         prev_v, prev_e = v, e
 
     # ---- 画面里的第三方字样与品牌安全检查（T-007）
-    try:
-        from brand_safety import scan_third_party_risks
-        clip_items = []
-        for e in els:
-            if e.get("kind") == "clip" and e.get("asset"):
-                clip_items.append({
-                    "n": e.get("n"),
-                    "asset": e.get("asset"),
-                    "in": float(e.get("in", 0.0)),
-                    "out": float(e.get("out", 0.0)),
-                    "third_party_action": e.get("third_party_action") or e.get("third_party")
-                })
-        unresolved, resolved = scan_third_party_risks(clip_items, index, decisions_text=decisions_text)
-        if unresolved:
-            hits_str = " / ".join(f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved[:3])
-            more_str = f" 等共 {len(unresolved)} 段" if len(unresolved) > 3 else ""
-            out.append(("warning", f"{len(unresolved)} 段的画面里有第三方字样或需打码的区域，"
-                                  f"商用前必须逐一看（裁切 / 打码 / 换段 / decisions.md 确认）：{hits_str}{more_str}"))
-    except ImportError:
-        pass
+    from brand_safety import scan_third_party_risks
+    clip_items = []
+    for e in els:
+        if e.get("kind") == "clip" and e.get("asset"):
+            clip_items.append({
+                "n": e.get("n"),
+                "asset": e.get("asset"),
+                "in": float(e.get("in", 0.0)),
+                "out": float(e.get("out", 0.0)),
+                "third_party_action": e.get("third_party_action") or e.get("third_party")
+            })
+    unresolved, resolved = scan_third_party_risks(clip_items, index, decisions_text=decisions_text)
+    if unresolved:
+        hits_str = " / ".join(f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved[:3])
+        more_str = f" 等共 {len(unresolved)} 段" if len(unresolved) > 3 else ""
+        out.append(("warning", f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 记「无需避开/保留」，或元素标 third_party_action: keep）：{hits_str}{more_str}"))
 
     return out
 

@@ -62,6 +62,7 @@ v2 的 `edl.json` 是一条**镜头列表**——它默认片子是「从库里�
 | `beat` / `role` | 强烈建议 | 同 v2：`setup/claim/evidence/warrant/turn/payoff` |
 | `audio` | B-roll 必填 | `{asset, in, out}`：画面换掉、声音继续走原口播 |
 | `card` | 否 | 贴在 clip 上的叠加层：`kind` 取 `behind`（字在人物后）/ `cutout` / `plain` |
+| `third_party_action` | 否 | 画面中出现第三方品牌字样时的处置标记：`keep`（施工实拍真实工具/场景无需避开，保留出镜） / `crop`（裁切避开） / `blur`（打码） / `acknowledged`（已核验）。标注后 `check_timeline` 自动核销告警 |
 
 ## gen 模板表（代码生成，全部参数化）
 
@@ -123,7 +124,7 @@ v2 的 `edl.json` 是一条**镜头列表**——它默认片子是「从库里�
 |---|---|
 | error | `kind`/`track` 缺失或非法；clip 缺 `in`/`out` 或 `asset` 不在索引；gen 缺 `template`/`props`；`dur` 低于模板 `minDur`；props 字数超限；`why` 是套话；总时长与 `brief.length_s` 差 >10% |
 | error | 元素首尾相接有空隙或重叠（时间轴必须连续） |
-| warning | 单镜超 12s；`generated` 占比 >25%；40s 内没有介质变化；`warrant` 段缺失；B-roll 没有 `audio` 字段 |
+| warning | 单镜超 12s；`generated` 占比 >25%；40s 内没有介质变化；`warrant` 段缺失；B-roll 没有 `audio` 字段；画面出现未处置的第三方品牌字样（提示向用户确认是否需要避开，若无需避开留痕核销） |
 | info | 各 kind 占比、各 beat 时长分布 |
 
 ## 与 plan.json 的关系

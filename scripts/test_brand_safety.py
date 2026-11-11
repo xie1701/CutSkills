@@ -64,25 +64,40 @@ def test_samples():
     assert any("PPG" in f for f in unres_ppg[0]["flags"]), f"需明确包含 PPG: {unres_ppg[0]['flags']}"
     print("  ✅ 负样本 2（PPG大师漆 未处置）被精准拦截：", unres_ppg[0]["flags"])
 
-    # 3. 核销样本 1：在 decisions.md 中确认留痕后核销
-    decisions_txt = """# decisions
-- 第三方字样：#1 FESTOOL 打磨机保留作为真实施工工具证据，已与客户确认。
+    # 3. 核心正样本（【脉动】指示：工具无需避开/保留出镜）
+    decisions_keep = """# decisions
+- 第三方字样：#1 FESTOOL 打磨机作为真实施工工具证据无需避开，客户认可保留。
 """
-    unres_ack, res_ack = scan_third_party_risks(items_festool, mock_index, decisions_text=decisions_txt)
-    assert len(unres_ack) == 0, f"已在 decisions.md 确认后应核销，实际仍有 {len(unres_ack)} 项未解决"
+    unres_ack, res_ack = scan_third_party_risks(items_festool, mock_index, decisions_text=decisions_keep)
+    assert len(unres_ack) == 0, f"经用户确认「无需避开」后应核销，实际仍有 {len(unres_ack)} 项未解决"
     assert len(res_ack) == 1, f"核销后应进入 resolved，实际 resolved={len(res_ack)}"
-    assert "decisions.md 确认留痕" in res_ack[0]["resolved_reason"]
-    print("  ✅ 核销样本 1（decisions.md 拍板留痕）：成功核销降级：", res_ack[0]["resolved_reason"])
+    assert "无需避开/保留" in res_ack[0]["resolved_reason"]
+    print("  ✅ 核心正样本（用户确认「无需避开/真实工具保留」）：成功核销放行：", res_ack[0]["resolved_reason"])
 
-    # 4. 核销样本 2：在元素中显式标注 third_party_action: "crop" 裁切
+    # 4. 关键负样本（Cola 打回项①：否定/整改指示严禁被误核销）
+    decisions_reject = """# decisions
+- 第三方字样：#1 FESTOOL 打磨机不能保留，必须打码或换段。
+"""
+    unres_rej, res_rej = scan_third_party_risks(items_festool, mock_index, decisions_text=decisions_reject)
+    assert len(unres_rej) == 1, f"明确写了「不能保留，必须打码或换段」绝不能被当成核销，实际 unres={len(unres_rej)}"
+    assert len(res_rej) == 0, f"否定整改指令不得进入 resolved，实际 resolved={len(res_rej)}"
+    print("  ✅ 关键负样本（否定整改指令「不能保留，必须换段」）：精准拒绝误核销，保持报警！")
+
+    # 5. 核销样本 2：在元素中显式标注 third_party_action: "keep"（无需避开保留）或 "crop"
+    items_keep = [{"n": 2, "asset": "asset_ppg", "in": 0.0, "out": 4.0, "third_party_action": "keep"}]
+    unres_keep, res_keep = scan_third_party_risks(items_keep, mock_index)
+    assert len(unres_keep) == 0 and len(res_keep) == 1
+    assert "元素显式标注处置：keep" in res_keep[0]["resolved_reason"]
+    print("  ✅ 核销样本 2（元素标注 third_party_action: keep 无需避开）：成功核销：", res_keep[0]["resolved_reason"])
+
     items_crop = [{"n": 2, "asset": "asset_ppg", "in": 0.0, "out": 4.0, "third_party_action": "crop"}]
     unres_crop, res_crop = scan_third_party_risks(items_crop, mock_index)
     assert len(unres_crop) == 0, f"元素标注 crop 后应核销，实际 unresolved={len(unres_crop)}"
     assert len(res_crop) == 1
     assert "元素显式标注处置：crop" in res_crop[0]["resolved_reason"]
-    print("  ✅ 核销样本 2（元素标注 third_party_action: crop）：成功核销降级：", res_crop[0]["resolved_reason"])
+    print("  ✅ 核销样本 3（元素标注 third_party_action: crop）：成功核销降级：", res_crop[0]["resolved_reason"])
 
-    # 5. 正样本：合规纯净片段放行
+    # 6. 正样本：合规纯净片段放行
     items_clean = [{"n": 3, "asset": "asset_clean", "in": 0.0, "out": 4.0}]
     unres_cln, res_cln = scan_third_party_risks(items_clean, mock_index)
     assert len(unres_cln) == 0 and len(res_cln) == 0
@@ -109,17 +124,17 @@ def test_timeline_integration():
 
     # 未留痕时 check_timeline 必报 warning
     probs = check_timeline_fn(tl, mock_index)
-    brand_warns = [m for lv, m in probs if lv == "warning" and "第三方字样" in m]
-    assert len(brand_warns) == 1, f"check_timeline 应报第三方字样 warning，实际: {probs}"
+    brand_warns = [m for lv, m in probs if lv == "warning" and "第三方品牌字样" in m]
+    assert len(brand_warns) == 1, f"check_timeline 应报第三方品牌字样 warning，实际: {probs}"
     assert "FESTOOL" in brand_warns[0]
-    print("  ✅ check_timeline 集成验证：未处置时成功报出 WARN：", brand_warns[0])
+    print("  ✅ check_timeline 集成验证：未处置时成功报出 WARN（含无需避开引导）：", brand_warns[0])
 
-    # 传入 decisions.md 确认后，warning 自动消失
-    dec_text = "- 第三方字样：#1 FESTOOL 打磨机保留，系真实工具"
+    # 传入 decisions.md 确认无需避开后，warning 自动消失
+    dec_text = "- 第三方字样：#1 FESTOOL 打磨机无需避开，系施工实拍真实工具，客户认可保留"
     probs_ack = check_timeline_fn(tl, mock_index, decisions_text=dec_text)
-    brand_warns_ack = [m for lv, m in probs_ack if lv == "warning" and "第三方字样" in m]
-    assert len(brand_warns_ack) == 0, f"check_timeline 在确认后应无第三方字样 warning，实际: {brand_warns_ack}"
-    print("  ✅ check_timeline 集成验证：decisions.md 确认后 WARN 自动核销放行")
+    brand_warns_ack = [m for lv, m in probs_ack if lv == "warning" and "第三方品牌字样" in m]
+    assert len(brand_warns_ack) == 0, f"check_timeline 在确认后应无第三方品牌字样 warning，实际: {brand_warns_ack}"
+    print("  ✅ check_timeline 集成验证：decisions.md 确认「无需避开」后 WARN 自动核销放行")
 
 
 def test_real_projects():

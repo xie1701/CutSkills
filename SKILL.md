@@ -397,7 +397,7 @@ python3 <SKILL_DIR>/scripts/intake.py --library "<库>" --project <项目> --der
 6. `python3 <SKILL_DIR>/scripts/render_paper_edit.py --project ...` → 生成给人读的**按论点分节**的三列稿。
 7. **把文字稿给用户看，等他确认。** 这是唯一必须的人工确认点。人读 2000 字稿子 3 分钟，看 20 分钟粗剪要 20 分钟而且看不出该删什么。
    **确认完立刻记一行**：`python3 <SKILL_DIR>/scripts/log_decision.py --project <项目> --said "用户原话" --did "据此改了什么" [--verdict accepted|rejected]`。`decisions.md` 追加、不改旧行，结论后面挂当时的段数与时长。没记的话 `check_edl` 会 warn——否则一周后没人分得清「他没提这条」和「提了没改」。
-   **第三方字样处置**：施工实拍中常见的工具/设备品牌（如 FESTOOL 费斯托 RO 150、PPG 大师漆工装、牧田、博世等）若无法裁切且经客户认可保留，必须在 `decisions.md` 中记录一条留痕（或在时间轴元素标 `third_party_action: acknowledged/crop/blur`），`check_timeline.py` 与 `check_edl.py` 会自动核销告警。
+   **第三方字样处置**：施工实拍中出现的专业工具/设备/材料品牌（如 FESTOOL 费斯托 RO 150、PPG 大师漆、牧田、博世等）很多时候属于现场真实证据，无需刻意避开。剪辑时应向用户确认是否需要避开：若用户确认保留/无需避开，在 `decisions.md` 中记录留痕（如「#1 FESTOOL 作为真实施工工具证据无需避开，客户认可」）或在时间轴元素标 `third_party_action: keep`（亦支持 `crop`/`blur`），`check_timeline.py` 与 `check_edl.py` 会自动核销告警；若用户要求避开则按指令裁切或换段（否定指令如「不能保留」不会误核销）。
 8. 确认后再跑一次：
 
 ```bash

@@ -468,17 +468,13 @@ def check_project(proj: Path, lib: Path | None = None, write_report: bool = True
 
     # ---- 画面里的第三方字样与品牌安全检查（T-007）
     # 商用片里出现别人的品牌、公司名、手机号，等于替别人打广告；有的是竞品，有的是别人的客户。
-    # 机器读取 L2 flags，若在 decisions.md 中确认留痕则自动核销。
-    try:
-        from brand_safety import scan_third_party_risks
-        dec_text = (proj / "decisions.md").read_text(encoding="utf-8") if (proj / "decisions.md").exists() else None
-        unresolved, resolved = scan_third_party_risks(rows, index, decisions_text=dec_text)
-        if unresolved:
-            brand_hits = [f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved]
-            warns.append(f"{len(unresolved)} 段的画面里有第三方字样或需打码的区域，"
-                         "商用前必须逐一看（裁切 / 打码 / 换段 / decisions.md 确认）：" + " / ".join(brand_hits[:3]))
-    except ImportError:
-        pass
+    # 但真实施工实拍中专业工具/材料往往无需避开，商用前应向用户确认；若用户确认无需避开/保留，在 decisions.md 中确认留痕即可自动核销。
+    from brand_safety import scan_third_party_risks
+    dec_text = (proj / "decisions.md").read_text(encoding="utf-8") if (proj / "decisions.md").exists() else None
+    unresolved, resolved = scan_third_party_risks(rows, index, decisions_text=dec_text)
+    if unresolved:
+        brand_hits = [f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved]
+        warns.append(f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 记「无需避开/保留」，或元素标 third_party_action: keep）：" + " / ".join(brand_hits[:3]))
 
     # ---- 报告
     status = "FAIL" if errors else ("WARN" if warns else "OK")
