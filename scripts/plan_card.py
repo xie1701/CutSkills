@@ -133,12 +133,14 @@ def build(proj: Path, root: Path) -> str:
             vis = f"B-roll（{Path(str(vis)).name[-16:]}）"
         extra = []
         # cards.json 只在**比时间轴新**时才可信：它是上一次渲染的产物，剪切一改，
-    # 里面的「第几格 / 哪一秒 / 哪张卡」全都过期。照抄会让方案上出现早就不存在的
-    # 大字（实测：格子拆过之后还列着上一版的「油漆是原料」）。
-    cards_m = proj / "out" / "cards.json"
-    if cards_m.exists() and cards_m.stat().st_mtime < (proj / "timeline.json").stat().st_mtime:
-        cards = {}
-    # 大字可能写在 timeline 的格子里，也可能是渲染时才算出来的 cards.json。
+        # 里面的「第几格 / 哪一秒 / 哪张卡」全都过期。照抄会让方案上出现早就不存在的
+        # 大字（实测：格子拆过之后还列着上一版的「油漆是原料」）。
+        # 这里**不能**把整段缩进进 if 里：没渲过的项目 cards.json 根本不存在，
+        # 整段被跳过 → 逐格表只剩表头，方案卡成了空壳（实测踩过）。
+        cards_m = proj / "out" / "cards.json"
+        if cards_m.exists() and cards_m.stat().st_mtime < (proj / "timeline.json").stat().st_mtime:
+            cards = {}
+        # 大字可能写在 timeline 的格子里，也可能是渲染时才算出来的 cards.json。
         # cards.json 里的 el 是空的（卡片是渲的时候才算的），所以要按时间窗口兜一层。
         for c in cards.get(int(e["n"]), []):
             extra.append(f"大字「{c.get('text')}」")
