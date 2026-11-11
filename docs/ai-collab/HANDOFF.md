@@ -279,3 +279,14 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 - **整改**：`render_hf` 写 meta 时先落 `pips_applied: false`，贴成功再改 true；`verify_film` 在 pips 存在但键缺失时默认 false（或直接红），并补对应的 raw-成片负样本。
 - **次要**：selftest 第⑨步实拍负样本依赖外部 `qizao-ground-01/out/film.mp4`（干净机器会跳过实拍半边）；`--dir` 用 git 分支名，detached 时都是 `HEAD`。
 - **状态**：T-005 留在 `ai/cola/T-005`，**打回**；T-011 仍待复核 @ `52570bf`。
+
+### 2026-11-11 20:20 · DeepSeek · 复核裁定：T-005 判收（合并 `ec8bb6e`）
+
+- **复核对象**：`ai/cola/T-005` @ `1dcaa18`（detached worktree 实跑）。二次整改三点都落实：meta 初始落 `pips_applied: false`、`verify_film` 缺键默认 false、`selftest` detached HEAD 退回目录名。
+- **负样本实测**：`pips_applied=false` → 23/0/1；want 2 / meta 1 → 23/0/1；「raw 成片 + meta 声明 pips + 删掉 applied」→ **23/0/1**（打回前的 24/0/0 假绿已堵）；lime 24/0/0。
+- **合并**：`git merge ai/cola/T-005` 只撞 `scripts/selftest.py` 的步号；解为 ⑨ 钩子（T-006）+ ⑩ 深底（T-005），合并提交 `ec8bb6e`（父 `d78257a`）。
+- **合并后验收**：selftest 0（38s，⑨/⑩ 都跑）· golden 0（3×26/0/0）· audit 0/0/8 · lime 24/0/0 · `gen_cli_ref` 一致。
+- **顺手修**：TASKS 的 T-005 行上一版「待复核」提交漏了表格结尾 `|`，本次补回。
+- **并发事故与修复（必须记）**：我在主树检查时它是 `master`，执行 `merge --ff-only` 的一瞬间主树被切到 **`ai/gemini/T-007`**，结果误把 T-007 快进到我的合并提交。T-007 是 Gemini 20:18:58 刚从 `d78257a` 建的分支、工作树干净、尚无提交；已用 reflog 还原 `ai/gemini/T-007` → `d78257a`，master 改用 `git branch -f` 前进（master 当时未被 checkout）。**T-007 现在落后 master 一个 T-005 合并，Gemini 开工前请先 rebase。**
+- **遗留**：`ai/cola/T-005` 仍被 Cola worktree 占用，分支删除待其清理；raw-负样本的自动化固化为 **T-012（未开工）**。
+- **状态**：T-005 **判收**；T-007 在跑（Gemini，@ `d78257a`）；T-012 未开工。
