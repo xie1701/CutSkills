@@ -83,6 +83,33 @@ def test_samples():
     assert len(res_rej) == 0, f"否定整改指令不得进入 resolved，实际 resolved={len(res_rej)}"
     print("  ✅ 关键负样本（否定整改指令「不能保留，必须换段」）：精准拒绝误核销，保持报警！")
 
+    # 4.1 第二轮复核打回项①：跨段防误核销（决不能因泛指词「第三方/字样」导致 #2 的核销把 #1 也带走）
+    items_multi = [
+        {"n": 1, "asset": "asset_festool", "in": 0.0, "out": 4.0},
+        {"n": 2, "asset": "asset_ppg", "in": 0.0, "out": 4.0}
+    ]
+    decisions_only_2 = """# decisions
+- 第三方字样：#2 PPG 无需避开，客户认可保留。
+"""
+    unres_m, res_m = scan_third_party_risks(items_multi, mock_index, decisions_text=decisions_only_2)
+    assert len(unres_m) == 1 and unres_m[0]["n"] == 1, f"#1 FESTOOL 绝不能被跨段误核销！实际 unres={unres_m}"
+    assert len(res_m) == 1 and res_m[0]["n"] == 2, f"#2 PPG 应正常核销！实际 res={res_m}"
+    print("  ✅ 第二轮复核打回项①（跨段防误核销）：#2 留痕绝不跨段误核销 #1，隔离测试完全通过！")
+
+    # 4.2 第二轮复核打回项②：未决弱语义拒收（「先保留，待确认」或「待定」绝不能被当成核销）
+    decisions_pending1 = """# decisions
+- 第三方字样：#1 FESTOOL 先保留，待确认。
+"""
+    unres_p1, res_p1 = scan_third_party_risks(items_festool, mock_index, decisions_text=decisions_pending1)
+    assert len(unres_p1) == 1 and len(res_p1) == 0, f"「待确认」弱语义绝不能被核销！实际 unres={unres_p1}, res={res_p1}"
+
+    decisions_pending2 = """# decisions
+- 第三方字样：#1 FESTOOL 施工工具保留，方案待定再议。
+"""
+    unres_p2, res_p2 = scan_third_party_risks(items_festool, mock_index, decisions_text=decisions_pending2)
+    assert len(unres_p2) == 1 and len(res_p2) == 0, f"「待定再议」弱语义绝不能被核销！实际 unres={unres_p2}, res={res_p2}"
+    print("  ✅ 第二轮复核打回项②（弱语义防误核销）：「先保留，待确认」与「待定再议」精准拦截，绝不提前放行！")
+
     # 5. 核销样本 2：在元素中显式标注 third_party_action: "keep"（无需避开保留）或 "crop"
     items_keep = [{"n": 2, "asset": "asset_ppg", "in": 0.0, "out": 4.0, "third_party_action": "keep"}]
     unres_keep, res_keep = scan_third_party_risks(items_keep, mock_index)

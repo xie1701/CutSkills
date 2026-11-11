@@ -29,20 +29,31 @@ AFFIRMATIVE_PATTERN = re.compile(
     re.IGNORECASE
 )
 
-# 否定/要求避开指示（黑名单）：明确指示不能保留、必须打码、必须换段但未处理的，坚决不予核销
+# 否定/要求避开指示/未决弱语义（黑名单）：
+# 包含明确指示不能保留、必须打码、必须换段，以及「待确认/未确认/待定/再议」等未拍板弱语义的，坚决不予核销
 NEGATIVE_PATTERN = re.compile(
     r"不能保留|不可保留|不许保留|不得保留|不要保留|禁止|严禁|不得出镜|不可出镜|"
-    r"必须避开|需要避开|应当避开|必须打码|需要打码|必须换|需要换|必须裁|需要裁|不能露|不可露"
+    r"必须避开|需要避开|应当避开|必须打码|需要打码|必须换|需要换|必须裁|需要裁|不能露|不可露|"
+    r"待确认|未确认|尚未确认|暂未确认|待定|再议|待核实|未核实|待商榷|先保留.*待",
+    re.IGNORECASE
 )
+
+# 泛指词集合：绝对不能作为品牌特征单独用于跨段核销判断
+GENERIC_BRAND_WORDS = {
+    "第三方", "品牌", "字样", "商标", "标志", "打码", "水印", "logo",
+    "工具", "入镜", "机身", "衣服", "贴纸", "特写", "后排", "白t", "印有",
+    "区域", "画面", "镜头", "素材", "片段"
+}
 
 
 def is_brand_acknowledged(seg_n: int, flags: list[str], asset_name: str, decisions_text: str | None) -> tuple[bool, str]:
     """检查该段的第三方字样是否已在 decisions.md 中确认放行（例如经用户确认无需避开或已处置）。
     
-    严谨性规则（T-007 整改）：
-      1. 必须包含明确的放行/确认语义（AFFIRMATIVE_PATTERN，如「无需避开」「真实工具保留」「已确认」）；
-      2. 若包含否定指示（NEGATIVE_PATTERN，如「不能保留」「必须打码」），坚决拒收，杜绝误核销；
-      3. 必须与对应段号（#N）或具体品牌/素材名关联，不认脱节泛指。
+    严谨性规则（T-007 第二轮整改）：
+      1. 跨段防误核销：若 decisions 行显式指定了其他段号（如 #2），绝对不得跨段核销当前段（#1）；
+      2. 泛指词隔离：第三方/品牌/字样/商标等泛指词不得单独作为命中品牌的依据，必须命中 flags 里实际具体品牌词；
+      3. 必须包含明确的放行/确认语义（AFFIRMATIVE_PATTERN，如「无需避开」「真实工具保留」「已确认」）；
+      4. 弱语义拒收：若包含否定整改或「待确认/未确认/待定/再议」等未决状态（NEGATIVE_PATTERN），坚决拒收。
     """
     if not decisions_text:
         return False, ""
@@ -53,33 +64,51 @@ def is_brand_acknowledged(seg_n: int, flags: list[str], asset_name: str, decisio
         if not ln_s or ln_s.startswith("#"):
             continue
 
-        # 检查段号匹配或品牌特征匹配
-        hit_seg = f"#{seg_n}" in ln_s or f"第{seg_n}段" in ln_s or f"第{seg_n}格" in ln_s or f"S{seg_n:02d}" in ln_s
+        # 检查是否显式提到了其他段号（如 #2, #3, 第2段等）
+        other_segs = set(re.findall(r"#(\d+)|第(\d+)[段格]|S(\d{2})", ln_s))
+        mentioned_segs = {int(x) for tup in other_segs for x in tup if x}
+        if mentioned_segs and seg_n not in mentioned_segs:
+            # 这一行显式指名了其他段号且不包含当前段，绝对不得跨段核销当前段
+            continue
+
+        # 检查段号匹配
+        hit_seg = seg_n in mentioned_segs if mentioned_segs else (
+            f"#{seg_n}" in ln_s or f"第{seg_n}段" in ln_s or f"第{seg_n}格" in ln_s or f"S{seg_n:02d}" in ln_s
+        )
+
+        # 检查具体品牌特征匹配（排除泛指词）
         hit_brand = False
         for f in flags:
-            words = [w for w in re.split(r"[\s_（）()，,：:]+", f) if len(w) >= 2]
+            words = [w.strip() for w in re.split(r"[\s_（）()，,：:「」\"']+", str(f)) if len(w.strip()) >= 2]
             for w in words:
+                if w.lower() in GENERIC_BRAND_WORDS:
+                    continue
                 if w.lower() in ln_s.lower():
                     hit_brand = True
                     break
             if hit_brand:
                 break
-        if not hit_brand and any(b in ln_s.upper() for b in ("FESTOOL", "PPG", "第三方", "品牌", "字样", "商标")):
-            hit_brand = True
 
-        # 如果既没提到段号也没提到品牌，跳过
+        # 也可比对具体素材名关键标识（排除泛指词）
+        if not hit_brand and asset_name:
+            stem = Path(asset_name).stem
+            stem_words = [w for w in re.split(r"[\s_]+", stem) if len(w) >= 3 and w.lower() not in GENERIC_BRAND_WORDS]
+            for sw in stem_words:
+                if sw.lower() in ln_s.lower():
+                    hit_brand = True
+                    break
+
+        # 如果既没提到当前段号也没提到该段的具体品牌词，跳过
         if not (hit_seg or hit_brand):
             continue
 
-        # 如果包含明确否定整改语义（如「不能保留」「必须换段」），不予核销
+        # 如果包含否定整改语义或未决弱语义（如「待确认」「待定」「不能保留」），坚决不予核销
         if NEGATIVE_PATTERN.search(ln_s):
             continue
 
         # 必须匹配明确的肯定放行词（包含用户确认无需避开/真实工具保留）
         if AFFIRMATIVE_PATTERN.search(ln_s):
-            # 若段号与品牌任意关联成立，即可核销
-            if hit_seg or hit_brand:
-                return True, f"decisions.md 确认留痕（无需避开/保留）：{ln_s[:60]}"
+            return True, f"decisions.md 确认留痕（无需避开/保留）：{ln_s[:60]}"
 
     return False, ""
 
