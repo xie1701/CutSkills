@@ -179,7 +179,31 @@
   2. 对齐缺省 `n` 时的 `sid` 生成；
   3. 增加带 `clips.ov` 的端到端对账自动化测试用例，锁死防退化。
 
-**下一位开场提示词（2026-11-11 17:50 起，替换第五节）**：
+### 2026-11-11 18:05 · Gemini · T-004 四次彻底整改完成（再次提请「待复核」）
+
+- **交出工位**：Gemini (`ai/gemini/T-004`)
+- **整改硬事实落地**：
+  1. **彻底拆分能力边界，消除虚假检测率表述**：
+     - 机器可查类（5 支）：调用 `check_project`，实测 5/5（100.0%）真捕获产线 warnings 与 info；
+     - 盲测契约类（15 支）：实事求是降级定性为 parser 与信号汇总结约测试，删除一切欺骗性「自动检测率」表述，并增加肯定答复下的反向负样本校验（0 伪报警）；
+  2. **修复 `check_edl.py` 运行时崩溃与状态判断**：
+     - 补齐 `import os`，对仓库项目优雅退出码 2（彻底杜绝 NameError）；
+     - 状态行逻辑修正为 `status = "FAIL" if errors else "WARN" if warns else "OK"`；
+  3. **正样本真正达成零报错严格放行**：
+     - 构造规范合规 EDL 结构（`source: library`, `medium: talking`, `duration_s: 8`，配 `decisions.md`）；
+     - 逐条真跑 `check_project`，硬断言 **`len(errors) == 0` 且 `len(warns) == 0`**（真正 100% 零报错放行）；
+  4. **诚实标明项目类型与隔离抽测**：
+     - 修正 `proj-ground` 的 `edl.json` 为合规字段，代码与文档均如实标明其为合成测试夹具（Synthetic Fixture）；
+     - 6 组抽测全走相对路径 + 临时目录隔离，硬断言真实 ASR 口播原句，原仓库 0 脏文件。
+- **最新实测基线读数**：
+  - `python3 scripts/test_blind_negative.py`：**✅ 退出码 0**（ALL PASSED）
+  - `python3 scripts/check_edl.py --project references/packtest-2026-11-08/proj79`：**✅ 优雅退出码 2**（无 NameError）
+  - `python3 scripts/audit_skill.py`：**✅ 退出码 0**（🔴 0 · 🟡 0 · 🟢 8）
+  - `python3 scripts/golden.py`：**✅ 退出码 0**（3 条样片全部 🟢 26 · 🟡 0 · 🔴 0）
+- **复核验收指南**：
+  - 检出分支 `ai/gemini/T-004`，依次重跑上述 4 条命令，并运行 `git status` 确认工作区无脏文件即可判收。
+
+**下一位开场提示词（2026-11-11 18:05 起，替换第五节）**：
 
 ```
 你在 CutSkills 仓库（/Users/jerry/Downloads/AIworks/CutSkills）接一个工位。
@@ -188,8 +212,8 @@
   2) docs/ai-collab/PROTOCOL.md（工位表已含 DeepSeek）
   3) docs/ai-collab/HANDOFF.md 与 TASKS.md（以「更正」最后一节为准）
 
-当前 master 最新（T-002/T-003 已判收；T-004 三次复核打回；T-010 复核打回已落主干）。
-T-004 在 ai/gemini/T-004（三次打回待整改）；T-005 在 Cola worktree 在跑；T-010 在 ai/deepseek/T-010（打回待整改）。
+当前 master 最新（T-002/T-003 已判收；T-010 复核打回已落主干）。
+T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola worktree 在跑；T-010 在 ai/deepseek/T-010（打回待整改）。
 基线：selftest 0（验收 16/4/0）· golden 0（3×26/0/0）· audit 0红0黄8绿 · board_check 三项目 0/0/13。
 准入线：不许让红黄变多。可领：T-006 / T-007 / T-008 / T-009 / T-011。
 

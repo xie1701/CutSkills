@@ -13,6 +13,7 @@ import argparse
 import difflib
 import hashlib
 import json
+import os
 import re
 import statistics
 import sys
@@ -535,7 +536,7 @@ def main() -> int:
             print(e, file=sys.stderr)
         return 2
 
-    status = "OK" if not errors else "WARN" if warns else "FAIL"
+    status = "FAIL" if errors else "WARN" if warns else "OK"
     print(f"{status}  ·  error {len(errors)}  warning {len(warns)}")
     for e in errors:
         print(f"  error: {e}")

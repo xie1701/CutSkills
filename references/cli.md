@@ -736,7 +736,7 @@
 | `--json` | 开关 |
 
 ### `test_blind_negative.py`
-*CutSkills · 盲测收口与阴性样本防误杀测试套件 (P4)*
+*CutSkills · 盲测收口与阴性防误杀测试套件 (P4)*
 
 （无参数）
 
