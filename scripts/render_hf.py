@@ -935,6 +935,7 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         if start is None:
             continue
         _cd = {"kind": kind, "text": str(c.get("text") or ""),
+               "data": c.get("data") or None,
                "start": start, "end": round(start + d, 3),
                "anchor_word": on or None,
                "anchor_t": round(float(anchor_t), 3) if anchor_t is not None else None,
@@ -1004,6 +1005,44 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   text-shadow:0 6px 22px rgba(0,0,0,0.6); {kw_extra} }}
 .idcard {{ position:absolute; left:{idc_x}%; top:{idc_y}%; text-align:left; }}
 .idcard span {{ display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }}
+/* MG 卡（stat / steps / versus / term）：底是半透明 ground，左边一条 accent 竖条。
+   位置固定在字幕带之上、人脸两侧的空白里——卡比字面积大，压脸比压字幕更难救。 */
+.mg {{ left:6%; right:6%; top:{mg_top}%; padding:34px 38px 32px;
+      border-radius:var(--radius); background:rgba(16,12,9,0.78);
+      -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px);
+      border-left:6px solid var(--accent); display:flex; flex-direction:column; }}
+.mg .mg-title {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:38px;
+  color:var(--ink); opacity:.86; letter-spacing:.02em; margin-bottom:20px; }}
+.mg-stat .mg-hero {{ display:flex; align-items:baseline; gap:10px; }}
+.mg-stat .num {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:150px;
+  line-height:1; color:var(--accent); letter-spacing:-.01em; }}
+.mg-stat .unit {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:58px;
+  color:var(--accent); }}
+.mg-stat .mg-label {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:40px;
+  color:var(--ink); margin-top:14px; line-height:1.3; }}
+.mg-stat .mg-src {{ font-family:"SC-Sub", sans-serif; font-size:24px; color:var(--ink);
+  opacity:.55; margin-top:12px; }}
+.mg-steps ol {{ list-style:none; display:flex; flex-direction:column; gap:16px; }}
+.mg-steps li {{ display:flex; align-items:center; gap:18px; }}
+.mg-steps li b {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:34px;
+  color:var(--accent); min-width:52px; }}
+.mg-steps li span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:42px;
+  color:var(--ink); line-height:1.24; }}
+.mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:16px; }}
+.mg-versus .side {{ flex:1; display:flex; flex-direction:column; gap:10px; padding:18px 16px;
+  border-radius:calc(var(--radius) - 6px); background:rgba(255,255,255,0.06); }}
+.mg-versus .side b {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:42px;
+  color:var(--accent); }}
+.mg-versus .side span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:40px;
+  color:var(--ink); line-height:1.28; }}
+.mg-versus .vs {{ align-self:center; font-family:"SC-Big", sans-serif; font-weight:900;
+  font-size:36px; color:var(--accent2); opacity:.95; }}
+.mg-versus .mg-tail {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:32px;
+  color:var(--ink); opacity:.9; margin-top:16px; }}
+.mg-term .mg-term {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:86px;
+  color:var(--accent); line-height:1.06; }}
+.mg-term .mg-def {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:42px;
+  color:var(--ink); margin-top:16px; line-height:1.3; }}
 {gen_css}
 </style>
 </head>
@@ -1041,6 +1080,54 @@ document.querySelectorAll(".kw").forEach((c) => {{
        immediateRender: false }}, t);
   tl.to(c.querySelector("span"), {{ opacity: 0, duration: 0.16, ease: "power1.in" }},
         t + Math.max(0, d - 0.16));
+}});
+// MG 卡：件与件之间要有先后，否则就是一页 PPT 硬切上来。
+document.querySelectorAll(".mg").forEach((c) => {{
+  const t = parseFloat(c.dataset.start);
+  const d = parseFloat(c.dataset.duration);
+  tl.set(c, {{ opacity: 0 }}, t);
+  tl.fromTo(c, {{ opacity: 0, y: 26 }},
+    {{ opacity: 1, y: 0, duration: 0.26, ease: "power2.out", immediateRender: false }}, t);
+  // 数字卡：从 0 滚上去。单位跟着数字尾巴一起淡入，读起来是「先说数，再说量纲」
+  const num = c.querySelector(".num");
+  if (num) {{
+    const raw = num.dataset.to || num.textContent;
+    const target = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+    if (!isNaN(target)) {{
+      const o = {{ v: 0 }};
+      const dec = /\\d[.,]\\d/.test(String(raw)) ? 1 : 0;
+      tl.fromTo(o, {{ v: 0 }}, {{
+        v: target, duration: 0.45, ease: "power2.out", immediateRender: false,
+        onUpdate: () => {{ num.textContent = dec ? o.v.toFixed(1) : String(Math.round(o.v)); }},
+        onComplete: () => {{ num.textContent = raw; }}
+      }}, t + 0.06);
+      const unit = num.parentElement.querySelector(".unit");
+      if (unit) {{
+        tl.fromTo(unit, {{ opacity: 0 }},
+          {{ opacity: 1, duration: 0.2, immediateRender: false }}, t + 0.5);
+      }}
+    }}
+  }}
+  // 条目逐条进来（步骤卡 / 对比卡的两栏 / 术语卡的释义）
+  const kids = c.querySelectorAll("li, .side, .mg-tail");
+  kids.forEach((k, i) => {{
+    const when = t + 0.2 + i * 0.22;
+    tl.set(k, {{ opacity: 0 }}, t);
+    tl.fromTo(k, {{ opacity: 0, y: 16 }},
+      {{ opacity: 1, y: 0, duration: 0.24, ease: "power2.out", immediateRender: false }}, when);
+  }});
+  const vs = c.querySelector(".vs");
+  if (vs) {{
+    tl.fromTo(vs, {{ scale: 0.4, opacity: 0 }},
+      {{ scale: 1, opacity: 0.9, duration: 0.26, ease: "back.out(3)",
+         immediateRender: false }}, t + 0.42);
+  }}
+  const def = c.querySelector(".mg-def");
+  if (def) {{
+    tl.fromTo(def, {{ opacity: 0, y: 12 }},
+      {{ opacity: 1, y: 0, duration: 0.26, immediateRender: false }}, t + 0.3);
+  }}
+  tl.to(c, {{ opacity: 0, duration: 0.18, ease: "power1.in" }}, t + Math.max(0.2, d - 0.18));
 }});
 document.querySelectorAll(".idcard > span").forEach((el, i) => {{
   tl.fromTo(el, {{ x: -18, opacity: 0 }},
@@ -1098,6 +1185,60 @@ def fonts_hint(style) -> str:
     return str(f) if f else ""
 
 
+# ---------------------------------------------------------------- MG（代码画动效卡）
+
+# 五子系统里的 mg：这是**内容形态**决定的，不是风格决定的。
+# 一句话结论 → 大字；数字/规模/时长 → stat；两三个步骤或并列条件 → steps；
+# 两个方案对比 → versus；名词解释 → term。风格包只决定它长什么样（tokens）。
+MG_KINDS = {"stat", "steps", "versus", "term"}
+
+
+def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
+    """一张 MG 卡 → DOM。所有内容来自元素上的 card.data，渲染器不编内容。"""
+    d = c.get("data") or {}
+    kind = c["kind"]
+    dur = round(c["end"] - c["start"], 3)
+
+    if kind == "stat":
+        num = str(d.get("value") or "")
+        unit = str(d.get("unit") or "")
+        label = str(d.get("label") or c.get("text") or "")
+        src = str(d.get("source") or "")
+        approx = bool(d.get("approx"))
+        body = (f'      <div class="mg-hero"><span class="num" data-to="{esc(num)}">{esc(num)}</span>'
+                f'<span class="unit">{esc(unit)}</span></div>')
+        if label:
+            body += f'\n      <div class="mg-label">{esc(label)}</div>'
+        if src or approx:
+            body += ('\n      <div class="mg-src">'
+                     + (f'{esc(src)}' if src else '示意')
+                     + ('　示意' if (approx and src) else '') + '</div>')
+    elif kind == "steps":
+        title = str(d.get("title") or c.get("text") or "")
+        items = [str(x) for x in (d.get("items") or [])][:3]
+        body = (f'      <div class="mg-title">{esc(title)}</div>' if title else '')
+        body += '\n      <ol class="mg-steps">' + "".join(
+            f'<li><b>{esc(str(k + 1).zfill(2))}</b><span>{esc(t)}</span></li>'
+            for k, t in enumerate(items)) + '</ol>'
+    elif kind == "versus":
+        L = d.get("left") or {}
+        R = d.get("right") or {}
+        body = ('      <div class="mg-ver">'
+                f'<div class="side l"><b>{esc(str(L.get("head") or ""))}</b>'
+                f'<span>{esc(str(L.get("body") or ""))}</span></div>'
+                '<div class="vs">VS</div>'
+                f'<div class="side r"><b>{esc(str(R.get("head") or ""))}</b>'
+                f'<span>{esc(str(R.get("body") or ""))}</span></div></div>')
+        if d.get("tail"):
+            body += f'\n      <div class="mg-tail">{esc(str(d["tail"]))}</div>'
+    else:  # term
+        term = str(d.get("term") or c.get("text") or "")
+        body = (f'      <div class="mg-term">{esc(term)}</div>'
+                f'\n      <div class="mg-def">{esc(str(d.get("def") or ""))}</div>')
+    return (f'    <div id="mg-{i:02d}" class="clip mg mg-{kind}" '
+            f'data-start="{c["start"]}" data-duration="{dur}">\n{body}\n    </div>')
+
+
 def esc(t: str) -> str:
     return _html.escape(str(t), quote=False)
 
@@ -1149,6 +1290,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f"--radius:{int(_tk.get('radius') or 18)}px;",
         f"--stroke:{max(1, int(_tk.get('stroke') or 2))}px;",
     ])
+    # MG 卡的上沿：默认 0.21H，压在字幕带之上；pack 可用 card.mg_top_h 调
+    mg_top = round(float((style.get("card") or {}).get("mg_top_h") or 0.21) * 100, 2)
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
 
@@ -1238,6 +1381,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
             card_html.append(
                 f'    <div id="idc" class="clip idcard" data-start="{c["start"]}" '
                 f'data-duration="{d}">\n{lines}\n    </div>')
+        elif c["kind"] in MG_KINDS:
+            card_html.append(_mg_html(c, i, style))
         else:
             # 大字一律单排、撑到画幅宽度的 70%（Jerry 2026-11-09：「字体还要放大 2-3 倍
             # 能撑满屏幕宽度的 70%，但所有的大字应该控制在一排出现，要进行适当的缩放」）。
@@ -1275,9 +1420,10 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         cap_color=("#F6F1E7" if sub.get("light_text") else (sub.get("color") or "#FFFFFF")),
         cap_shadow=("0 3px 12px rgba(0,0,0,0.80)" if sub.get("light_text")
                     else (sub.get("shadow") or "0 3px 8px rgba(0,0,0,.75)")),
-        cap_extra="",
+        cap_extra=(f'-webkit-text-stroke:{sub.get("stroke")};paint-order:stroke fill;'
+                   if sub.get("stroke") else ""),
         cap_em=sub.get("em_color") or (emph.get("keyword_color") or "#FFD400"),
-        kw_top=kw_top, kw_px=kw_px, kwb_top=kwb_top, kwb_px=kwb_px,
+        kw_top=kw_top, kw_px=kw_px, kwb_top=kwb_top, kwb_px=kwb_px, mg_top=mg_top,
         kw_color=emph.get("keyword_color") or "#FFD400",
         kw_extra=("background:linear-gradient(180deg,%s 0%%,%s 100%%);"
                   "-webkit-background-clip:text;color:transparent;" %

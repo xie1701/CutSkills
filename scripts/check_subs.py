@@ -23,11 +23,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 PUNCT = "，。！？、；：…—～,.!?;:"
-MAX_CHARS = 14
-WIDE_TOL = 12             # 与 subs.MAX_CHARS 对齐：80px × 12 字 = 960 = 89%W，再长就出画
+MAX_CHARS = 10
+WIDE_TOL = 10             # 与 subs.MAX_CHARS 对齐：80px × 10 字 = 800 = 74%W，再长就压边
 # 判的是「中位数落在这个带里」：10–14 是拆长句的目标，短句本来就是 6–9 字。
 # 真卡死的是上限（>15 一刀不放过）和「一刀两断」（断词）。
-WIDTH_BAND = (8, 14)
+WIDTH_BAND = (6.5, 10.0)   # 上限 10 单位之后，中位落在 6.5–10 之间；7 是正常值
 TIGHT_GAP = 0.12          # 两条字幕贴得比这还近＝在同一口气里被切开了
 FADE_MAX = 0.12
 OVERLAP_EPS = 0.005       # 秒：小于这个算「相接」，允许
@@ -51,7 +51,8 @@ def main() -> int:
 
     punct = [c for c in cues if any(ch in PUNCT for ch in str(c.get("text") or ""))]
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from subs import HAVE_JIEBA, word_bounds, display_units, MAX_UNITS  # noqa: E402
+    from subs import (HAVE_JIEBA, word_bounds, display_units, MAX_UNITS,  # noqa: E402
+                      NO_HEAD, NO_END)
 
     def _u(c) -> float:
         return float(c.get("units") if c.get("units") is not None
@@ -62,6 +63,34 @@ def main() -> int:
     widths = sorted(units)
     med = widths[len(widths) // 2] if widths else 0
     em = sum(1 for c in cues if "<span class" in str(c.get("html") or ""))
+
+    # 每条的字幕停留 0.8–3.2 秒（对齐 srt-motion-cards 的规范）。
+    # 低于 0.8s 是「闪一下」：眼睛抓不住，比没有更累；超过 3.2s 是「一句话赖在屏幕上」，
+    # 在口播片里通常意味着这一格没有被剪好，而不是字幕该停这么久。
+    # 有稿子的片子里，句读是写的人定的：快语速下一句话只有 0.6 秒是**事实**，
+    # 硬把它拉长只能破坏句子。所以「收在句读上、并且 0.6–0.8 秒」记为提示，
+    # 真正判红的是：低于 0.6 秒，或者被宽度硬拆出来的短条（那种本来可以避免）。
+    HOLD_MIN, HOLD_MAX = 0.8, 3.2
+    hold_bad, hold_note = [], []
+    for c in cues:
+        dur = round(float(c["end"]) - float(c["start"]), 3)
+        clause = str(c.get("break_after") or "") == "clause"
+        if dur < 0.6 or dur > HOLD_MAX + 0.02 or (dur < HOLD_MIN - 0.02 and not clause):
+            hold_bad.append({"text": str(c.get("text"))[:10], "s": dur})
+        elif dur < HOLD_MIN - 0.02:
+            hold_note.append({"text": str(c.get("text"))[:10], "s": dur})
+
+    # 助词孤行：条首/条尾落在虚字上，读起来像上一句的尾巴。
+    tail = []
+    for c in cues:
+        t = str(c.get("text") or "")
+        if not t:
+            continue
+        style_end = str(c.get("break_after") or "") == "clause"   # 收在句读上：写字的人的选择
+        if t[0] in NO_HEAD:
+            tail.append({"text": t[:10], "why": f"起头是「{t[0]}」"})
+        elif len(t) >= 2 and t[-1] in NO_END and not style_end:
+            tail.append({"text": t[:10], "why": f"收尾是「{t[-1]}」"})
 
     # 半开帧窗零重叠（2026-11-11）：字幕重叠是画面上**必然**看得见的错，
     # 不该靠事后审计发现，也不该允许被 --force 越过。老 subs.json 没有 sf/ef，
@@ -98,6 +127,10 @@ def main() -> int:
         gap = float(nxt["start"]) - float(prev["end"])
         if gap > 0.40:                       # 中间空了一大截，这两条本来就不连着
             continue
+        # 在稿子的逗号处断的不算断词：那里本来就是两个小句，
+        # 接回去当然「不是一个词」——判据要盯的是被宽度硬拆的地方。
+        if str(prev.get("break_after") or "") == "clause":
+            continue
         if HAVE_JIEBA:
             bad = len(a_) not in word_bounds(a_ + b_)
         else:                                 # 没分词器只能退回老判据
@@ -133,6 +166,9 @@ def main() -> int:
         "emphasis_cues": ({"value": em, "pass": em > 0, "need": ">0"} if colorize
                           else {"value": em, "pass": em == 0, "need": "=0（已取消变色）"}),
         "fade_s": {"value": fade, "pass": fade <= FADE_MAX, "need": f"<={FADE_MAX}"},
+        "hold": {"value": len(hold_bad), "pass": not hold_bad, "need": f"每条 {HOLD_MIN}–{HOLD_MAX}s",
+                 "note": [f"{x['text']} {x['s']}s" for x in hold_note[:3]]},
+        "dangling": {"value": len(tail), "pass": not tail, "need": "助词不孤行"},
     }
     ok = all(v["pass"] for v in checks.values())
     rep = {"cues": len(cues), "checks": checks, "ok": ok,
@@ -141,6 +177,7 @@ def main() -> int:
            "word_split": tight[:5],
            "overlap": overlap[:5],
            "frames": "✅ 半开帧窗" if has_frames else "老文件没有 sf/ef，重渲后生效",
+           "hold": hold_bad[:5], "dangling": tail[:5],
            "widths": {"min": widths[0] if widths else 0, "max": widths[-1] if widths else 0,
                       "median": round(med, 2), "unit": "汉字宽"}}
 
@@ -156,6 +193,10 @@ def main() -> int:
     print(f"  重叠 {'✅' if not overlap else '✗ ' + str(len(overlap))}"
           f" · 帧窗 {'✅' if has_frames and not bad_frames else ('✗' if bad_frames else '老文件')}")
     _ok = (em > 0) if colorize else (em == 0)
+    print(f"  停留 {'✅' if not hold_bad else '✗ ' + str(len(hold_bad))}"
+          f"（每条 {HOLD_MIN}–{HOLD_MAX}s）")
+    print(f"  助词孤行 {'✅' if not tail else '✗ ' + str(len(tail))}"
+          + ("" if not tail else f"  例：{tail[0]['text']}（{tail[0]['why']}）"))
     print(f"  强调色 {em} 条{'✅' if _ok else '✗'}{'' if colorize else '（已取消）'}"
           f" · 淡入 {fade:.2f}s{'✅' if fade <= FADE_MAX else '✗'}")
     for t in [c.get("text") for c in punct[:3]]:

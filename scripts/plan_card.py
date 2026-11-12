@@ -80,6 +80,79 @@ def _events(proj: Path) -> list[dict]:
     return json.loads(p.read_text()).get("events") or []
 
 
+MG_LABEL = {"stat": "数字卡", "steps": "步骤卡", "versus": "对比卡", "term": "术语卡"}
+
+
+def _card_label(c: dict) -> str:
+    """一张卡在方案上的说法。MG 卡要写清「哪一种」，不然人看不出它是不是数字卡。"""
+    kind = str(c.get("kind") or "keyword")
+    text = str(c.get("text") or "")
+    if kind in MG_LABEL:
+        return f"{MG_LABEL[kind]}「{text}」"
+    return f"大字「{text}」"
+
+
+def _mg_section(A, tl: dict, st: dict) -> None:
+    """包装里的第三块：MG（代码画的动效卡）。
+
+    这一节必须由**时间轴里真写了什么**推出来，不能照抄包的菜单——
+    菜单上有五种、片子里用了零种，是最容易骗人的一种「看起来做了」。
+    """
+    mg = st.get("mg") or {}
+    lib = [str(x) for x in (mg.get("library") or [])]
+    used: dict[str, list[dict]] = {}
+    for e in tl.get("elements") or []:
+        c = e.get("card") or {}
+        k = str(c.get("kind") or "")
+        if k in MG_LABEL:
+            used.setdefault(k, []).append({"n": e.get("n"), "text": c.get("text"),
+                                           "data": c.get("data") or {}})
+    n_kw = sum(1 for e in tl.get("elements") or []
+               if (e.get("card") or {}) and str((e.get("card") or {}).get("kind") or "keyword")
+               not in MG_LABEL)
+    A("## MG（代码画的动效卡）")
+    A("")
+    if lib:
+        A(f"这套包装允许：{'、'.join(lib)}。选哪张由**这一格说什么**决定，不是由风格决定。")
+    else:
+        A("⚠️ 这套包装没有声明 MG 库：这条片只能靠大字。")
+    A("")
+    if not used:
+        A("这条片**一张 MG 卡都没用**——只有大字。如果内容里有数字、对比、流程、行话，"
+          "那几张该补上（下面给了建议）。")
+    else:
+        A("| 卡型 | 落在第几格 | 卡上写什么 | 数据 |")
+        A("|---|---|---|---|")
+        for k, items in used.items():
+            cells = "、".join(f"#{x['n']}" for x in items)
+            texts = "；".join(str(x["text"]) for x in items)
+            dat = "；".join(
+                ", ".join(f"{kk}={vv}" for kk, vv in (x["data"] or {}).items()
+                          if not isinstance(vv, dict)) or "—"
+                for x in items)
+            A(f"| {MG_LABEL[k]} | {cells} | {texts} | {dat} |")
+        A("")
+    # 建议：按内容形态数一遍「该有而没有」的卡
+    hints = []
+    for e in tl.get("elements") or []:
+        said = str(e.get("evidence") or "")
+        c = e.get("card") or {}
+        k = str(c.get("kind") or "")
+        if k in MG_LABEL:
+            continue
+        import re as _re
+        if _re.search(r"\d|[一二三四五六七八九十百千万两]+\s*(平|万|个|张|间|人|种|年|月|块)", said):
+            hints.append(f"#{e['n']}「{said[:16]}」里有数字，可上数字卡")
+        elif _re.search(r"早上|晚上|一个.*一个|一边.*一边|系.*定系", said):
+            hints.append(f"#{e['n']}「{said[:16]}」像对比，可上对比卡")
+    if hints:
+        A("建议补的卡（内容形态看出来的，采不采由你）：")
+        A("")
+        for h in hints[:5]:
+            A(f"- {h}")
+        A("")
+
+
 def build(proj: Path, root: Path) -> str:
     brief = json.loads((proj / "brief.json").read_text())
     tl = json.loads((proj / "timeline.json").read_text())
@@ -143,9 +216,9 @@ def build(proj: Path, root: Path) -> str:
         # 大字可能写在 timeline 的格子里，也可能是渲染时才算出来的 cards.json。
         # cards.json 里的 el 是空的（卡片是渲的时候才算的），所以要按时间窗口兜一层。
         for c in cards.get(int(e["n"]), []):
-            extra.append(f"大字「{c.get('text')}」")
+            extra.append(_card_label(c))
         if not extra and e.get("card"):
-            extra.append(f"大字「{e['card'].get('text')}」")
+            extra.append(_card_label(e["card"]))
         if e.get("kind") == "gen":
             nm = (e.get("props") or {}).get("scene")
             extra.append(f"代码画面：{nm}" if nm else "代码画面（非卡片）")
@@ -195,6 +268,7 @@ def build(proj: Path, root: Path) -> str:
     if sfx:
         A("音效点：" + "、".join(f"{e['t']:.1f}s {e.get('name')}" for e in sfx[:12]))
         A("")
+    _mg_section(A, tl, st)
     A("## 素材与法律风险")
     A("")
     risks = brief.get("risks") or []

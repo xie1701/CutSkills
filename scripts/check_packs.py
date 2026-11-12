@@ -32,6 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 SUBTITLE_SYSTEMS = {"single-line", "bilingual", "none"}
+# MG 库：包里声明「这套衣服允许用哪几种动效卡」。不认识的 kind 直接判红——
+# 声明了却渲不出来，是最难查的一类：方案卡上写着有卡，画面上什么都没有。
+KNOWN_MG = {"keyword-big", "stat", "steps", "versus", "term"}
 KNOWN_FX = {
     "hard_cut", "nudge_in", "cover_fg", "page_turn", "note_drop", "wipe",
     "type_on", "count_up", "draw_line", "blur_in", "shake", "none",
@@ -102,6 +105,15 @@ def check_schema(pid: str, pack: dict, grades: set[str]) -> tuple[list[str], lis
     planned = [x for x in fx if x in PLANNED_FX]
     if planned:
         warn.append(f"fx 里这几个还没做：{planned}（声明先行，但那几样效果现在不会发生）")
+
+    mg = pack.get("mg") or {}
+    lib = [str(x) for x in (mg.get("library") or [])]
+    bad_mg = [x for x in lib if x not in KNOWN_MG]
+    need(not bad_mg, f"mg.library 里有渲染器画不出来的卡型：{bad_mg}（可选 {sorted(KNOWN_MG)}）")
+    if not lib:
+        warn.append("没写 mg.library：这条片只能靠大字，等于没做 MG")
+    if lib and "keyword-big" not in lib:
+        warn.append("mg.library 里没有 keyword-big——一句话结论没有卡可用")
 
     g = pack.get("grade")
     if g:

@@ -26,11 +26,13 @@ subtitle:
   weight: ExtraBold
   color: "#FFFFFF"
   shadow: "0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9)"
+  stroke: "2px rgba(0,0,0,0.35)"     # 白字压在浅色食物/木纹镜头上会被吃掉（欧阳 b 片实测）
+
   center_y_px: 1294                 # 67.4% 高
   safe_bottom_px: 300               # 平台底栏，正文不许进
-  max_chars_per_line: 14            # 目标 8–9；14 是单呼吸组的上限（subs.py MAX_CHARS）
-  hold_min_s: 0.75
-  hold_max_s: 2.4
+  max_chars_per_line: 10            # 单行 ≤10 展示单位（2026-11-12 收档，对齐 srt-motion-cards 规范）
+  hold_min_s: 0.8                   # 每条 0.8–3.2s：再短抓不住，再长是这一格没剪好
+  hold_max_s: 3.2
   density_per_min: [45, 58]         # 实测 50–56；低于 40 显拖
   entry: hard_cut                   # 硬切，不做入场动画
   colorize_emphasis: false          # 2026-11-09 Jerry：「字幕的重点词变色还是取消」。
@@ -67,3 +69,28 @@ audio:
 
 card:
   bottom_edge_max_px: 1080          # 卡片底边不超过这里，否则白字幕被浅色卡片吞掉
+  mg_top_h: 0.21                    # MG 卡上沿
+
+# MG（代码画的动效卡）—— 五子系统里原来缺的这一块。
+# 光有大字等于把字幕放大一遍；数字、步骤、对比、行话得真的画出来。
+# 选哪张看内容形态（references/mg-library.md），不看风格；这里只定「允许哪几种」与「长什么样」。
+mg:
+  library: [keyword-big, stat, steps, versus, term]
+  rules:
+    - 一批片子里同一个卡型不重复超过 2 次
+    - 每条片至少一张内容专属卡：有数字用 stat，有对比用 versus，有流程用 steps
+    - MG 卡不许压字幕带、不许压人脸；一屏只讲一件事
+    - 卡上的话必须是台词里的原词
+
+tokens:
+  palette:
+    ground: "#1A1410"
+    ink: "#FFFFFF"
+    accent: "#F6EB34"
+    accent2: "#C1121F"
+  type:
+    display: NotoSansSC-Black
+    body: NotoSansSC-SemiBold
+  radius: 18
+  stroke: 0
+  shadow: soft-down

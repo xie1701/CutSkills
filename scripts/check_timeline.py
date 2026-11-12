@@ -369,6 +369,36 @@ def main() -> int:
     dec_f = proj / "decisions.md"
     dec_text = dec_f.read_text(encoding="utf-8") if dec_f.exists() else None
     probs = check(tl, index, strict=a.strict, decisions_text=dec_text)
+    # 别人的话不许进片：场记口令 / 摄影师的指导语 / 主播自己的重说。
+    # 这一条放在这里而不是只在 cue_guard 里，是因为它是**时间轴层面的错**：
+    # 音频窗口一旦套住口令，剪辑方案就已经错了，后面渲得再好也是错的。
+    try:
+        import cue_guard
+        by_id = {x.get("id"): x for x in (index.get("assets") if isinstance(index, dict) else []) or []}
+        if not by_id and isinstance(index, list):
+            by_id = {x.get("id"): x for x in index}
+        root = lib
+        for el in tl.get("elements") or []:
+            au = el.get("audio") or {}
+            aid = au.get("asset")
+            rec = by_id.get(aid)
+            if not rec:
+                continue
+            ws = cue_guard.words_of(rec, root)
+            cues = cue_guard.find_cues(ws)
+            if not cues:
+                continue
+            a0, a1 = float(au.get("in") or 0), float(au.get("out") or 0)
+            na, nb, why = cue_guard.trim(a0, a1, cues, ws)
+            stuck = [c for c in cues if na + 0.02 < c["t0"] and c["t1"] < nb - 0.02]
+            if stuck:
+                probs.append(("error", f"#{el.get('n')} 音频窗口里夹着口令「{stuck[0]['text']}」——"
+                                       "别人的话进了片子，换素材或拆镜"))
+            elif abs(na - a0) > 0.01 or abs(nb - a1) > 0.01:
+                probs.append(("warning", f"#{el.get('n')} 端点踩到口令，应改成 "
+                                         f"{na:.2f}–{nb:.2f}（cue_guard --fix）"))
+    except Exception as exc:                      # noqa: BLE001
+        probs.append(("warning", f"口令检查没跑起来：{type(exc).__name__}: {exc}"))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)

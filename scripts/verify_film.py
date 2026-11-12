@@ -537,6 +537,21 @@ def main() -> int:
                     "green" if share > floor else "red",
                     "" if share > floor else
                     f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
+            elif kind in ("stat", "steps", "versus", "term"):
+                # MG 卡：底色是半透明 ground，accent 只出现在数字/标题/序号上，面积天然很小。
+                # 量「accent 一丁点都没有」这件事就够了——它零，说明这一格根本没画上去。
+                share = 0.0
+                for frac in (0.4, 0.65, 0.85):
+                    tt = min(dur - 0.05, a_ + (b_ - a_) * frac)
+                    im_ = frame_at(tt, f"mg{c.get('el')}{frac}", "RGB")
+                    if im_ is None:
+                        continue
+                    share = max(share, kw_share(im_, (0, int(H * 0.19), W, int(H * 0.62))))
+                add(f"MG 卡烧进画面（{kind}）",
+                    f"{mid:.1f}s 处 accent 占比 {share * 100:.2f}%",
+                    "green" if share > 0.0008 else "red",
+                    "" if share > 0.0008 else
+                    f"{kind} 卡在 {a_:.1f}–{b_:.1f}s，画面里找不到包装 accent 色——卡没上去")
             elif kind == "idcard":
                 whites = color_share(im, "#FFFFFF", (0, 0, W, int(H * 0.42)), tol=40)
                 add("身份卡烧进画面", f"{mid:.1f}s 处白字占比 {whites * 100:.2f}%",

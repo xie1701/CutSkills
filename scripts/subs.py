@@ -4,7 +4,7 @@
 2026-11-09 改的规则（Jerry 定的）：
   ① 不出标点——句读靠停顿和位置，屏幕上不出现「，。？！、；」
   ② 一段字幕必须是一个**完整的呼吸组**，不许把一个词切成前后两条
-  ③ 单行，不换行；宽度落在 10–14 字（长了切、短了并）
+  ③ 单行，不换行；一行最多 10 个展示单位（约 10 个汉字）、目标 8 个；每条 0.8–3.2 秒
   ④ 整段硬切：淡入淡出 ≤120ms，不做滑动
   ⑤ 数字与否定/对比词变色（只这两类，别乱染）
 
@@ -24,16 +24,19 @@ import lexicon  # noqa: E402  转写词表（品牌名/术语）纠错
 
 PUNCT = "，。！？、；：…—～,.!?;:"
 SENTINEL = "\x00"        # 句边界标记，不进字幕
+MIN_HOLD = 0.8            # 一条字幕最短停留（低于这个眼睛抓不住；对齐 srt-motion-cards 规范）
 GAP_BREAK = 0.30          # 呼吸组之间的停顿
 GAP_SPLIT = 0.12          # 组内允许拆开的最小停顿
 # 上限不是拍出来的，是**算**出来的：字号 80px、1080 宽，14 字就是 1120px，
 # 比画幅还宽——2026-11-09 逐帧量成片才发现字幕两头都被切掉了（左上和右下都缺字），
 # 而所有 JSON 和判据全是绿的（判据按「字数 ≤14」放行，没人算过像素）。
-# 参考片同口径：字幕 bbox p50 57%W、p90 71%W、最大 88%W。12 字 × 80px = 960 = 89%W。
-MAX_CHARS = 12            # 目标上限（≈89%W）
-HARD_MAX = 12             # 真上限：超过就必然出画，不再"宁可长一点"
-MIN_CHARS = 7             # 少于这个字并且前后离得近就并进邻居（8 字一闪太快）
-TARGET_SOFT = 10          # 到这么多字、后面又有小停顿，就收口（凑成 10–14 的观感）
+# 参考片同口径：字幕 bbox p50 57%W、p90 71%W、最大 88%W。
+# 2026-11-12 再收一档到 10 个单位（对齐 srt-motion-cards 的规范：单行 ≤10 显示单位）。
+# 10 字 × 80px = 800px = 74%W，跟参考片的 p90 对上；12 字是 89%W，已经在满幅边缘。
+MAX_CHARS = 10            # 目标上限（≈74%W）
+HARD_MAX = 10             # 真上限：超过就必然出画，不再"宁可长一点"
+MIN_CHARS = 6             # 少于这个字并且前后离得近就并进邻居（一闪太快）
+TARGET_SOFT = 8           # 到这么多字、后面又有小停顿，就收口
 
 # ── 展示单位（2026-11-11）────────────────────────────────────────────────
 # 过去按「字符数」算宽度，于是 `FESTOOL RO 150 FEQ` 这 18 个字符被当 18 字砍掉，
@@ -41,10 +44,10 @@ TARGET_SOFT = 10          # 到这么多字、后面又有小停顿，就收口�
 # 中日韩/全角 = 1，半角可打印 ≈ 1/3，空白 = 0。
 # 注意：单位是**写作规则**，不是像素保证——真宽度仍由 verify_film 的「字幕最宽（像素）」
 # 和 check_subs 的估算宽判据兜。两条都不能省。
-MAX_UNITS = 12.0          # = MAX_CHARS 个汉字
-MIN_UNITS = 7.0
-TARGET_SOFT_UNITS = 10.0
-HARD_UNITS = 12.0
+MAX_UNITS = 10.0          # = MAX_CHARS 个汉字
+MIN_UNITS = 5.0
+TARGET_SOFT_UNITS = 8.0
+HARD_UNITS = 10.0
 HALF_W = 0.34             # 半角字符相对汉字宽度（实测思源黑体 0.32–0.36）
 
 
@@ -79,6 +82,9 @@ STARTERS = set("我你他她它这那哪谁什怎那可就也还又再才只不�
 # （2026-11-11 欧阳这批实测：「所以好多人都觉得我」|「好傻一个六百平嘅店」）。
 # 粤语口语字一并算上：嘅/咗/唔/喺/佢。
 NO_END = set("我你他她它嘅咗唔喺佢哋同埋将把被对向从到为与和及或者系都就才很更最只得地")
+# 不许起头的字：助词、量词尾巴、粤语助词。落在这儿读起来像上一句的尾巴
+# （「…任何表面」|「的让他成为成品就」），也是一条条读下来最别扭的地方。
+NO_HEAD = set("的了着过嘅咗咧啦呀㗎啲哋咩嘛喎啩添嚟返咁")
 
 # 分词器：只用来判「这个词能不能断」。装在 scripts/vendor/ 里（本机 pip 走 SOCKS 代理
 # 必失败，只能手动放），装不上就退回上面那两个字表——不精确，但能把「厦|门」拦住。
@@ -152,11 +158,12 @@ def choose_cut(buf: list[tuple[str, float, float]], target: int | None = None) -
         # 「的」被甩到下一句开头，读着像下一句的定语。中文习惯把「的」留在前一句，
         # 所以落在轻声字（的了着过…）之后的切点加分。
         return min(b, key=lambda p: abs(p - goal) - (1.5 if buf[p - 1][0] in ENDERS else 0)
-                      + (3.0 if buf[p - 1][0] in NO_END else 0))
+                      + (3.0 if buf[p - 1][0] in NO_END else 0)
+                      + (2.5 if buf[p][0] in NO_HEAD else 0))
     best, best_k = 0, None
     for k in range(lo, hi + 1):
         sc = (2 if buf[k - 1][0] in ENDERS else 0) + (2 if buf[k][0] in STARTERS else 0) \
-             - (3 if buf[k - 1][0] in NO_END else 0)
+             - (3 if buf[k - 1][0] in NO_END else 0) - (2.5 if buf[k][0] in NO_HEAD else 0)
         if sc > best:
             best, best_k = sc, k
     return best_k
@@ -232,7 +239,18 @@ def retime_to_script(items, script: str):
             sent_at.append(len(A))
         else:
             A.append(it)
-    B = [ch for ch in (script or "") if ch not in PUNCT and ch != SENTINEL]
+    # 书面稿里的句读是**写的人定的句界**，比 ASR 的停顿可靠得多：
+    # 照 ASR 断，会上出「…厨房系大系」|「因为纯手工」这种把连词甩到下一行的切口。
+    # 所以稿子上的逗号句号都记成句界，regroup 在那儿优先断。
+    B, brk = [], set()
+    for ch in (script or ""):
+        if ch == SENTINEL:
+            continue
+        if ch in PUNCT:
+            if B:
+                brk.add(len(B))
+            continue
+        B.append(ch)
     asr = "".join(t for t, _, _ in A)
     if not B or not asr:
         return items
@@ -257,17 +275,110 @@ def retime_to_script(items, script: str):
                 times[j1 + k] = (a0 + k * step, a0 + (k + 1) * step)
                 src[j1 + k] = min(len(A) - 1, i1 + int(k * max(1, i2 - i1) / n)) if A else 0
         # delete：原声里的口误/填充词在这里被丢掉，前后两字之间自然留出停顿
+    # 有稿子的时候，**ASR 的句界一律不用**：稿子上的标点就是句界。
+    # 两边都用，会得到「…系我哋嘅」|「根本所以厨房先要大」——ASR 恰好在「嘅」后面
+    # 断了一下气，把「嘅根本」拆成两行，而稿子上那里根本没有逗号。
     new: list[tuple] = []
-    cut = list(sent_at)
     for j, ch in enumerate(B):
-        while cut and src[j] >= cut[0]:
+        if j in brk:
             new.append((SENTINEL, times[j][0], times[j][0]))
-            cut.pop(0)
         new.append((ch, times[j][0], times[j][1]))
-    while cut:
-        new.append((SENTINEL, times[-1][1], times[-1][1]))
-        cut.pop(0)
     return new
+
+
+def split_point(g: list[tuple[str, float, float]]) -> int | None:
+    """超宽的一条从哪儿断开——**同时**看宽度、时长和词边界。
+
+    只按宽度挑（离 55% 最近）会切出两半都在 0.6 秒内的条：
+    观众看到的是「闪一下又闪一下」，比一条长一点的字幕难读得多。
+    所以候选切点要过三道：两半都不超 10 个单位、两半都至少 0.8 秒、
+    切点落在词边界上（有分词器时），再按「离目标宽度最近 + 不是虚字收尾」挑。
+    """
+    txt = "".join(t for t, _, _ in g)
+    n = len(txt)
+    if n < 5:
+        return None
+    # 候选既可以是词边界，也可以是字间（词边界优先但不独占）。
+    # 只用词边界时，碰上一句「系因为纯手工系我哋嘅根本」，jieba 给出的候选全在
+    # 「嘅」后面，于是怎么选都是「…我哋嘅」收尾——虚字孤行是这么来的。
+    wb = {p for p in word_bounds(txt) if 3 <= p <= n - 3}
+    cands = sorted(wb | set(range(4, n - 3)))
+    if not cands:
+        return None
+
+    def cost(p: int) -> float:
+        left, right = txt[:p], txt[p:]
+        lu, ru = display_units(left), display_units(right)
+        if lu > MAX_UNITS or ru > MAX_UNITS:
+            return 1e6
+        t0, t1 = g[0][1], g[p - 1][2]
+        t2, t3 = g[p][1], g[-1][2]
+        dur_l, dur_r = t1 - t0, t3 - t2
+        c = abs(lu - MAX_UNITS * 0.55)
+        # 时长不足是最贵的：一条读不完的字幕比稍微偏宽的更糟
+        if dur_l < MIN_HOLD:
+            c += (MIN_HOLD - dur_l) * 40
+        if dur_r < MIN_HOLD:
+            c += (MIN_HOLD - dur_r) * 40
+        if txt[p - 1] in NO_END:
+            c += 12
+        if txt[p] in NO_HEAD:
+            c += 12
+        if p in wb:                     # 落在词边界上更好
+            c -= 4
+        return c
+
+    return min(cands, key=cost)
+
+
+def _is_tail(clause: list[tuple[str, float, float]],
+             piece: list[tuple[str, float, float]]) -> bool:
+    """这一段是不是它所在小句的最后一段（最后一段断在句读上，不是被宽度拆的）。"""
+    return bool(clause) and bool(piece) and piece[-1][0] == clause[-1][0]
+
+
+def regroup_script(items: list[tuple[str, float, float]]
+                   ) -> list[tuple[list[tuple[str, float, float]], str]]:
+    """有书面稿时用这一套：**只按稿子上的句读断**，太长再按词边界+时长拆。
+
+    不走 `regroup()` 那条「按停顿断」的路，是因为停顿属于说话人、句读属于写的人。
+    说话人一口气断了但句子没完（「…先可以做更好嘅」/「…渔船嗰度运翻嚟嘅」），
+    照停顿切就会把「嘅」甩在行尾；而稿子上的逗号永远落在该断的地方。
+    """
+    segs: list[list[tuple[str, float, float]]] = []
+    cur: list[tuple[str, float, float]] = []
+    for it in items:
+        if it[0] == SENTINEL:
+            txt = "".join(t for t, _, _ in cur)
+            if display_units(txt) >= MIN_UNITS:
+                segs.append(cur)
+                cur = []
+            continue
+        cur.append(it)
+    if cur and "".join(t for t, _, _ in cur).strip():
+        segs.append(cur)
+
+    out: list[tuple[list[tuple[str, float, float]], str]] = []
+    for g in segs:
+        u = display_units("".join(t for t, _, _ in g))
+        if u <= MAX_UNITS:
+            out.append((g, "clause"))
+            continue
+        # 太长的句子：拆到每段都不超上限。最后一段其实收在句读上，记成 clause。
+        stack = [g]
+        while stack:
+            cur_g = stack.pop(0)
+            cu = display_units("".join(t for t, _, _ in cur_g))
+            if cu <= MAX_UNITS or len(cur_g) < 6:
+                out.append((cur_g, "clause" if _is_tail(g, cur_g) or cu <= MAX_UNITS else "width"))
+                continue
+            k = split_point(cur_g)
+            if not k:
+                out.append((cur_g, "width"))
+                continue
+            stack.insert(0, cur_g[:k])
+            stack.insert(1, cur_g[k:])
+    return out
 
 
 def emphasis_html(text: str) -> str:
@@ -296,8 +407,12 @@ def emphasis_html(text: str) -> str:
     return "".join(out)
 
 
-def regroup(items: list[tuple[str, float, float]]):
+def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
     """一口气一组。只在停顿和标点处断，绝不切在词中间。
+
+    `pause_break=False`：有书面稿时不按停顿断，只按稿子上的句读和宽度上限断。
+    因为稿子是**写的人定的句界**，而停顿是说话人的呼吸——一口气断了、
+    句子还没完，照停顿切就会得到「先可以做更好嘅」这种把「嘅」甩在行尾的切口。
 
     返回值带上「这一组是被什么断的」：punct（标点）/ pause（停顿）/ width（到宽度上限硬断）。
     第 3 种才是真断词，字幕裁判只盯它。
@@ -312,19 +427,25 @@ def regroup(items: list[tuple[str, float, float]]):
         width = display_units("".join(t for t, _, _ in buf))
         if ch == SENTINEL:                    # 句子边界：够一段就断，别硬拼两句
             txt = "".join(t for t, _, _ in buf if t != SENTINEL)
-            # 但 ASR 的句界会落在词中间（「…任何表」|「面的让他成为成品」）。
-            # 这种边界不算数：把哨兵扔掉，让它跟后面的字一起走，宽度上限自然会管。
-            if not is_word_bound(txt) and display_units(txt) <= MAX_UNITS:
+            u = display_units(txt)
+            if u < MIN_UNITS:                 # 太短，跟后面的字一起走
                 buf.pop()
                 continue
-            if display_units(txt) >= MIN_UNITS:
-                groups.append((buf, "pause"))
-                buf = []
+            # 句界有两个来源：书面稿上的句读（pause_break=False，写的人定的，永远信）；
+            # ASR 的停顿句界（会把词切开，落在词中间就不算数）。
+            # 老代码在这里多了一条「超过 10 单位就扔掉这个句界」——于是
+            # 「唔系因为纯手工厨房系大，」这个 11 单位的句子被迫和后一句焊在一起，
+            # 再被宽度硬切成「厨房系大系」，逗号连同「系」一起割坏。
+            if pause_break and u > MAX_UNITS and not is_word_bound(txt):
+                buf.pop()
+                continue
+            groups.append((buf, "pause"))
+            buf = []
             continue
         if ch in PUNCT:                       # 标点：断，标点自己不进字幕
             groups.append((buf, "punct"))
             buf = []
-        elif gap >= GAP_BREAK or nxt is None:
+        elif (gap >= GAP_BREAK and pause_break) or nxt is None:
             groups.append((buf, "pause"))
             buf = []
         elif width >= MAX_CHARS:              # 到上限：先找停顿，再找语义接缝，最后才硬断
@@ -359,12 +480,12 @@ def regroup(items: list[tuple[str, float, float]]):
     fixed: list[tuple[list[tuple[str, float, float]], str]] = []
     for g, why in groups:
         txt = "".join(t for t, _, _ in g)
-        # 硬上限就是 12 个展示单位，不留 +2 的「宽容」：+2 会让 14 字的条落地，
+        # 硬上限就是 10 个展示单位，不留「宽容」：留一点就有一条 14 字落地，
         # 80px × 14 = 1120px > 1080px，两头真的被画幅吃掉（2026-11-11 欧阳 a/b 两条片实测 104%W）。
         if display_units(txt) <= MAX_UNITS:
             fixed.append((g, why))
             continue
-        best_k = choose_cut(g)
+        best_k = split_point(g)
         if best_k:
             fixed.append((g[:best_k], "pause"))
             fixed.append((g[best_k:], why))
@@ -409,7 +530,8 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
         items = blk["items"]
         if blk.get("ev"):
             items = retime_to_script(items, blk["ev"])
-        for g, why in regroup(items):
+        _groups = (regroup_script(items) if blk.get("ev") else regroup(items))
+        for g, why in _groups:
             raw = "".join(t for t, _, _ in g)
             text = "".join(ch for ch in raw if ch not in PUNCT and ch != SENTINEL).strip()
             if not text:
@@ -439,6 +561,34 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
                 out[-1]["ef"] = int(round(out[-1]["end"] * fps))
                 continue
         out.append(c)
+    # 太短的条：先往后面的空隙里伸长，缝隙不够就往前借，还不行就并进前一条。
+    # 10 个单位的硬上限会把一条切成两条，快语速下后半截可能只剩 0.5s——观众只看到闪一下。
+    # 宁可在标点处多停 0.2 秒，也不要给一条看不清的字幕。
+    fixed: list[dict] = []
+    for c in out:
+        if fixed and c["end"] - c["start"] < MIN_HOLD - 0.02:
+            need = MIN_HOLD - (c["end"] - c["start"])
+            room = max(0.0, c["start"] - fixed[-1]["end"] - 0.02)
+            if room > 0:
+                c["start"] = round(c["start"] - min(need, room), 3)
+                need = MIN_HOLD - (c["end"] - c["start"])
+            if need > 0.02:                      # 借不到就并进前一条（前一条也得装得下）
+                merged_u = fixed[-1]["units"] + c["units"] + 1.0
+                if merged_u <= MAX_UNITS:
+                    fixed[-1]["text"] += c["text"]
+                    fixed[-1]["html"] = emphasis_html(fixed[-1]["text"]) if colorize else None
+                    fixed[-1]["chars"] = len(fixed[-1]["text"])
+                    fixed[-1]["units"] = display_units(fixed[-1]["text"])
+                    fixed[-1]["end"] = max(fixed[-1]["end"], c["end"])
+                    continue
+        fixed.append(c)
+    out = fixed
+    for i, c in enumerate(out):
+        if i + 1 < len(out) and c["end"] - c["start"] < MIN_HOLD - 0.02:
+            room = max(0.0, out[i + 1]["start"] - c["end"] - 0.02)
+            if room > 0:
+                c["end"] = round(c["end"] + min(MIN_HOLD - (c["end"] - c["start"]), room), 3)
+
     # 帧窗收尾：必须 ef > sf，且相邻半开窗不相交（相接合法）
     for i, c in enumerate(out):
         if c["ef"] <= c["sf"]:

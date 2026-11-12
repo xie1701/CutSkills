@@ -55,6 +55,8 @@ python3 scripts/brief.py --project <项目>            # 交互；--set 可非�
 python3 scripts/thesis.py --project <项目> --init    # 写 claim / claims：这一步人做，脚本不代笔
 python3 scripts/thesis.py --project <项目> --match --show   # 匹配证据、报缺口、判「要不要倒序」
 python3 scripts/audio_map.py --project <项目>        # 声音切块：半句/气口/重音，带能量与填充词
+python3 scripts/cue_guard.py --check <项目>          # 场记口令/摄影师指导语/重说：窗口里夹着就拦
+python3 scripts/cue_guard.py --scan <素材库>         # 建库时先扫一遍，看哪些段带口令（词级定位）
 python3 scripts/arrange.py --project <项目>          # 四套结构方案挑一个（原顺序/结论前置/现场切入/倒序）
 python3 scripts/skeleton.py --video <参考片> --out <项目>/skeleton.json   # 节拍骨架
 python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候选 → hooks/，逐个 3 秒渲出来
@@ -85,7 +87,7 @@ python3 scripts/render_hf.py --project <项目> --extractor own --quality looks 
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
-python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/单行 10–14 字/强调色/硬切
+python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s/助词不孤行/重叠/硬切
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/hooks.py --project <项目> --check          # 校验前 3 秒策略合规性与通过性（0: OK/WARN, 1: FAIL）
@@ -117,7 +119,17 @@ python3 scripts/golden.py
 观点怎么先定下来（主张 → 证据 → 缺口 → 要不要倒序）见 [references/thesis.md](references/thesis.md)。
 卡片为什么「只许晚不许早」、大字怎么压到人物脑后关、每张卡配什么音效，见
 [references/audio-first.md](references/audio-first.md)；字幕五条规矩与实现见
-[references/subtitle-rules.md](references/subtitle-rules.md)。
+[references/subtitle-rules.md](references/subtitle-rules.md)；版式五条硬规则（单行 ≤10 展示单位、
+每条 0.8–3.2s、助词不孤行、无底条）见 [references/typography.md](references/typography.md) 第五节。
+
+**MG（代码画的动效卡）**是包装的第三块：`keyword-big` / `stat` / `steps` / `versus` / `term`。
+选哪张由这一格**说什么**决定，不由风格决定；风格只决定它长什么样（走 `tokens`）。
+卡型、字段、选型顺序与硬规矩见 [references/mg-library.md](references/mg-library.md)。
+
+**别人的话不许进片**：真实素材里夹着场记口令（「三二一」）、摄影师的指导语（「再来一次」
+「慢啲讲」）、主播自己的重说。ASR 照声音抄，按句边界切就会把它们带进片子——
+画面上是主播在听指挥。`scripts/cue_guard.py` 用词级时间戳定位，检出三类并在
+`--check` 时拦下；`--fix` 只让端点让步（口令卡在中间要拆镜或换素材，机器不自作主张）。
 
 ### 第 3 层的关键：一格可以是「造出来的」
 

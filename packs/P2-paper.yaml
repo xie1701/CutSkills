@@ -17,9 +17,9 @@ subtitle:
   shadow: 0 1px 0 rgba(255,255,255,.6)
   center_y_px: 1294
   safe_bottom_px: 300
-  max_chars_per_line: 14
-  hold_min_s: 0.75
-  hold_max_s: 2.4
+  max_chars_per_line: 10
+  hold_min_s: 0.8
+  hold_max_s: 3.2
   density_per_min:
   - 45
   - 58
@@ -59,6 +59,7 @@ audio:
   duck_db: 12
 card:
   bottom_edge_max_px: 1080
+  mg_top_h: 0.21            # MG 卡上沿（画幅高度比例）
 tokens:
   palette:
     ground: '#F2EDE3'
@@ -76,6 +77,21 @@ subtitle_system:
   desc: 中文主行 72px + 英文小字 34px，两行固定高度
   en_size_px: 34
   en_color: 'rgba(246,241,231,0.90)'  # 跟着 light_text 走，深灰英文在暗画面上读不出来
+mg:
+  # MG = 代码画的动效卡。选哪张由**内容形态**决定，不由风格决定；
+  # 风格只决定它长什么样（色、字、圆角、描边全走 tokens）。
+  library:
+  - keyword-big      # 一句话结论 / 强断言（现有大字，含脑后模式）
+  - stat             # 数字、规模、时长、比例 —— 必须有出处或标示意
+  - steps            # 两到三步的流程、并列条件
+  - versus           # 两个方案 / 两个时段 / 两边的对比
+  - term             # 名词解释（行话、方言词、品类词）
+  rules:
+  - 一批片子里同一个卡型不重复超过 2 次
+  - 每条片至少一张内容专属卡：有数字就用 stat，有对比就用 versus，有流程就用 steps
+  - MG 卡不许压字幕带，不许压人脸
+  - 卡上的话必须是台词里的原词，不许另写宣传语
+
 fx:
 - page_turn
 - note_drop
