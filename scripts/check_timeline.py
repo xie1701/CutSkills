@@ -399,6 +399,16 @@ def main() -> int:
                                          f"{na:.2f}–{nb:.2f}（cue_guard --fix）"))
     except Exception as exc:                      # noqa: BLE001
         probs.append(("warning", f"口令检查没跑起来：{type(exc).__name__}: {exc}"))
+    # 台词真值：evidence 必须是**说过的话**，不是写顺了的helm。手写美化稿会让
+    # 「唔系唔系…o k o k」看起来通顺，下游（字幕/验收）全被它骗过去——这一条查
+    # 「对着摄影师说的『你』被写成对观众说的」和「音频里没有的词」。
+    try:
+        import evidence_guard
+        probs.extend(evidence_guard.check(proj, lib))
+    except ImportError as exc:
+        probs.append(("error", f"台词真值检查没跑起来（{exc}）——不许静默跳过"))
+    except Exception as exc:                      # noqa: BLE001
+        probs.append(("warning", f"台词真值检查出错：{type(exc).__name__}: {exc}"))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)

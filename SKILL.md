@@ -43,6 +43,8 @@ metadata:
 
 Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](references/timeline-schema.md) · [edl-schema.md](references/edl-schema.md)（v2，兼容；升级旧时间轴用 `scripts/schema_upgrade.py --project <slug> --write`）
 
+台词真值口径（`evidence` 必须是说过的话，不是写顺了的话）见 [plan-ng-2026-11-12.md](references/plan-ng-2026-11-12.md)；字体与字号校准见 [styles/fonts.yaml](styles/fonts.yaml)。
+
 ## v4 主链路：一条命令一层
 
 ```bash

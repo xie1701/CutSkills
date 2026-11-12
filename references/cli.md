@@ -461,6 +461,16 @@
 | `--fix` | — |
 | `--words` | — |
 
+### `evidence_guard.py`
+*CutSkills · 台词真值守卫：timeline 里的 evidence 必须能由词级 ASR 复现。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--fix` | 用真值覆盖 evidence |
+| `--json` | 开关 |
+
 ### `font_sheet.py`
 *font_sheet.py — 把同一句字幕排成 N 种字体的一张对照卡，让人眼当场判。*
 
@@ -773,6 +783,11 @@
 
 ### `test_brand_safety.py`
 *CutSkills · T-007 品牌安全与第三方字样处置回归测试*
+
+（无参数）
+
+### `test_evidence_guard.py`
+*evidence_guard 的合同测试：判据会不会在**该红的时候红、该绿的时候绿**。*
 
 （无参数）
 

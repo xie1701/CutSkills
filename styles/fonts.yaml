@@ -1,0 +1,32 @@
+# 字体表：字幕 / 大字 / 卡片的字体与**字号校准**
+#
+# 字号不写死在这个文件里，也不写死在 pack 里——按宽度反算。
+# 理由：字体等宽程度不一样。实测（1080 宽画布，10 个汉字）：
+#   得意黑 SmileySans-Oblique  678px  = 62.8%W
+#   思源黑体 NotoSansSC-Black  847px  = 78.4%W
+# 照抄一个 77px 给两只字体，得意黑出来的字幕会比思源小一整圈。
+# 那个 77px 是相对上游自己的字体和画面尺寸算出来的数，不是通用常数。
+#
+# 反算公式：字号 = (屏宽 × target_unit_w) ÷ ratio
+#   ratio = 该字体 1 个汉字宽 ÷ 字号（等宽字体是 1.0）
+
+target_unit_w: 0.074      # 1 个展示单位 = 屏宽 7.4%，10 单位 = 74%W（与 check_subs 上限同源）
+
+fonts:
+  得意黑:
+    file: SmileySans-Oblique.ttf
+    ratio: 0.881          # 实测 10 字 @77px = 678px → 678/10/77
+    role: [subtitle, headline]
+    note: 斜体风格，个性强；长句做正文会晃，只用于字幕和标题
+  思源黑体:
+    file: NotoSansSC-Black.ttf
+    ratio: 1.000
+    role: [subtitle, headline, body]
+    note: 标准无衬线，实拍口播最稳的选择
+  思源宋体:
+    file: NotoSerifSC-Black.ttf
+    ratio: 1.000
+    role: [subtitle, headline, body]
+    note: 衬线，适合纸感/文化类包装
+
+default: 得意黑
