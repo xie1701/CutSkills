@@ -55,7 +55,8 @@ FILLER_PAT = re.compile(
 CONT_HEAD = {"然后", "所以", "因为", "就系", "咁", "同埋", "仲有", "同", "即系"}
 # 半句起头：首字是这些，说明切在词中间（「房」「包」「嘅」这种不可能起句）。
 BAD_HEAD = set("嘅咗啦咁啊呀咧喎啵哋啲")
-GAP_BAD = 0.55            # 句中空档
+GAP_BAD = 0.55
+HEAD_LEFTOVER = 0.15            # 句中空档
 EDGE_HEAD = 0.40          # 开头空转
 EDGE_TAIL = 0.55          # 结尾空转
 SEAM_N = 6                # 接缝看每边几个字
@@ -111,8 +112,12 @@ def per_element(el: dict, ws: list[tuple[str, float]]) -> list[tuple[str, str]]:
     first = ws[0][0]
     if first in BAD_HEAD or (len(first) == 1 and first in FUNC):
         out.append(("error", f"#{n} 切在词中间（首字「{first}」不能起句）——前挪到句首"))
-    elif first.strip("，,、。.") in CONT_HEAD or first in ("，", ","):
+    elif first.strip("，,、。.") in CONT_HEAD:
         out.append(("warning", f"#{n} 半句起头（「{first}」）——观众听到的是上一句的尾巴"))
+    elif first in ("，", ",") and ws[0][1] - i >= HEAD_LEFTOVER:
+        # 词级真值把上一句的逗号标在这个词头上。真要看的是「起点前还有没有声音」：
+        # 起点贴着这个词（<0.15s）说明上一句已经说完了，逗号只是 ASR 的句子边界记号。
+        out.append(("warning", f"#{n} 起点前还留着 {ws[0][1] - i:.2f}s 上一句的尾巴"))
 
     # gap / edge
     gaps = []
@@ -150,17 +155,29 @@ def per_element(el: dict, ws: list[tuple[str, float]]) -> list[tuple[str, str]]:
         out.append(("error", f"#{n} 开口就是「{txt[:4]}」——NG 之后重新起句，前半句是废的"))
 
     # 自重复：同一句话在里面说了两遍（「空间高先可以坐得舒服，空间感高先会坐得舒服」）。
-    # cue_guard 的重说只认「开头三个字一样」，改一两个字的复述它抓不到。
-    plain = "".join(c for c in txt if EG.CJK.match(c))
+    # 要跟「列举」分开：「楼面两个门口、厨房两个门口」也是同一串字出现两次，
+    # 但那是正常说法。分界看两样——中间隔了多久、隔了多少字。
+    # 复述是「说完一遍、停顿、换个说法再说一遍」，间隔 ≥1.2s 且中间夹着 ≥5 个字。
+    pos2t: list[float] = []
+    for t, s0 in ws:
+        pos2t.extend([s0] * max(1, len(t)))
+    pos2t = pos2t[:len(txt)]
     dup = None
-    for _len in (6, 5, 4):        # 别用 n——那是元素编号，覆盖掉会报错段号
+    for _len in (6, 5, 4):
         seen: dict[str, int] = {}
-        for k in range(0, max(0, len(plain) - _len + 1)):
-            g = plain[k:k + _len]
-            if g in seen and k - seen[g] >= _len:
-                dup = g
-                break
-            seen.setdefault(g, k)
+        for k in range(0, max(0, len(txt) - _len + 1)):
+            g = txt[k:k + _len]
+            if sum(1 for c in g if c not in FUNC and EG.CJK.match(c)) < 2:
+                continue
+            if g in seen:
+                gap_chars = k - seen[g]
+                gap_t = (pos2t[min(k, len(pos2t) - 1)]
+                         - pos2t[min(seen[g], len(pos2t) - 1)])
+                if gap_chars >= _len + 5 and gap_t >= 1.2:
+                    dup = g
+                    break
+            else:
+                seen[g] = k
         if dup:
             break
     if dup:

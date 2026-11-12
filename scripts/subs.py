@@ -574,7 +574,9 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
                 need = MIN_HOLD - (c["end"] - c["start"])
             if need > 0.02:                      # 借不到就并进前一条（前一条也得装得下）
                 merged_u = fixed[-1]["units"] + c["units"] + 1.0
-                if merged_u <= MAX_UNITS:
+                # 合并只许发生在同一格内：跨格拼出来的字幕一边说「茶」、
+                # 一边已经把下一格的「我哋一共」写出来了，观众看到的字比听到的话超前。
+                if merged_u <= MAX_UNITS and fixed[-1].get("el") == c.get("el"):
                     fixed[-1]["text"] += c["text"]
                     fixed[-1]["html"] = emphasis_html(fixed[-1]["text"]) if colorize else None
                     fixed[-1]["chars"] = len(fixed[-1]["text"])

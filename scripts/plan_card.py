@@ -87,6 +87,12 @@ def _card_label(c: dict) -> str:
     """一张卡在方案上的说法。MG 卡要写清「哪一种」，不然人看不出它是不是数字卡。"""
     kind = str(c.get("kind") or "keyword")
     text = str(c.get("text") or "")
+    if kind in MG_LABEL and not text:
+        # stat 卡的真值在 data 里（数字 + 单位 + 说明），没有 text
+        d = c.get("data") or {}
+        text = f"{d.get('value', '')}{d.get('unit', '')}".strip()
+        if d.get("label"):
+            text = f"{text} {d['label']}".strip()
     if kind in MG_LABEL:
         return f"{MG_LABEL[kind]}「{text}」"
     return f"大字「{text}」"

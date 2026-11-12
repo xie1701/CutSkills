@@ -715,9 +715,12 @@ def main() -> int:
         add("字幕密度", f"{per_min:.1f} 条/分钟", level,
             f"参考片 {lo}–{hi}（快语速）；本片语速 {cps:.1f} 字/秒、"
             f"单条 {avg:.1f} 字 → 期望 {derived:.0f} 条/分钟")
-        longest = max(len(c["text"]) for c in cues)
+        longest = max((c.get("units") or len(c["text"])) for c in cues)
         mx = int(style["subtitle"].get("max_chars_per_line") or 16)
-        add("单条最长", f"{longest} 字", "green" if longest <= mx else "yellow",
+        # 按「展示单位」判，不按字数：半角字（OK、2026）只占 0.34 个单位，
+        # 「捉翻嘅鸡绝对品质 OK 嘅」13 字实际 9.7 个单位，按字数算会误报。
+        add("单条最长", f"{longest:.0f} 单位",
+            "green" if longest <= mx + 0.01 else "yellow",
             f"上限 {mx}（超了断句，别缩字号）")
         # 字数合规不等于塞得下：字幕宽度必须按像素算一次。
         # 但**不能拿字数 × 字号**：半角字符（「OK」「2026」）在思源里只占一半宽，
@@ -729,7 +732,14 @@ def main() -> int:
             try:
                 from PIL import ImageFont
                 _fname = str(style["subtitle"].get("font") or "NotoSansSC-SemiBold")
-                _fp = Path("~/Library/Fonts").expanduser() / f"{_fname}.ttf"
+                try:                           # 字体名是中文（「得意黑」），得走别名表找真文件
+                    import fonts as _fonts
+                    _rel = _fonts.file_of(_fname) or f"{_fname}.ttf"
+                except Exception:
+                    _rel = f"{_fname}.ttf"
+                _fp = Path("~/Library/Fonts").expanduser() / _rel
+                if not _fp.exists():
+                    _fp = Path("~/Library/Fonts").expanduser() / f"{_fname}.ttf"
                 _font = ImageFont.truetype(str(_fp), int(_sz))
                 for c in cues:
                     wpx = _font.getlength(c["text"])
