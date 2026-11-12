@@ -115,6 +115,12 @@ except Exception:                                    # pragma: no cover
     HAVE_YUE_WORDS = False
 
 
+# 数词与量词之间不是词边界：「六百平」被切成「六百|平」、「十个|人」同理。
+# jieba 是通用模型，不知道「平」在粤语口播里是个高频量词。
+_NUM = set("零一二三四五六七八九十百千万亿两廿0123456789")
+_MEASURE = set("平个间张把只条米年月日次位层人分秒蚊元块斤两杯碗份套台部支点斗升克吨公里倍成番阵嚿")
+
+
 def word_bounds(txt: str) -> list[int]:
     """能切的位置（第几个字之后）。词内部不算。
 
@@ -129,7 +135,8 @@ def word_bounds(txt: str) -> list[int]:
         k += len(w)
         if k < len(txt):
             out.append(k)
-    return out
+    # 量词卡的补丁：落在一个「数词 + 量词」的内部就不算边界
+    return [p for p in out if not (txt[p - 1] in _NUM and txt[p] in _MEASURE)]
 
 
 def is_word_bound(txt: str) -> bool:
@@ -214,11 +221,17 @@ def _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
             items.append((SENTINEL, ph["end"], ph["end"]))
         items = [it for it in items if s_in - 0.02 <= it[1] < s_out - 0.02]
         if items:
+            # evidence 也要过词表。 b#5 卡上写「四大天王」、同屏字幕写「四大轩王」——
+            # 真因就在这里：卡走的是 words_of_window（过词表），字幕直接拿 evidence，
+            # 而 evidence 是 ASR 原字。两边读的不是同一份真值，屏幕上就自己打自己。
+            ev = seg.get("evidence") or ""
+            if ev:
+                ev = lexicon.strip_noise(lexicon.fix_text(ev, lex))
             out.append({"el": seg.get("n"), "seg_start": seg["_start"],
                         "s_in": s_in, "dur": seg.get("_dur_q") or seg.get("_dur"),
                         # 书面稿：元素上写了 evidence 就照它出字幕（口误、场记口令、
                         # 「三二一组」这类话 ASR 会照念，字幕不能跟着一起念）。
-                        "ev": seg.get("evidence") or "",
+                        "ev": ev,
                         "items": lexicon.fix_items(items, lex)})
     return out
 
@@ -331,6 +344,57 @@ def split_point(g: list[tuple[str, float, float]]) -> int | None:
     return min(cands, key=cost)
 
 
+def split_long(g: list[tuple[str, float, float]]) -> list[int]:
+    """把过宽的一组按**词边界**切成若干段，每段不超上限。返回切点。
+
+    为什么不能只切一刀：一句 20 字的话，只允许两段就只能是 10/10，
+    而 10 字那刀恰好落在「开|咗」中间——因为两侧都必须 ≤10，根本没得选。
+    实测切出「我花咗三百万喺金湾开 | 咗间六百平嘅点赞茶楼」，
+    而且 break_after 还被记成 clause，验收直接豁免。
+    切三段就是 6/6/8，每一刀都在词边界上。
+    """
+    txt = "".join(t for t, _, _ in g)
+    n = len(txt)
+    wb = sorted({p for p in word_bounds(txt) if 1 <= p <= n - 1} | {n})
+    if not wb or n < 6:
+        return []
+    INF = float("inf")
+    best = [INF] * (n + 1)
+    back: list[int | None] = [None] * (n + 1)
+    best[0] = 0.0
+    for i in range(n):
+        if best[i] == INF:
+            continue
+        for j in wb:
+            if j <= i:
+                continue
+            u = display_units(txt[i:j])
+            if u > MAX_UNITS:
+                break
+            # 每段都想靠近 TARGET_SOFT_UNITS（8）。原来写的是 0.62×上限 = 6.2，
+            # 于是全片字幕中位数被压到 6.0 单位：判据下限是 6.5，每条也更容易
+            # 掉到 0.8 秒以下变成「闪一下」。上限 10 是硬约束，目标该取 8 而不是 6。
+            c = best[i] + (u - TARGET_SOFT_UNITS) ** 2
+            # 切在两边的虚字上要重罚：「同埋更稳定嘅 | 出品俾大家好」这种
+            # 行尾挂着「嘅」、行首挂着「啲」，跟被宽度硬拆出来的一模一样难读。
+            if txt[j - 1] in NO_END:
+                c += 18
+            if j < n and txt[j] in NO_HEAD:
+                c += 18
+            if c < best[j]:
+                best[j], back[j] = c, i
+    if best[n] == INF:
+        return []
+    cuts, cur = [], n
+    while cur:
+        cur = back[cur]  # type: ignore[assignment]
+        if cur is None:
+            return []
+        if cur:
+            cuts.append(cur)
+    return sorted(cuts)
+
+
 def _is_tail(clause: list[tuple[str, float, float]],
              piece: list[tuple[str, float, float]]) -> bool:
     """这一段是不是它所在小句的最后一段（最后一段断在句读上，不是被宽度拆的）。"""
@@ -364,13 +428,27 @@ def regroup_script(items: list[tuple[str, float, float]]
         if u <= MAX_UNITS:
             out.append((g, "clause"))
             continue
-        # 太长的句子：拆到每段都不超上限。最后一段其实收在句读上，记成 clause。
+        # 太长的句子：拆到每段都不超上限。
+        #
+        # 这里曾经写成 `"clause" if _is_tail(...) or cu <= MAX_UNITS else "width"`——
+        # 而 `cu <= MAX_UNITS` 正是走到这一行的**条件**，于是每一段都记成 clause。
+        # 后果不是显示问题：check_subs 的断词判据遇到 clause 就 `continue`，
+        # 三片 100% 的切口都被自己豁免掉了，实测切出「我花咗三百万喺金湾开 | 咗间…」
+        # 「做更好嘅出品同埋更稳 | 定嘅出品俾大家好」全部绿灯。
+        cuts = split_long(g)
+        if cuts:
+            pts = [0] + cuts + [len(g)]
+            for a, b in zip(pts, pts[1:]):
+                piece = g[a:b]
+                out.append((piece, "clause" if _is_tail(g, piece) else "width"))
+            continue
+        # 没有可用词边界（没分词器 / 整句一个词）时退回一刀切
         stack = [g]
         while stack:
             cur_g = stack.pop(0)
             cu = display_units("".join(t for t, _, _ in cur_g))
             if cu <= MAX_UNITS or len(cur_g) < 6:
-                out.append((cur_g, "clause" if _is_tail(g, cur_g) or cu <= MAX_UNITS else "width"))
+                out.append((cur_g, "clause" if _is_tail(g, cur_g) else "width"))
                 continue
             k = split_point(cur_g)
             if not k:
@@ -534,6 +612,7 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
         for g, why in _groups:
             raw = "".join(t for t, _, _ in g)
             text = "".join(ch for ch in raw if ch not in PUNCT and ch != SENTINEL).strip()
+            text = lexicon.strip_noise(text)
             if not text:
                 continue
             a = max(0.0, g[0][1] - blk["s_in"]) + blk["seg_start"]

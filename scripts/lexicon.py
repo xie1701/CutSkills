@@ -20,6 +20,21 @@ import json
 from pathlib import Path
 
 SENTINEL = "\x00"   # ASR 句界哨兵，不进字幕
+# 单字拖音：ASR 把它们当真字，字幕上就成了「诶两百平嘅厨房啊」「我哋嘅诶四大轩王」。
+# 只收**纯粹是停顿声**的几个（诶欸哎呃嗯）；「啊呀哦噢喔」是句尾语气词，
+# 说话人真的在用它收句，删掉字幕反而断了语气。
+NOISE_CHARS = set("诶欸哎呃嗯")
+NOISE_PHRASES = ("喺喺",)   # 连着念两次同一个介词的卡顿
+
+
+def strip_noise(text: str) -> str:
+    """从**字幕文本**里剔掉拖音。只动字幕：真值（词级时间戳）一个字不改，
+    否则 evidence_guard 会判「字幕上出现的字音频里没说过」。
+    """
+    t = str(text or "")
+    for ph in NOISE_PHRASES:
+        t = t.replace(ph, ph[0])
+    return "".join(ch for ch in t if ch not in NOISE_CHARS)
 
 
 def load(sysdir: Path) -> dict:
@@ -148,6 +163,25 @@ def fix_text(text: str, lex: dict) -> str:
     chars = [[ch, float(i), float(i + 1)] for i, ch in enumerate(text)]
     chars, _ = replace_chars(chars, lex)
     return "".join(c[0] for c in chars)
+
+
+def fix_timeline(tl: dict, lex: dict) -> int:
+    """把词表（与拖音清单）落到**时间轴的 evidence 上**，返回改了几条。
+
+    以前只有字幕走词表，evidence 还是 ASR 原字，于是同一屏上：
+    字卡写「四大天王」、字幕写「四大轩王」——两份真值自己打自己。
+    """
+    n = 0
+    for e in tl.get("elements") or []:
+        ev = e.get("evidence") or ""
+        if not ev:
+            continue
+        new = strip_noise(fix_text(ev, lex))
+        if new != ev:
+            e["evidence_was"] = e.get("evidence_was") or ev
+            e["evidence"] = new
+            n += 1
+    return n
 
 
 def violations(texts, lex: dict) -> list[tuple[str, str]]:

@@ -37,6 +37,52 @@ def load(p: Path, default=None):
     return json.loads(p.read_text()) if p.exists() else default
 
 
+HOLD_MIN, HOLD_MAX = 0.8, 3.2
+
+
+def hold_judge(cues: list[dict]) -> tuple[list[dict], list[dict]]:
+    """每条字幕的停留时间。返回 (判红, 提示)。
+
+    有稿子的片子里句读是写字的人定的：快语速下一句话只有 0.6 秒是**事实**，
+    硬拉长只能破坏句子。所以「收在句读上、0.6–0.8 秒」只记提示；判红的是
+    低于 0.6 秒、超过 3.2 秒、或者被宽度硬拆出来的短条。
+    """
+    bad, note = [], []
+    for c in cues:
+        dur = round(float(c["end"]) - float(c["start"]), 3)
+        clause = str(c.get("break_after") or "") == "clause"
+        if dur < 0.6 or dur > HOLD_MAX + 0.02 or (dur < HOLD_MIN - 0.02 and not clause):
+            bad.append({"text": str(c.get("text"))[:10], "s": dur})
+        elif dur < HOLD_MIN - 0.02:
+            note.append({"text": str(c.get("text"))[:10], "s": dur})
+    return bad, note
+
+
+def dangling_judge(cues: list[dict]) -> list[dict]:
+    """助词孤行：条首/条尾落在虚字上，读起来像上一句的尾巴。
+
+    条首要看**这个词是不是被切成两半**，不能只看头一个字在不在虚字表里：
+    「过嚟办公噶啦」的「过」在表里，可「过嚟」是一个词，它起头完全正常——
+    照字表判，b 片那条字幕被冤枉成孤行。所以再加一条：这个字得在分词里
+    自成一段（词边界落在第 1 个字之后）才算甩出来的尾巴。
+    「过/着/咁」还能起句（「咁先可以坐得舒服」），不进这一条。
+    """
+    from subs import NO_HEAD, NO_END, word_bounds
+    START_OK = set("过着咁")
+    tail = []
+    for c in cues:
+        t = str(c.get("text") or "")
+        if not t:
+            continue
+        style_end = str(c.get("break_after") or "") == "clause"
+        wb = word_bounds(t) if len(t) > 1 else {1}
+        if t[0] in NO_HEAD and t[0] not in START_OK and 1 in wb:
+            tail.append({"text": t[:10], "why": f"起头是「{t[0]}」"})
+        elif len(t) >= 2 and t[-1] in NO_END and not style_end:
+            tail.append({"text": t[:10], "why": f"收尾是「{t[-1]}」"})
+    return tail
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
@@ -70,27 +116,10 @@ def main() -> int:
     # 有稿子的片子里，句读是写的人定的：快语速下一句话只有 0.6 秒是**事实**，
     # 硬把它拉长只能破坏句子。所以「收在句读上、并且 0.6–0.8 秒」记为提示，
     # 真正判红的是：低于 0.6 秒，或者被宽度硬拆出来的短条（那种本来可以避免）。
-    HOLD_MIN, HOLD_MAX = 0.8, 3.2
-    hold_bad, hold_note = [], []
-    for c in cues:
-        dur = round(float(c["end"]) - float(c["start"]), 3)
-        clause = str(c.get("break_after") or "") == "clause"
-        if dur < 0.6 or dur > HOLD_MAX + 0.02 or (dur < HOLD_MIN - 0.02 and not clause):
-            hold_bad.append({"text": str(c.get("text"))[:10], "s": dur})
-        elif dur < HOLD_MIN - 0.02:
-            hold_note.append({"text": str(c.get("text"))[:10], "s": dur})
+    hold_bad, hold_note = hold_judge(cues)
 
-    # 助词孤行：条首/条尾落在虚字上，读起来像上一句的尾巴。
-    tail = []
-    for c in cues:
-        t = str(c.get("text") or "")
-        if not t:
-            continue
-        style_end = str(c.get("break_after") or "") == "clause"   # 收在句读上：写字的人的选择
-        if t[0] in NO_HEAD:
-            tail.append({"text": t[:10], "why": f"起头是「{t[0]}」"})
-        elif len(t) >= 2 and t[-1] in NO_END and not style_end:
-            tail.append({"text": t[:10], "why": f"收尾是「{t[-1]}」"})
+    # 助词孤行：判据抽到 dangling_judge()，验收层也要跑同一条，别两边各写一遍。
+    tail = dangling_judge(cues)
 
     # 半开帧窗零重叠（2026-11-11）：字幕重叠是画面上**必然**看得见的错，
     # 不该靠事后审计发现，也不该允许被 --force 越过。老 subs.json 没有 sf/ef，

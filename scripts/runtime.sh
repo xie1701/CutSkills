@@ -111,6 +111,28 @@ cmd_check() {
       echo "缺失"
     fi
   done
+  # 自编 ffmpeg 的**动态库还能不能解析**——这一条是 2026-11-12 夜里补的：
+  # /opt/homebrew/Cellar 与 /opt/homebrew/opt 被一次 brew 操作清空（mtime 全部变成同一秒），
+  # 次日渲染报 `dyld: Library not loaded: libvpx.12.dylib`，而前一天一模一样的命令是好的。
+  # 依赖清单里写着「ffmpeg 有」不等于「它跑得起来」，所以要真的跑一次 `-version`。
+  if [ -x "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" ]; then
+    echo "自编 ffmpeg（HDR→SDR 的 zscale）："
+    if out=$("$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" -version 2>&1); then
+      printf '  ok   %s\n' "$(echo "$out" | head -1 | cut -c1-64)"
+      miss=""
+      for lib in $(otool -L "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" 2>/dev/null \
+                   | awk 'NR>1{print $1}' | grep -E '^/(opt/homebrew|usr/local)'); do
+        [ -e "$lib" ] || miss="$miss $(basename "$lib")"
+      done
+      if [ -n "$miss" ]; then
+        echo "  ！动态库找不到：$miss"
+        echo "    brew 把 formula 换掉了。按 references/ffmpeg-zimg.md 重装缺的那几个。"
+      fi
+    else
+      echo "  ！跑不起来：$(echo "$out" | head -2 | tr '\n' ' ')"
+      echo "    修法见 references/ffmpeg-zimg.md。没有它，HDR 素材压出来偏亮偏灰。"
+    fi
+  fi
   echo "node 包："
   if [ -d "$ROOT/npm/node_modules" ]; then
     for d in "$ROOT"/npm/node_modules/*/; do

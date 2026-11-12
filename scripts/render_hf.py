@@ -1818,6 +1818,9 @@ def measure_audio(path: Path) -> tuple[float, float]:
         return -99.0, 0.0
 
 
+LAST_LOUDNESS: dict[str, float] = {}
+
+
 def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
     """把混音拉回样式包给的响度，并且真的落在断言上。
 
@@ -1904,6 +1907,11 @@ def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
             fix.replace(dst)
             got = measure(dst)
     last = got
+    # 量到的值要留痕：以前 meta.json 只记「渲了几格」，响度只在验收报告里出现，
+    # 报告一被覆盖（换包试渲、重跑判据）就无处可查了。取 **AAC 之后**那一次，
+    # 与 verify_film 量的同一支文件——两处读两套数迟早会打架。
+    global LAST_LOUDNESS
+    LAST_LOUDNESS = {"lufs": round(last[0], 2), "true_peak": round(last[1], 2)}
     print(f"  响度 {last[0]:.2f} LUFS · 真峰 {last[1]:.2f} dBTP（目标 {I} / {TP}）")
     return 0
 
@@ -2414,6 +2422,21 @@ def main():
             print(f"！声音在前检查没跑起来：{_e}", file=sys.stderr)
             return 5
 
+    # 凭空捏造的卡不许进片。check_timing 只管「卡比词晚不晚」，不管「卡上说的是真的吗」；
+    # 两件不同的事，都得拦在渲之前——渲完再发现卡片自己编了个「明年开分店」，最贵。
+    if not getattr(a, "force", False):
+        try:
+            import check_cards as _cc
+            _cv = [m for lv, m in _cc.audit(proj, lib) if lv == "error"]
+            if _cv:
+                print("！卡准入没过，拒绝渲染（用 --force 可越过）：", file=sys.stderr)
+                for m in _cv[:6]:
+                    print(f"   · {m}", file=sys.stderr)
+                return 6
+        except Exception as _e:                                    # noqa: BLE001
+            print(f"！卡准入检查没跑起来：{_e}", file=sys.stderr)
+            return 6
+
     # 1b) 逐镜校对亮度与白平衡（整片一个平均值不够——口播段和工地段差一倍）
     if a.shot_match > 0 and videos:
         # 戳里带上 GRADE 的指纹：调色一改，上一轮的逐镜增益就作废了。
@@ -2678,6 +2701,20 @@ def main():
             shutil.move(raw, dst)
         else:
             raw.unlink(missing_ok=True)
+    # 响度写回 meta.json：lock.json 里记的是「拍板时的时长/格数」，响度只有渲完才知道。
+    _mp = proj / "hf" / "meta.json"
+    if _mp.exists():
+        try:
+            _m = json.loads(_mp.read_text())
+            _m["duration_s"] = round(total, 2)
+            if LAST_LOUDNESS:
+                _m["lufs"] = LAST_LOUDNESS.get("lufs")
+                _m["true_peak"] = LAST_LOUDNESS.get("true_peak")
+            if dst.exists():
+                _m["bytes"] = dst.stat().st_size
+            _mp.write_text(json.dumps(_m, ensure_ascii=False, indent=1))
+        except (json.JSONDecodeError, OSError):
+            pass
     print(f"  → {dst}")
     print(f"  下一步：python3 scripts/verify_film.py --project {proj}")
 

@@ -55,6 +55,16 @@ SEC_PER_CARD = 18.0       # 每多少秒最多一张卡（下限密度）
 NEW_REAL = 2              # stat 的 label 至少带来几个窗口里没有的实词
 CJK = EG.CJK
 FUNC = EG.FUNC
+# 大字是把这句的话放大，不是另写一句：它上面的每个字都得是他说的。
+# 「山上捉嘅，唔使腌」判红，因为他只说了「从山上入边捉翻嚟嘅鸡」，
+# 「唔使腌」是编辑自己补的事实——观众会把卡当他的话。
+# 虚字与常见连接词豁免（大字为了排版会省字）。
+KW_EXEMPT = FUNC | set("就都系是有喺同而但所以如果不过仲还又先至")
+# stat 的 label 是「所以呢」式的翻译，允许用口播里没有的词。但**不许凭空断言事实**：
+# 时间承诺、经营扩张、销量利润这类，话里没有就是编的。
+FORBIDDEN_CLAIM = ("明年", "下个月", "下一年", "今年底", "年底", "即将", "将会",
+                   "将要", "计划开", "准备开", "打算开", "已经签", "签了", "分店",
+                   "加盟", "连锁", "上市", "融资", "销量", "利润", "翻倍", "营业额")
 
 
 def real_chars(txt: str) -> list[str]:
@@ -101,6 +111,33 @@ def _cn_span(txt: str) -> set[str]:
     return out
 
 
+def _nums(txt: str) -> list[int]:
+    """把一段话里所有数字挖出来（阿拉伯 + 中文），用来做「这个数能不能算出来」。"""
+    out = [int(x) for x in __import__("re").findall(r"\d+", str(txt or ""))]
+    for s in _cn_span(str(txt or "")):
+        out.append(int(s))
+    return out
+
+
+def derivable(num: int, truth: str) -> bool:
+    """`num` 是不是这句话里的数，或者能由它们四则运算得到。
+
+    「三百万 / 六百平 = 每平方米五千」是可算的（a 片 #1 的卡）；
+    「第二家铺位」算不出来——那是凭空多出来的一个数。
+    """
+    ns = [n for n in _nums(truth) if n > 0]
+    if not ns:
+        return False
+    if any(abs(num - n) <= max(1, n * 0.01) for n in ns):
+        return True
+    for a in ns:
+        for b in ns:
+            for r in (a + b, a - b, a * b, (a / b) if b else None):
+                if r is not None and abs(num - r) <= max(1, abs(r) * 0.02):
+                    return True
+    return False
+
+
 def has_number(text: str, value: str) -> bool:
     digits = "".join(ch for ch in str(value) if ch.isdigit())
     if not digits:
@@ -125,6 +162,16 @@ def words_of_window(lib: Path, el: dict) -> str:
         if bad in txt:
             txt = txt.replace(bad, good)
     return txt
+
+
+def film_text(lib: Path, tl: dict) -> str:
+    """全片口播真值。只用来判「这个词片子里到底存不存在」。
+
+    卡上的释义可以解释的是**影片里说过的那个词**，而不是从词典里搬一套标准答案过来。
+    局限也要认：拿全片而不是拿本句，是一条故意放松的口子——本句窗口只有一句，
+    而解释一个行话往往要用到隔壁那句里说过的事（比如「四大天王」的四样分别在两句里）。
+    """
+    return "".join(words_of_window(lib, e) for e in tl.get("elements") or [])
 
 
 def seg_windows(tl: dict) -> dict[int, tuple[float, float]]:
@@ -182,6 +229,34 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     wins = seg_windows(tl)
     v: list[tuple[str, str]] = []
 
+    # 0. 两份真值源得先对上。卡的内容写在 timeline.json，时长是渲染器算出来写进
+    # cards.json 的。只改时间轴不重渲（或 cards.json 是旧的），以前这一段整段是瞎的：
+    # 把 label 改成「这家店明年就要开分店」，error 仍然是 0。
+    # 对不上的卡只报一次「重渲」，不再拿旧卡的内容去跑后面四条判据。
+    # 以前这里报完「没重渲」接着又拿 out/cards.json 里的旧卡逐条查词证，于是
+    # 一张早就改掉的旧卡能刷出五六条「口播里没说过」——编辑看到一屏红，
+    # 分不清哪条是真错、哪条只是没重渲。两份真值源打架时，只说打架这一件事。
+    stale: set[int] = set()
+    orphan: set[int] = set()
+    for c in cards:
+        seg = int(c.get("seg") or 0)
+        tc = (by_seg.get(seg) or {}).get("card") or {}
+        if not tc:
+            orphan.add(seg)
+            v.append(("error", f"#{seg} 已渲的卡在时间轴上已经没有了——重渲一次就清掉"))
+            continue
+        for key in ("kind", "text"):
+            if str(tc.get(key) or "") != str(c.get(key) or ""):
+                stale.add(seg)
+                v.append(("error", f"#{seg} 的卡 {key} 两份真值源对不上"
+                                   f"（timeline「{str(tc.get(key) or '')[:16]}」/"
+                                   f"已渲「{str(c.get(key) or '')[:16]}」）——改完卡记得重渲"))
+        if (tc.get("data") or {}) != (c.get("data") or {}):
+            stale.add(seg)
+            v.append(("error", f"#{seg} 的卡 data 两份真值源对不上——"
+                               "时间轴上的卡改了但没重渲，屏幕上还是旧卡"))
+    skip = stale | orphan
+
     if not cards:
         return [("error", "一块卡都没有——先确认 plan_card 的「已使用」清单")]
 
@@ -208,13 +283,16 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
 
     # 2. 不许早于锚词
     for c in cards:
+        if int(c.get("seg") or 0) in skip:
+            continue
         at, an = c.get("anchor_t"), c.get("anchor_word")
         if an and at is not None and float(c["start"]) < float(at) + MIN_LEAD - 0.02:
             v.append(("error", f"#{c.get('seg')} 卡「{an}」早于锚词 {float(at):.2f}s 就出了"
                                f"（{c['start']}）——声音在前"))
 
     # 3. 密度与占屏（只算信息卡：大字是节奏点，不是把口播重写一遍）
-    mcards = [c for c in cards if c.get("kind") in MG_KINDS_CHK]
+    mcards = [c for c in cards if c.get("kind") in MG_KINDS_CHK
+              and int(c.get("seg") or 0) not in skip]
     if total > 0:
         share = sum(float(c["end"]) - float(c["start"]) for c in mcards) / total
         if share > SCREEN_SHARE:
@@ -227,6 +305,8 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
 
     # 4. 词证与主张（核心：这张卡说什么，话里到底有没有）
     for c in cards:
+        if int(c.get("seg") or 0) in skip:
+            continue
         seg = by_seg.get(int(c.get("seg") or 0))
         if not seg:
             v.append(("error", f"卡挂在不存在的段 #{c.get('seg')}"))
@@ -237,8 +317,16 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
             continue
         chunks = card_texts(c)
         name = f"#{c.get('seg')} {c.get('kind')}"
+        film = film_text(lib, tl)
 
-        if c.get("kind") == "versus":
+        if c.get("kind") in ("keyword", "behind", "cutout"):
+            # 大字就是这句的话被放大。出现这句里没有的字，就是替他说了他没说的话。
+            t_ = (chunks.get("text") or [""])[0]
+            stray = [ch for ch in t_ if CJK.match(ch) and ch not in KW_EXEMPT and ch not in text]
+            if stray:
+                v.append(("error", f"{name} 大字「{t_}」里的「{''.join(stray)}」这句口播里没有——"
+                                   "大字是把他这句话放大，不是替他加一句"))
+        elif c.get("kind") == "versus":
             for side in ("left", "right"):
                 head, body = (chunks.get(side) or ["", ""])[:2]
                 for label, s in (("左", head), ("右", body)):
@@ -257,6 +345,21 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
             if real_chars(t_) and not all(ch in text for ch in real_chars(t_)):
                 v.append(("error", f"{name} term「{t_}」这几个字口播里没齐——"
                                    "观众听不懂为什么突然解释它"))
+            # 释义可以带常识（「广式早茶的四样招牌」），但**具体列举的东西**必须真存在。
+            # b#5 口播「虾饺排骨凤爪同埋叉烧包」，卡上列「虾饺、烧卖、叉烧包、蛋挞」——
+            # 同一屏，卡在纠正主播，观众不知道该信哪个。
+            # 只查「、」分隔的那段列举，不查 —— 后面的解释句（那是该卡的职责）。
+            dfn = (chunks.get("def") or [""])[0]
+            head = __import__("re").split(r"——|—|这类|这种|这些|等等|等[^、]", dfn)[0]
+            for item in __import__("re").split(r"[、，,/／]", head):
+                rs = real_chars(item)
+                if len(rs) < 2:
+                    continue
+                missing = [ch for ch in rs if ch not in film]
+                if missing:
+                    v.append(("error", f"{name} 释义里举的「{item.strip()}」整部片子里没说过"
+                                       f"（没出现的字：{''.join(missing)}）——"
+                                       "卡上列的不是他说的那几样"))
         elif c.get("kind") == "stat":
             d = c.get("data") or {}
             val = str(d.get("value") or "")
@@ -267,6 +370,18 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
             if len(fresh) < NEW_REAL:
                 v.append(("error", f"{name} 卡的说明「{label}」几乎全是口播原话"
                                    f"（新信息只有 {len(fresh)} 字）——这是复述，不是辅助叙事"))
+            # 反方向：新信息也不能是**凭空的事实断言**。
+            # 「新实词够多」只证明它没在复述，不证明它是真的——
+            # 「这家店明年就要开分店」新词一堆，同样是编的。
+            for bad in FORBIDDEN_CLAIM:
+                if bad in label and bad not in text:
+                    v.append(("error", f"{name} 卡的说明里写了「{bad}」——这句口播里没有这句话，"
+                                       "片子的素材里也没有这回事"))
+            for n in _nums(label):
+                if not derivable(n, text):
+                    v.append(("error", f"{name} 卡的说明里的数字 {n} 算不出来"
+                                       "——口播的这句话里没有它，也推不出来"))
+                    break
     return v
 
 

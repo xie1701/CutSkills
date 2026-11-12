@@ -2,7 +2,7 @@
  "version": 1,
  "why": "依赖清单。scripts/runtime.sh install 只装这里列出、且本地还缺的东西，全部落在 $CUTSKILLS_HOME（默认 ~/.cutskills）里，不散到各个任务目录。",
  "npm": {
-  "hyperframes": "latest"
+  "hyperframes": "0.9.39（钉住。装在 $CUTSKILLS_HOME/npm，render_hf 优先用它；退回 npx 每次都要连 registry，且 headless-shell 下载断流过一次（2026-11-13 只收到 39.5/97.5 MB））"
  },
  "pip": {
   "pypinyin": "==0.55.0",
@@ -11,11 +11,12 @@
   "numpy": ">=2（同上）"
  },
  "system": {
-  "ffmpeg": ">=6（解码、切点、混音）",
+  "ffmpeg": "9.0.2（自编在 $CUTSKILLS_HOME/opt/ffmpeg-zimg，带 libzimg/libass/libharfbuzz/libvmaf；用前先跑 `scripts/runtime.sh check`，它真的执行一次 -version 并检查 otool 的库路径——2026-11-12 夜里 brew 把 Cellar 清空过，清单写着有、实际 dyld 起不来）",
   "ffprobe": ">=6（规格探测）",
   "node": ">=22（hyperframes 要求）",
   "python3": ">=3.9（CI 实跑 3.14/3.15 均可，依赖走 scripts/vendor）",
-  "coli": "本地 ASR：coli asr --model sensevoice，离线"
+  "coli": "本地 ASR：coli asr --model sensevoice，离线",
+  "chrome": "hyperframes 截图渲染要一个 chrome-headless-shell（$CUTSKILLS_HOME/../.cache/hyperframes/chrome）。下载失败时可临时 export HYPERFRAMES_BROWSER_PATH=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\""
  },
  "models": {
   "asr": "sensevoice 随 coli 自带，不下载",

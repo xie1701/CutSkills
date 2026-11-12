@@ -160,6 +160,16 @@ def main() -> int:
         if not step(name, cond, detail):
             fails.append(name)
 
+    # 预检：这条链路**离不开**转写引擎（`coli asr`）。没它就往下跑，
+    # 只会在 ② 报「0 支有 phrases」，然后 ③④⑤ 连环假红——人会以为是代码坏了。
+    # 2026-11-13 实际发生过：Cola 升级后 `coli` 从 PATH 上消失，
+    # 自测一口气报出五条失败，没有一条是真代码问题。缺前置就明说，不硬跑。
+    if not shutil.which("coli"):
+        print("⛔ 转写引擎 `coli` 不在 PATH 上——这条链路没它就没有词级真值。")
+        print("   受影响：自测 ②–⑤、test_hygiene_fixtures.py、任何新素材的索引。")
+        print("   已有 ASR 缓存的素材不受影响（字幕/evidence/静音判据照常跑）。")
+        return 2
+
     print("① 造合成素材库")
     must("三支素材", build_library(lib))
 
@@ -256,6 +266,18 @@ def main() -> int:
     for ln in out.splitlines():
         if "验收：" in ln:
             print(f"     {ln.strip()}")
+
+    # 字幕判据必须跟验收一起跑。 2026-11-12 对账发现两套判据分家：
+    # check_subs 三片全部「没过」（停留 3–5 条、助词孤行 2–3 条），
+    # 而 verify_film 报 🟢26 —— 因为 verify_film 压根没有这两条。
+    # SKILL.md 把 check_subs 列为项目级校验，但它不在 selftest 里，于是从来没人跑。
+    must("字幕合规（check_subs）", sh([PY, str(ROOT / "scripts" / "check_subs.py"),
+                                      "--project", str(proj)]).returncode == 0)
+    must("卡准入（check_cards）", sh([PY, str(ROOT / "scripts" / "check_cards.py"),
+                                     "--project", str(proj)]).returncode in (0, 1),
+         "（无卡的项目返回 1，不算错）")
+    must("边界审计（edge_audit）", sh([PY, str(ROOT / "scripts" / "edge_audit.py"),
+                                      "--project", str(proj)]).returncode == 0)
 
     print("⑥ 文档自检（顺带跑，确保链路改动没有把文档甩在后面）")
     r = sh([PY, str(ROOT / "scripts" / "audit_skill.py"),

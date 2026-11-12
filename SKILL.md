@@ -50,6 +50,7 @@ Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](r
 ```bash
 python3 scripts/evidence_guard.py --project <项目>      # evidence 必须是说过的话
 python3 scripts/speech_hygiene.py --project <项目>      # 口水 / 半句起头 / 接缝重复
+python3 scripts/silence.py <素材> <in> <out>            # 量一段窗口里真有多长的静音（相对阈值，底噪高也量得出）
 python3 scripts/check_timing.py   --project <项目>      # 卡比锚词晚 0.15s、字幕不早于语音
 python3 scripts/pick_take.py --library <素材库> --about 关键词   # 同一个论点选哪个 take
 python3 scripts/stability.py                            # 画面稳定度曲线（跳切切点避开转头挥手）

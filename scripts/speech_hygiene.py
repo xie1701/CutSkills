@@ -55,6 +55,10 @@ FILLER_PAT = re.compile(
 CONT_HEAD = {"然后", "所以", "因为", "就系", "咁", "同埋", "仲有", "同", "即系"}
 # 半句起头：首字是这些，说明切在词中间（「房」「包」「嘅」这种不可能起句）。
 BAD_HEAD = set("嘅咗啦咁啊呀咧喎啵哋啲")
+# 能**收句**的助词。粤语里「我觉得系非常之舒服嘅」「冇问题嘅」「食咗」都是完整句子，
+# 不是半截话。把它们归进 BAD_HEAD 一起判，三片一下子挂出 7 条假「半截话」——
+# 判据写错了会让编辑去改不该改的窗口。真正不能收句的是「啲/哋/咁」这类。
+SENT_FINAL = set("嘅咗啦咯喇嘛嚹囉")
 GAP_BAD = 0.55
 HEAD_LEFTOVER = 0.15            # 句中空档
 EDGE_HEAD = 0.40          # 开头空转
@@ -83,14 +87,18 @@ def words_in(lib: Path, el: dict) -> list[tuple[str, float]]:
     if not aid or i is None or o is None:
         return []
     return [(t, s) for t, s in EG.words_of(lib, aid)
-            if float(i) - 0.10 <= s <= float(o) + 0.10]
+            if float(i) - 0.10 <= s <= float(o) + 0.10
+            # 剔标点 token：它挂在「这口气说完之后」的时间戳上。留着会把
+            # 「鸡@6.24 。@7.26」算成 1 秒空档，也会把尾巴判断整格错位。
+            and t.strip() and not EG.PUNCT.fullmatch(t.strip())]
 
 
 def core_str(text: str) -> str:
     return "".join(c for c in text if c not in FUNC and EG.CJK.match(c))
 
 
-def per_element(el: dict, ws: list[tuple[str, float]]) -> list[tuple[str, str]]:
+def per_element(el: dict, ws: list[tuple[str, float]],
+                lib: Path | None = None) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     n = el.get("n")
     au = el.get("audio") or {}
@@ -114,45 +122,60 @@ def per_element(el: dict, ws: list[tuple[str, float]]) -> list[tuple[str, str]]:
     if soft:
         out.append(("warning", f"#{n} 填充音「{''.join(soft)}」——切掉这个音就行，不必换 take"))
 
+    # 判首尾都要用**严格窗口**：`words_in` 放 0.10s 容差是为了容忍 ASR 时间戳抖动，
+    # 但起点落在 in 之前、或终点落在 out 之后的词，观众根本听不到。拿容差表判首尾，
+    # 会同时制造两种假红——c#8「…得十一月份」把窗口外的「得」当成起头，判「切在词中间」；
+    # b#2「…就够大｜咁先可以」把下一句的「咁」当成尾巴，判「尾巴停在虚词上」。
+    strict = [(t, s) for t, s in ws if i - 0.02 <= s <= o + 0.02] or ws
+
     # head
-    first = ws[0][0]
+    first = strict[0][0]
     if first in BAD_HEAD or (len(first) == 1 and first in FUNC):
         out.append(("error", f"#{n} 切在词中间（首字「{first}」不能起句）——前挪到句首"))
     elif first.strip("，,、。.") in CONT_HEAD:
         out.append(("warning", f"#{n} 半句起头（「{first}」）——观众听到的是上一句的尾巴"))
-    elif first in ("，", ",") and ws[0][1] - i >= HEAD_LEFTOVER:
+    elif first in ("，", ",") and strict[0][1] - i >= HEAD_LEFTOVER:
         # 词级真值把上一句的逗号标在这个词头上。真要看的是「起点前还有没有声音」：
         # 起点贴着这个词（<0.15s）说明上一句已经说完了，逗号只是 ASR 的句子边界记号。
-        out.append(("warning", f"#{n} 起点前还留着 {ws[0][1] - i:.2f}s 上一句的尾巴"))
+        out.append(("warning", f"#{n} 起点前还留着 {strict[0][1] - i:.2f}s 上一句的尾巴"))
 
-    # gap / edge
-    gaps = []
-    for k in range(1, len(ws)):
-        g = ws[k][1] - ws[k - 1][1]
-        if g > GAP_BAD:
-            gaps.append(round(g, 2))
+    # gap / edge：空档要**量**出来的静音，不是 ASR 词间距。
+    # ASR 漏词很常见（「从嗰个渔船」只记成「从…渔船」，中间 0.6s 有声没词）；
+    # 拿词间距判「话说一半断了」，编辑照着去切，切掉的就是他说的话。
+    gaps, _head, _tail = [], 0.0, 0.0
+    aid = (el.get("audio") or {}).get("asset") or el.get("asset")
+    if lib is not None and aid and ws:
+        import silence as SI
+        src = Path(lib) / aid
+        for s, e in SI.runs(src, i, o):
+            if e - s > GAP_BAD and s > i + 0.05 and e < o - 0.05:
+                gaps.append(round(e - s, 2))
+        _head = SI.silent_between(src, i, ws[0][1])
+        _tail = SI.silent_between(src, ws[-1][1], o)
     if gaps:
-        out.append(("warning", f"#{n} 话说一半断了（空档 {gaps}）——中间的静默要切掉"))
-    if ws[0][1] - i > EDGE_HEAD:
-        out.append(("warning", f"#{n} 开头 {ws[0][1] - i:.2f}s 没声音"))
-    if o - ws[-1][1] > EDGE_TAIL:
-        out.append(("warning", f"#{n} 结尾 {o - ws[-1][1]:.2f}s 没声音"))
+        out.append(("warning", f"#{n} 话说一半断了（静音 {gaps}）——中间的静默要切掉"))
+    if _head > EDGE_HEAD:
+        out.append(("warning", f"#{n} 开头 {_head:.2f}s 没声音"))
+    if _tail > EDGE_TAIL:
+        out.append(("warning", f"#{n} 结尾 {_tail:.2f}s 没声音"))
 
     # 尾巴悬空：最后几个词里挂着「因为/所以/就系」，说明下一句的起头被切在窗口外，
     # 观众听到的是半截话接下一段的第一句——欧阳那片「因为有咁 / 我有咁大嘅厨房」
     # 听起来像回声，就是这么来的。
-    tail_words = [t for t, _ in ws[-2:]]
+    tail_words = [t for t, _ in strict[-2:]]
     tail_txt = "".join(tail_words)
-    ended = bool(re.search(r"[。！？!?]$", "".join(t for t, _ in ws)))
+    ended = bool(re.search(r"[。！？!?]$", "".join(t for t, _ in strict)))
     for c in ("因为", "所以", "但系", "就系", "同埋", "仲有"):
         if not ended and c in tail_txt:
             out.append(("error", f"#{n} 尾巴挂着「{c}」（…{tail_txt[-8:]}）——"
                                  "下一句的起头被切在窗口外，接上下一段就是重复"))
             break
-    if ws[-1][0] in BAD_HEAD or (len(ws[-1][0]) == 1 and ws[-1][0] in FUNC):
-        out.append(("warning", f"#{n} 尾巴停在虚词「{ws[-1][0]}」上，半截话"))
-    if ws[-1][0] in set("因所但就同仲"):
-        out.append(("error", f"#{n} 尾巴切在「{ws[-1][0]}…」中间——"
+    if strict[-1][0] in (BAD_HEAD - SENT_FINAL) or (len(strict[-1][0]) == 1
+                                                    and strict[-1][0] in FUNC
+                                                    and strict[-1][0] not in SENT_FINAL):
+        out.append(("warning", f"#{n} 尾巴停在虚词「{strict[-1][0]}」上，半截话"))
+    if strict[-1][0] in set("因所但就同仲"):
+        out.append(("error", f"#{n} 尾巴切在「{strict[-1][0]}…」中间——"
                              "下一句从这儿起头，接上去就是同一句说两遍"))
 
     # 起句自我否定：「唔系唔系 / 唔对唔对 / 等等」——主播 NG 之后重新起句，
@@ -254,7 +277,7 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     allwords = {e.get("n"): words_in(lib, e) for e in els}
     out: list[tuple[str, str]] = []
     for e in els:
-        out.extend(per_element(e, allwords.get(e.get("n"), [])))
+        out.extend(per_element(e, allwords.get(e.get("n"), []), lib))
     out.extend(cross(els, allwords))
     return out
 

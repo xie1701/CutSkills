@@ -18,6 +18,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_guard as EG  # noqa: E402
+import silence as SI  # noqa: E402
+
+
+def speech(ws):
+    """去掉 ASR 里那些**标点 token**。
+
+    词级真值里「。」「，」是独立 token，还常常挂着这一口气结束几秒后的时间戳。
+    不清掉它们的话：① 「鸡@6.24 。@7.26」会被算成 1 秒空档；② 尾巴判断把「。」
+    当成一个词，虚词/接续词判据全部错位。这是两个假报的共同源头。
+    """
+    return [(w, t) for w, t in ws if w.strip() and not EG.PUNCT.fullmatch(w.strip())]
 
 PITCH_GAP = 0.90     # 词后静默超过这个数，再看后面有没有把同一句重说一遍
 PITCH_LOOK = 4.0     # 「重说」要在这么多年内出现
@@ -40,9 +51,17 @@ def ffmpeg() -> str:
 
 
 def _gray(src: Path, t: float, w=160, h=284):
-    r = subprocess.run([ffmpeg(), "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", str(src),
-                        "-frames:v", "1", "-vf", f"scale={w}:{h},format=gray",
-                        "-f", "rawvideo", "-"], capture_output=True)
+    """抽一帧灰度。**拿不到就返回 b""**，但调用方必须把空字节当「量不出」而不是「没动」。
+
+    可执行文件不存在（dyld 挂了 / brew 把瓶子抽了）时 subprocess 会抛 FileNotFoundError，
+    这里一并吞成空字节——让审计层去报「没量」。
+    """
+    try:
+        r = subprocess.run([ffmpeg(), "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", str(src),
+                            "-frames:v", "1", "-vf", f"scale={w}:{h},format=gray",
+                            "-f", "rawvideo", "-"], capture_output=True)
+    except OSError:
+        return b""
     return r.stdout or b""
 
 
@@ -66,7 +85,7 @@ def audit(proj: Path, lib: Path) -> list[tuple[str, str]]:
         if not aid:
             continue
         i, o = float(a.get("in") or 0), float(a.get("out") or 0)
-        ws = [w for w in EG.words_of(lib, aid) if i - 0.02 <= w[1] <= o + 0.02]
+        ws = speech([w for w in EG.words_of(lib, aid) if i - 0.02 <= w[1] <= o + 0.02])
         if not ws:
             continue
         # ① 孤立提示词：说完一个词停 ≥0.70s，之后 4 秒内又把同一个词重说一遍。
@@ -81,26 +100,40 @@ def audit(proj: Path, lib: Path) -> list[tuple[str, str]]:
                 out.append(("红", f"#{n} 孤立提示词：「{w}」@{t:.2f} 之后空 {gap:.2f}s，"
                                   f"然后又把「{w}」重说了一遍——前面那半截是自己念题，不该进片"))
                 break
-        # ①b 尾巴挂着下一句的重复：窗口最后 1.2 秒里出现 2 字以上的短语重复
+        # ①b 尾巴挂着下一句的重复：窗口最后 1.4 秒里出现**紧邻**的短语重说
         # （「叉烧包 仲有 你仲有 好多人」——「仲有你仲有」是下一句的开头，被尾巴带进来了）
+        #
+        # 2026-11-12 夜：头一版只要有 2 字重复就判红，把并列结构全打成缺陷——
+        # 「我哋一共有四个门口 楼面两个门口 厨房两个门口」是正经列举，两个「个门口」
+        # 中间隔着「楼面」「厨房」（间隔 3 字）。真正的口吃是**贴着**重说：
+        # 「仲有 你 仲有」间隔 1 字。所以判据要量「两次出现之间隔着几个字」，
+        # 只认 ≤2 字的紧邻重说。
         tail_ws = [w for w, t in ws if t >= o - 1.4]
         tail_txt = "".join(tail_ws)
         for kl in (3, 2):
             hit = None
             for x in range(len(tail_txt) - kl + 1):
                 g = tail_txt[x:x + kl]
-                if tail_txt.count(g) >= 2:
-                    hit = g
+                pos = tail_txt.find(g, x + 1)
+                while pos >= 0:
+                    if pos - (x + kl) <= 2:          # 中间只夹 0–2 字＝贴着重说
+                        hit = g
+                        break
+                    pos = tail_txt.find(g, pos + 1)
+                if hit:
                     break
             if hit:
                 out.append(("红", f"#{n} 尾巴挂着一句重复「{hit}」——窗口没收干净，"
                                   f"下一句的开头被带进来了"))
                 break
-        # ② 头尾静默
-        if ws[0][1] - i > EDGE_HEAD:
-            out.append(("黄", f"#{n} 开头 {ws[0][1] - i:.2f}s 没声音"))
-        if o - ws[-1][1] > EDGE_TAIL:
-            out.append(("黄", f"#{n} 结尾 {o - ws[-1][1]:.2f}s 没声音"))
+        # ② 头尾静默：**量**出来的静音，不是词间距。词间距大可能是 ASR 漏了词，
+        # 那种情况里声音是有的，提示「没声音」会让编辑去切掉他说的话。
+        _head = SI.silent_between(lib / aid, i, ws[0][1]) if ws else 0.0
+        _tail = SI.silent_between(lib / aid, ws[-1][1], o) if ws else 0.0
+        if _head > EDGE_HEAD:
+            out.append(("黄", f"#{n} 开头 {_head:.2f}s 没声音"))
+        if _tail > EDGE_TAIL:
+            out.append(("黄", f"#{n} 结尾 {_tail:.2f}s 没声音"))
         # ③ 画面拖尾：话停了，画面里人还在做新动作。
         # 单看「末段帧差」会把正常说话全判红（人一直在动），所以拿它跟**这一格自己**的平均动感比。
         vid = lib / (el.get("asset") or "")
@@ -109,12 +142,18 @@ def audit(proj: Path, lib: Path) -> list[tuple[str, str]]:
             span = max(0.4, vo - vi)
             pts = [vi + span * f for f in (0.12, 0.32, 0.52, 0.72, 0.88)]
             frames = [_gray(vid, t) for t in pts]
-            base = [motion(frames[i], frames[i + 1]) for i in range(len(frames) - 1)]
-            base = sorted(base)[len(base) // 2] if base else 0.0
-            tail = motion(_gray(vid, max(vi, vo - 0.45)), _gray(vid, max(vi, vo - 0.05)))
-            if tail > TAIL_MOTION and tail > max(4.0, TAIL_RATIO * base):
-                out.append(("黄", f"#{n} 末尾画面突然动起来（帧差 {tail:.0f} vs 本格中位 {base:.0f}）"
-                                  f"——话都停了，人还在演"))
+            # 拿不到帧就是量不出，不是「没动」。这个口子 2026-11-12 摆在那里一整晚：
+            # ffmpeg 被 brew 清掉了，_gray 全返回 b""，motion() 对空字节返回 0.0，
+            # 「末尾画面突然动起来」这条永不红，审计报 🔴 0 🟡 0。
+            if not all(frames):
+                out.append(("黄", f"#{n} 抽不出帧（ffmpeg 跑不通？）——画面拖尾这条没量"))
+            else:
+                base = [motion(frames[i], frames[i + 1]) for i in range(len(frames) - 1)]
+                base = sorted(base)[len(base) // 2] if base else 0.0
+                tail = motion(_gray(vid, max(vi, vo - 0.45)), _gray(vid, max(vi, vo - 0.05)))
+                if tail > TAIL_MOTION and tail > max(4.0, TAIL_RATIO * base):
+                    out.append(("黄", f"#{n} 末尾画面突然动起来（帧差 {tail:.0f} vs 本格中位 {base:.0f}）"
+                                      f"——话都停了，人还在演"))
     return out
 
 

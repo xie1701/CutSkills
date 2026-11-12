@@ -794,7 +794,16 @@ def main() -> int:
                              if a_ - 0.05 <= c["start"] < b_), None)
             if not host:
                 continue
-            ev = _bare(host.get("evidence") or "")
+            # 字幕这一步会干两件事：按词表纠错（「四大轩王」→「四大天王」）、
+            # 剔掉拖音（「有啲诶造型」→「有啲造型」）。比对前必须**两边过同一道**，
+            # 否则字幕正确地改了错，判据反而报「这句已经被剪掉了」——
+            # 三支片各挂一条假红，全是这一个原因。
+            try:
+                import lexicon as _lx
+                _lex = _lx.load(proj.parents[2] / "_cutskills")
+                ev = _bare(_lx.strip_noise(_lx.fix_text(host.get("evidence") or "", _lex)))
+            except Exception:                                      # noqa: BLE001
+                ev = _bare(host.get("evidence") or "")
             txt = _bare(c["text"])
             if ev and txt and txt not in ev:
                 strays.append((c["text"], ev[:26]))
@@ -1066,6 +1075,36 @@ def main() -> int:
                 "" if lvl == "green" else "接近全黑的段落会被平台当低质，也看不出画了什么")
     except Exception as e:                      # 量不出来就说出来，不静默跳过
         add("亮度", "量不出", "yellow", str(e)[:60])
+
+    # 字幕的两条**语义**判据（停留时间、助词孤行）原先只在 check_subs.py 里，
+    # 验收层根本没有——于是「check_subs 三片全红、verify_film 全绿」同时成立，
+    # 谁也不知道该信谁。判据抽成函数后两层跑同一份，不再各写一遍。
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import check_subs as _cs
+        _sj = proj / "out" / "subs.json"
+        _cues = ((json.loads(_sj.read_text()) or {}).get("cues") or []) if _sj.exists() else []
+        if not _cues:
+            add("字幕停留", "没有 out/subs.json", "yellow", "这套包装没上字幕层，或还没渲")
+        else:
+            _hb, _hn = _cs.hold_judge(_cues)
+            _short = [x for x in _hb if x["s"] < 0.6]
+            _long = [x for x in _hb if x["s"] > _cs.HOLD_MAX + 0.02]
+            if _hb:
+                add("字幕停留", f"{len(_hb)}/{len(_cues)} 条越界"
+                                f"（最短 {min(x['s'] for x in _hb):.2f}s）", "red",
+                    "闪一下或赖在屏幕上：" + "、".join(x["text"] for x in _hb[:3]))
+            else:
+                add("字幕停留", f"{len(_cues)} 条全在 {_cs.HOLD_MIN}–{_cs.HOLD_MAX}s 内", "green",
+                    f"另有 {len(_hn)} 条收在句读上的短句（可接受）" if _hn else "")
+            _dg = _cs.dangling_judge(_cues)
+            if _dg:
+                add("助词孤行", f"{len(_dg)} 条", "red",
+                    "；".join(f"{x['text']}（{x['why']}）" for x in _dg[:3]))
+            else:
+                add("助词孤行", "0 条", "green", "条首条尾都没落在虚字上")
+    except Exception as e:                      # 判据本身坏了也要说出来
+        add("字幕停留", "判据跑不动", "yellow", str(e)[:60])
 
     red = [r for r in rows if r[2] == "red"]
     yellow = [r for r in rows if r[2] == "yellow"]

@@ -47,11 +47,19 @@ def clips_of(tl: dict) -> list[tuple[str, float, float]]:
 
 
 def takes_of(tl: dict) -> list[tuple[str, float, float]]:
+    """这条片子里**观众听见的每一段原声**来自哪里。
+
+    这里曾经写成 `e.get("medium") == "talking"`——而 a 片 13 格里 7 格是
+    `medium: broll` 但声音仍然从口播素材来（画面换到他在说的东西，声音没断）。
+    于是这道门对整个 b-roll 的声轨视而不见，报「error 0」，
+    而实测 a×b 真口播重叠 25.49s（a 片口播总长的 49.5%）。
+    """
     out = []
     for e in tl.get("elements") or []:
         au = e.get("audio") or {}
-        if au.get("asset") and e.get("medium") == "talking":
-            out.append((str(au["asset"]), float(au["in"]), float(au["out"])))
+        aid = au.get("asset")
+        if aid:
+            out.append((str(aid), float(au.get("in") or 0), float(au.get("out") or 0)))
     return out
 
 

@@ -135,14 +135,20 @@ def truth_of(lib: Path, el: dict) -> tuple[str, float, float]:
         spoken = sum(max(0.0, min(float(o), float(p.get("end") or 0))
                          - max(float(i), float(p.get("start") or 0))) for p in ph)
         return txt, spoken, float(o) - float(i)
-    # 有声时长：词的覆盖区间（词间 >0.4s 的空档不算）
-    spoken = 0.0
-    prev = None
-    for _, s in ws:
-        if prev is not None and s - prev <= 0.40:
-            spoken += s - prev
-        prev = s
-    return txt, spoken, float(o) - float(i)
+    # 有声时长要**量**，不能拿词间距猜。
+    # 原来这里是「词起点间隔 ≤0.4s 就算有声」，于是念数字那种一口一个字、
+    # 间隔 0.48s 的正常语速被判成「只有 24% 的时间在说话——选了段空转？」，
+    # 而真正的空转反而量不出来。改成用静音探针：有声 = 窗口时长 − 真静音。
+    dur = float(o) - float(i)
+    spoken = dur
+    try:
+        import silence as SI
+        src = Path(lib) / aid
+        if src.exists():
+            spoken = max(0.0, dur - SI.silent_between(src, float(i), float(o)))
+    except Exception:                                              # noqa: BLE001
+        pass
+    return txt, spoken, dur
 
 
 def core(text: str) -> list[tuple[str, str]]:
