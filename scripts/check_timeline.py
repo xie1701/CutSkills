@@ -167,15 +167,23 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                         out.append(("error", f"#{n} 只有 {tout - tin:.2f}s，短到看不清"))
                     if dur and tout > dur + 0.05:
                         out.append(("error", f"#{n} out {tout:.2f}s 超过素材长度 {dur:.2f}s"))
-                # 口播段：画面和声音同一支素材同一段，裁切点必须逐帧一致。
-                # 差一秒以上，声音在说第 90 秒的话、脸还在第 0 秒，嘴形就全错了；
-                # 而素材开头往往正是场记口令和重来的地方，画面跟着从 0 起会把坏 take 也带进来。
                 au = el.get("audio") or {}
-                if kind == "clip" and au.get("asset") and au["asset"] == aid:
-                    ai, ao = float(au.get("in") or 0), float(au.get("out") or 0)
-                    if abs(ai - tin) > 0.02 or abs(ao - tout) > 0.02:
-                        out.append(("error", f"#{n} 口播段音画不同源：画面 [{tin:.2f}, {tout:.2f}]s、"
-                                             f"声音 [{ai:.2f}, {ao:.2f}]s——嘴形会对不上"))
+                if kind == "clip" and au.get("asset"):
+                    # 口播段：画面和声音同一支素材同一段，裁切点必须逐帧一致。
+                    # 差一秒以上，声音在说第 90 秒的话、脸还在第 0 秒，嘴形就全错了；
+                    # 而素材开头往往正是场记口令和重来的地方，画面跟着从 0 起会把坏 take 也带进来。
+                    if au["asset"] == aid:
+                        ai, ao = float(au.get("in") or 0), float(au.get("out") or 0)
+                        if abs(ai - tin) > 0.02 or abs(ao - tout) > 0.02:
+                            out.append(("error", f"#{n} 口播段音画不同源：画面 [{tin:.2f}, {tout:.2f}]s、"
+                                                 f"声音 [{ai:.2f}, {ao:.2f}]s——嘴形会对不上"))
+                    else:
+                        adur = float(au.get("out") or 0) - float(au.get("in") or 0)
+                        if adur > 0 and abs(adur - (tout - tin)) > 0.05:
+                            # 画面和声音时长不一致时，短的那轨播完后另一轨还在跑，
+                            # 后面的格子会被顶歪，字幕/卡片全跟着漂。
+                            out.append(("error", f"#{n} 画面 {tout - tin:.2f}s ≠ 声音 {adur:.2f}s——"
+                                                 f"声画时长要对齐"))
                 if el.get("medium") not in MEDIUMS:
                     out.append(("error", f"#{n} medium「{el.get('medium')}」非法"))
                 if el.get("medium") == "broll" and not el.get("audio"):

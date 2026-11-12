@@ -39,6 +39,10 @@ CASES = [
     ("口播画面整体平移 3 秒", el(1, "a.mov", 5.64, 11.10, 2.64, 8.10), "音画不同源", True),
     ("B-roll 跨素材不算（画面本来就不是这段话）",
      el(1, "b.mov", 0.0, 5.46, 2.64, 8.10, aasset="a.mov"), "", False),
+    ("B-roll 画面比声音短（后半段画面缺失）",
+     el(1, "b.mov", 0.0, 4.80, 2.64, 8.10, aasset="a.mov"), "声画时长", True),
+    ("B-roll 时长误差 0.04s 内（帧取整的正常范围）",
+     el(1, "b.mov", 0.0, 5.44, 2.64, 8.10, aasset="a.mov"), "", False),
 ]
 
 
@@ -46,8 +50,8 @@ def main() -> int:
     bad = 0
     for name, e, want, want_err in CASES:
         out = run({"title": "av", "elements": [e], "duration_s": round(e["out"] - e["in"], 3)})
-        hit = want in out if want else "音画不同源" not in out
-        got_err = "音画不同源" in out
+        hit = want in out if want else not any(k in out for k in ("音画不同源", "声画时长"))
+        got_err = ("音画不同源" in out) or ("声画时长" in out)
         ok = hit and got_err == want_err
         print(f"  {'✓' if ok else '✗'} {name}")
         if not ok:
