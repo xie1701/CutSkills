@@ -493,6 +493,15 @@
 | `--ref` | 参考片字幕裁图，贴在最上面做基准 |
 | `--out` | （默认 Path('/tmp/font-sheet.png')） |
 
+### `fonts.py`
+*字体表：别名 → 文件，以及**字号反算**。*
+
+| 参数 | 说明 |
+|---|---|
+| `--list` | 开关 |
+| `--size` | — |
+| `--width` | （默认 1080） |
+
 ### `gen_boroll.py`
 *CutSkills · B-roll 图形卡生成器：三种可参数化的图形卡 → 透明 PNG 叠加层。*
 
@@ -821,6 +830,11 @@
 
 ### `test_hooks_policy.py`
 *CutSkills · T-006 钩子策略真判定回归测试*
+
+（无参数）
+
+### `test_hygiene_fixtures.py`
+*负样本夹具的**真音频**验证：判据在真声音上还能不能抓住。*
 
 （无参数）
 

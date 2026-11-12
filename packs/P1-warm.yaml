@@ -8,7 +8,7 @@ canvas:
   fps: 30
 grade: warm_high_sat
 subtitle:
-  font: NotoSansSC-SemiBold
+  font: 得意黑
   size_px: 80
   weight: ExtraBold
   color: '#FFFFFF'

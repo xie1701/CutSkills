@@ -45,6 +45,16 @@ Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](r
 
 台词真值口径（`evidence` 必须是说过的话，不是写顺了的话）见 [plan-ng-2026-11-12.md](references/plan-ng-2026-11-12.md)；字体与字号校准见 [styles/fonts.yaml](styles/fonts.yaml)。
 
+台词真值 / 口播洁净度 / 声音在前，三条判据各有一个脚本和一个合同测试：
+
+```bash
+python3 scripts/evidence_guard.py --project <项目>      # evidence 必须是说过的话
+python3 scripts/speech_hygiene.py --project <项目>      # 口水 / 半句起头 / 接缝重复
+python3 scripts/check_timing.py   --project <项目>      # 卡比锚词晚 0.15s、字幕不早于语音
+python3 scripts/pick_take.py --library <素材库> --about 关键词   # 同一个论点选哪个 take
+python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
+```
+
 ## v4 主链路：一条命令一层
 
 ```bash

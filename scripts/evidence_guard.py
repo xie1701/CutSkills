@@ -34,6 +34,7 @@ import json
 import re
 import sys
 from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -60,9 +61,9 @@ def pinyin_of(ch: str) -> str:
         return ch
 
 
-def words_of(lib: Path, asset_id: str) -> list[tuple[str, float]]:
-    """词级真值（素材绝对时间）。读索引缓存，缺了就用 index_assets.asr 现场补。"""
-    cache = lib / "_cutskills" / "cache" / "asr"
+@lru_cache(maxsize=512)
+def _words_of(lib_s: str, asset_id: str) -> tuple[tuple[str, float], ...]:
+    cache = Path(lib_s) / "_cutskills" / "cache" / "asr"
     if not cache.is_dir():
         return []
     words: list[tuple[str, float]] = []
@@ -78,7 +79,43 @@ def words_of(lib: Path, asset_id: str) -> list[tuple[str, float]]:
         toks, stamps = raw.get("tokens") or [], raw.get("timestamps") or []
         for t, s in zip(toks, stamps):
             words.append((str(t), float(s) + off))
-    return words
+    return tuple(words)
+
+
+def words_of(lib: Path, asset_id: str) -> list[tuple[str, float]]:
+    """词级真值（素材绝对时间）。同一个素材重复读很常见（每格都要），缓存住。"""
+    return list(_words_of(str(lib), str(asset_id)))
+
+
+def phrases_of(lib: Path, asset_id: str) -> list[dict]:
+    """句级真值（老库没有词级缓存时的兜底）。
+
+    老库的 ASR 缓存是按旧版 hash 命名的（`005263f2ad91-*.json`），跟现在的
+    `h12(id)` 对不上——换算法会让整批老素材突然「无法校对」。句级比词级粗，
+    但足够判「这段说的是这句话吗」。
+    """
+    f = lib / "_cutskills" / "index.json"
+    if not f.exists():
+        return []
+    try:
+        idx = json.loads(f.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    for a in idx.get("assets") or []:
+        if a.get("id") != asset_id:
+            continue
+        tr = a.get("transcript")
+        if isinstance(tr, str):
+            try:
+                tr = json.loads(tr)
+            except json.JSONDecodeError:
+                import ast
+                try:
+                    tr = ast.literal_eval(tr)
+                except Exception:                                  # noqa: BLE001
+                    return []
+        return (tr or {}).get("phrases") or []
+    return []
 
 
 def truth_of(lib: Path, el: dict) -> tuple[str, float, float]:
@@ -90,6 +127,14 @@ def truth_of(lib: Path, el: dict) -> tuple[str, float, float]:
         return "", 0.0, 0.0
     ws = [(t, s) for t, s in words_of(lib, aid) if float(i) - 0.10 <= s <= float(o) + 0.10]
     txt = "".join(t for t, _ in ws)
+    if not ws:
+        # 没有词级就退到句级：精度差一点，但比「无法校对各打五十大板」强。
+        ph = [p for p in phrases_of(lib, aid)
+              if float(i) - 0.10 <= float(p.get("start") or 0) <= float(o) + 0.10]
+        txt = "".join(p.get("text") or "" for p in ph)
+        spoken = sum(max(0.0, min(float(o), float(p.get("end") or 0))
+                         - max(float(i), float(p.get("start") or 0))) for p in ph)
+        return txt, spoken, float(o) - float(i)
     # 有声时长：词的覆盖区间（词间 >0.4s 的空档不算）
     spoken = 0.0
     prev = None

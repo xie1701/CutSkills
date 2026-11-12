@@ -190,10 +190,23 @@ def cross(elements: list[dict], allwords: dict[int, list[tuple[str, float]]]) ->
         tb = core_str("".join(t for t, _ in wb))
         tail, head = ta[-SEAM_N:], tb[:SEAM_N]
         common = [c for c in tail if c in head]
-        if len(set(common)) >= SEAM_HIT:
+        # 字面重合是硬证据；但更常见的是「前段尾巴挂着一个没说完的接续词」——
+        # 「…因为有咁」接「我有咁大嘅厨房」，字面只重合一个「有」，声音上却是同一句说了两遍。
+        wa_tail = "".join(t for t, _ in wa[-2:])
+        # 「话说完了没有」不看 ASR 给的句号——它会给半截话也补一个句号。
+        # 看最后一个词落没落在实词上：段尾只剩虚词（「…我觉得咧。」），就是半截话。
+        lands = any(c not in FUNC and EG.CJK.match(c) for t, _ in wa[-2:] for c in t)
+        # 还要有**实词重合**才算「同一句说两遍」。粤语里「…嘅，」结尾很常见，
+        # 下一句接别的内容很正常（#11「运翻嚟嘅，」接 #12「空间高先可以」就是）。
+        last_real = {c for t, _ in wa[-5:] for c in t if c not in FUNC and EG.CJK.match(c)}
+        head_real = {c for c in head if c not in FUNC}
+        hanging = (not lands) and bool(head) and bool(last_real & head_real)
+        if len(set(common)) >= SEAM_HIT or hanging:
+            why = (f"前段尾挂着「{wa_tail}」没说完" if hanging
+                   else f"共 {len(set(common))} 字重合")
             out.append(("error",
                         f"#{a.get('n')}→#{b.get('n')} 接缝重复：前段尾「{tail}」接后段头「{head}」，"
-                        f"共 {len(set(common))} 字——观众听到同一句说两遍（这就是「回音」）"))
+                        f"{why}——观众听到同一句说两遍（这就是「回音」）"))
     for k in range(2, len(elements)):
         trio = elements[k - 2:k + 1]
         sets = []

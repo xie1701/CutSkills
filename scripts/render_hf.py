@@ -59,13 +59,23 @@ FONT_DIRS = [Path.home() / "Library/Fonts", Path("/Library/Fonts"),
 
 
 def find_font(name: str) -> Path | None:
-    """样式包里写的是字体名（NotoSansSC-SemiBold），这里找到真文件。
+    """样式包里写的是字体名（NotoSansSC-SemiBold / 得意黑），这里找到真文件。
+
+    别名（得意黑、思源黑体、思源宋体）先过 styles/fonts.yaml——里面还记着宽度比，
+    字号靠它反算。直接写文件名也认。
 
     HTML 不吃 `local()`：lint 会报 `font_family_without_font_face`，
     所以必须有一份能进 @font-face 的文件，复制进项目的 assets/fonts。
     """
     if not name:
         return None
+    try:
+        import fonts as fonts_mod
+        alias = fonts_mod.file_of(name)
+        if alias:
+            name = alias
+    except Exception:                                              # noqa: BLE001
+        pass
     p = Path(name).expanduser()
     if p.suffix.lower() in (".ttf", ".otf", ".ttc") and p.exists():
         return p
@@ -895,7 +905,14 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             # +0.10s：声音先出，画面跟着。提前出现就是「抢拍」——
             # 观众会在词还没说出来的时候先看见字，读到的和听到的对不上。
             start = round(max(s["_start"] + 0.2, anchor_t + CARD_LAG), 3)
+            _sd = float(s.get("_dur_q", 9))
+            if _sd > MG_ENTRY_CALM:
+                start = round(start + min(MG_ENTRY_MAX, (_sd - MG_ENTRY_CALM) * 0.35), 3)
         d = max(h0, min(float(c.get("dur") or h1), h1))
+        if kind in MG_KINDS:
+            _mn = mg_min_s(kind, c.get("data") or {})
+            if _mn:
+                d = max(d, _mn)
         on = str(c.get("on") or "").strip()
         aid = (s.get("audio") or {}).get("asset") or s["asset"]
         a_in = float((s.get("audio") or {}).get("in", s["in"]))
@@ -912,6 +929,12 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
                 st0 = win[j][1] - a_in + s["_start"] + CARD_LAG
                 st1 = win[min(j + len(on) - 1, len(win) - 1)][2] - a_in + s["_start"]
                 start = round(max(s["_start"] + 0.15, st0), 3)
+                # 块越长，卡片入场越往后推（0.15–1.25s 之间自适应）：
+                # 贴着切点出，观众还没看清画面就先看见字，观感是「贴脸」。
+                _sd = float(s.get("_dur_q", 9))
+                if _sd > MG_ENTRY_CALM:
+                    start = round(start + min(MG_ENTRY_MAX,
+                                              (_sd - MG_ENTRY_CALM) * 0.35), 3)
                 anchor_t = round(win[j][1] - a_in + s["_start"], 3)
                 d = round(min(h1, max(h0, st1 - start + 0.25)), 3)
             else:
@@ -936,7 +959,7 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
                 break
         if start is None:
             continue
-        _cd = {"kind": kind, "text": str(c.get("text") or ""),
+        _cd = {"seg": s["n"], "kind": kind, "text": str(c.get("text") or ""),
                "data": c.get("data") or None,
                "start": start, "end": round(start + d, 3),
                "anchor_word": on or None,
@@ -948,6 +971,44 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             _cd["deferred_to"] = deferred
         cards.append(_cd)
     return cards
+
+
+def mask_stats(mdir: Path, W: int, H: int) -> dict | None:
+    """量一张遮罩：头顶在哪、人占多宽、软边多少。
+
+    这三个数决定「大字能不能放到人脑后」。放脑后的前提是**人比字窄**——
+    真人近景（牛哥那种）人头就占 35%W，字撑 70%W 也躲不开脑袋，抠了也是白抠：
+    字被拦腰截断，看起来像技术故障，不像设计。
+    """
+    import numpy as np
+    from PIL import Image
+    fs = sorted(mdir.glob("f*.png")) if mdir.exists() else []
+    if not fs:
+        return None
+    arr = np.asarray(Image.open(fs[len(fs) // 2]).convert("L").resize((W, H)))
+    ys, _ = np.nonzero(arr > 128)
+    if len(ys) == 0:
+        return None
+    head_top = float(ys.min()) / H
+    y0 = int(ys.min())
+    y1 = min(H, y0 + int(H * 0.25))
+    band = arr[y0:y1]
+    step = max(1, band.shape[0] // 20)
+    face_w = max(float((band[y] > 128).mean()) for y in range(0, band.shape[0], step))
+    soft = float(((arr > 20) & (arr < 235)).mean())
+    return {"head_top": round(head_top, 3), "face_w": round(face_w, 3), "soft": round(soft, 4)}
+
+
+FACE_W_MAX = 0.35      # 人头占屏宽超过这个数，字撑 70%W 也躲不开 → 别放脑后
+HEAD_TOP_MIN = 0.20    # 头顶留白不到 20%H，字放上面会顶到平台 UI
+SOFT_MAX = 0.03        # 软边超 3%（发丝、逆光），抠出来一圈毛边
+
+
+def behind_ok(st: dict | None) -> bool:
+    if not st:
+        return False
+    return (st["face_w"] < FACE_W_MAX and st["head_top"] >= HEAD_TOP_MIN
+            and st["soft"] < SOFT_MAX)
 
 
 # ------------------------------------------------------------------ 合成
@@ -994,6 +1055,8 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   text-shadow:{cap_shadow}; white-space:nowrap; {cap_extra} }}
 /* 强调：数字与否定/对比词。只染这两类，别的一个字都不动 */
 .cap .em {{ color:{cap_em}; font-weight:800; }}
+.scrim {{ position:absolute; left:0; right:0; top:0; pointer-events:none;
+         background:linear-gradient(to bottom, rgba(0,0,0,.58), rgba(0,0,0,0)); }}
 .kw {{ position:absolute; left:0; right:0; top:{kw_top}%; display:flex; justify-content:center;
        padding:0 {cap_pad}px; }}
 /* behind：字压在人物脑袋后面，露一半。位置按样式的 top_h，字更大一号，
@@ -1025,12 +1088,18 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 .mg-stat .mg-src {{ font-family:"SC-Sub", sans-serif; font-size:24px; color:var(--ink);
   opacity:.55; margin-top:12px; }}
 .mg-steps ol {{ list-style:none; display:flex; flex-direction:column; gap:16px; }}
-.mg-steps li {{ display:flex; align-items:center; gap:18px; }}
+.mg-steps li {{ display:flex; align-items:center; gap:18px; position:relative; }}
+/* 序号之间连一条竖线：这是「先后」，不是「三条并列」 */
+.mg-steps li:not(:last-child)::after {{ content:""; position:absolute; left:25px;
+  top:100%; height:16px; width:2px; background:var(--accent); opacity:.32; }}
 .mg-steps li b {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:34px;
   color:var(--accent); min-width:52px; }}
 .mg-steps li span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:42px;
   color:var(--ink); line-height:1.24; }}
-.mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:16px; }}
+.mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:16px; position:relative; }}
+/* 中缝竖线：两列裸字看着就是「一行字分成两半」，有了线才是对比 */
+.mg-versus .mg-ver::after {{ content:""; position:absolute; left:50%; top:6%; bottom:6%;
+  width:2px; margin-left:-1px; background:var(--accent2); opacity:.28; }}
 .mg-versus .side {{ flex:1; display:flex; flex-direction:column; gap:10px; padding:18px 16px;
   border-radius:calc(var(--radius) - 6px); background:rgba(255,255,255,0.06); }}
 .mg-versus .side b {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:42px;
@@ -1044,7 +1113,8 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 .mg-term .mg-term {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:86px;
   color:var(--accent); line-height:1.06; }}
 .mg-term .mg-def {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:42px;
-  color:var(--ink); margin-top:16px; line-height:1.3; }}
+  color:var(--ink); opacity:.92; margin-top:16px; line-height:1.3;
+  border-left:3px solid var(--accent2); padding-left:16px; }}
 {gen_css}
 </style>
 </head>
@@ -1194,6 +1264,20 @@ def fonts_hint(style) -> str:
 # 两个方案对比 → versus；名词解释 → term。风格包只决定它长什么样（tokens）。
 MG_KINDS = {"stat", "steps", "versus", "term"}
 
+# MG 卡的最短放映时长：按内容条数算，不是一律 1.5s。
+# 原来所有卡都夹在 emphasis.hold_s（默认 1.0–1.5s），三条内容的 steps 卡
+# 在 1.5 秒里读完＝一闪而过——这就是「MG 出现时间过短」的真因。
+MG_MIN_S = {"stat": 1.8, "term": 2.2, "versus": 2.4}
+MG_ENTRY_MAX = 1.25       # 入场可以推到块首之后这么多（块越长越晚）
+MG_ENTRY_CALM = 2.5       # 块短于这个秒数就贴着块首出，不再往后推
+
+
+def mg_min_s(kind: str, data: dict | None) -> float:
+    if kind == "steps":
+        n = len((data or {}).get("items") or [])
+        return 0.6 + 0.7 * min(3, max(1, n))
+    return float(MG_MIN_S.get(kind) or 0.0)
+
 
 def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
     """一张 MG 卡 → DOM。所有内容来自元素上的 card.data，渲染器不编内容。"""
@@ -1248,10 +1332,16 @@ def esc(t: str) -> str:
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
                punch_map=None,
                fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None,
-               gen_spans=None):
+               gen_spans=None, kw_top_override=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
-    cap_px = int(sub.get("size_px") or 72)
+    # 字号按字体宽度反算：得意黑比思源窄 22%，同一个 80px 出来的字幕小一整圈。
+    # 写死的 size_px 只当兜底。
+    try:
+        import fonts as fonts_mod
+        cap_px = fonts_mod.size_px(sub.get("font"), W, fallback=int(sub.get("size_px") or 72))
+    except Exception:                                              # noqa: BLE001
+        cap_px = int(sub.get("size_px") or 72)
     cap_top = round(float(sub.get("center_y_px") or (H * 0.674)) / H * 100, 2)
     # 单条字幕宽度：按最长的预期字数估一个安全边距，中文大约 1em 一字
     cap_pad = max(24, int((W - cap_px * 10) / 2))
@@ -1392,11 +1482,23 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
             # 老做法是「全局字号 163px，超宽才缩」，2 个字的「柒造」只占 37% 宽，显得小气。
             _n = max(1, len(c["text"]))
             _px = min(int(round(W * fit_w / _n)), int(H * 0.34))
+            # 放脑后做不到干净时，改「头顶大字」：位置按人像头顶反算，
+            # 顺手挂一层顶部渐变——不加的话，画面顶部的梁柱管道会从字缝里透出来。
+            _ov = (kw_top_override or {}).get(c.get("seg"))
+            _inline = ""
+            _scrim = ""
+            if _ov is not None:
+                _inline = f' style="top:{_ov * 100:.2f}%">'
+                card_html.append(
+                    f'    <div class="scrim" data-start="{c["start"]}" data-duration="{d}"'
+                    f' style="height:{min(0.30, _ov + 0.14) * 100:.1f}%"></div>')
+            else:
+                _inline = ">"
             card_html.append(
                 f'    <div id="kw-{i:02d}" class="clip kw'
                 f'{" kw-behind" if c["kind"] == "behind" else ""}" '
                 f'data-start="{c["start"]}" '
-                f'data-duration="{d}"><span style="font-size:{_px}px">'
+                f'data-duration="{d}"{_inline}<span style="font-size:{_px}px">'
                 f'{esc(c["text"])}</span></div>')
 
     # 跳切推近：硬切式换倍率（不是缓推）。缓推看不出「换了一镜」，
@@ -2053,6 +2155,7 @@ def main():
     # 大字放人物背后：给这些段做一层带 alpha 的人像，叠在卡上面、字幕下面。
     # 层级：底(全画幅) → 卡 → 人像(透明背景) → 字幕。
     fg_by_seg = {}
+    kw_top_override: dict[int, float] = {}
     if not a.no_cutout:
         want = {int(s_["n"]): s_ for s_ in active
                 if str((s_.get("card") or {}).get("kind") or "") in ("behind", "cutout")}
@@ -2063,9 +2166,20 @@ def main():
             if a.fg_layer == "none":
                 continue
             fgp = make_fg(proj, proj / "hf" / cl["src"], cl["dur"], FPS)
-            if fgp:
+            mdir = proj / "hf" / "work" / "mask" / Path(cl["src"]).stem
+            st = mask_stats(mdir, W, H) if fgp else None
+            if fgp and behind_ok(st):
                 fg_by_seg[n_] = f"clips/{fgp.name}"
-                print(f"  抠像 段 {n_}（{fgp.stat().st_size / 1e6:.1f} MB）")
+                print(f"  抠像 段 {n_}（{fgp.stat().st_size / 1e6:.1f} MB）"
+                      f"· 头顶 {st['head_top']:.0%}H、人占 {st['face_w']:.0%}W")
+            else:
+                # 放脑后做不到干净，就走「头顶大字」：字底压在头顶上方 1.5%H，
+                # 顶部加渐变压暗。这是实测过的路子——不加渐变的话，画面
+                # 顶部那些梁柱管道会从字缝里透出来。
+                head = (st or {}).get("head_top") or 0.15
+                kw_top_override[n_] = max(0.055, head - 0.095)
+                print(f"  · 段 {n_} 人像占 {((st or {}).get('face_w') or 0):.0%}W、"
+                      f"头顶 {(st or {}).get('head_top', 0):.0%}H → 不放脑后，改头顶大字", file=sys.stderr)
 
     # 字幕轨落盘：verify_film.py 读的是 out/subs.json，两条链路必须吐同一个东西，
     # 否则 D 段会拿 ffmpeg 那版留下的旧字幕去算密度（实测 136 条/分钟）。
@@ -2144,7 +2258,7 @@ def main():
         shutil.copy2(gsap_src, gsap_dst)
 
     # 3) 写 HTML
-    html_txt = build_html(slug=proj.name, W=W, H=H, FPS=FPS,
+    html_txt = build_html(kw_top_override=kw_top_override, slug=proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
                           punch_map=punch_map,

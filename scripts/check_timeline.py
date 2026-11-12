@@ -409,6 +409,15 @@ def main() -> int:
         probs.append(("error", f"台词真值检查没跑起来（{exc}）——不许静默跳过"))
     except Exception as exc:                      # noqa: BLE001
         probs.append(("warning", f"台词真值检查出错：{type(exc).__name__}: {exc}"))
+    # 口播洁净度：口水 / 半句起头 / 句内空档 / 同一句说两遍 / 接缝重复。
+    # 这些是**选句层**的错，剪得再好也救不回来，所以放在时间轴校验里，跟 cue_guard 同级。
+    try:
+        import speech_hygiene
+        probs.extend(speech_hygiene.check(proj, lib))
+    except ImportError as exc:
+        probs.append(("error", f"口播洁净度检查没跑起来（{exc}）——不许静默跳过"))
+    except Exception as exc:                      # noqa: BLE001
+        probs.append(("warning", f"口播洁净度检查出错：{type(exc).__name__}: {exc}"))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)
