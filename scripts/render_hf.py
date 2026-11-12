@@ -1070,51 +1070,68 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   text-shadow:0 6px 22px rgba(0,0,0,0.6); {kw_extra} }}
 .idcard {{ position:absolute; left:{idc_x}%; top:{idc_y}%; text-align:left; }}
 .idcard span {{ display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }}
-/* MG 卡（stat / steps / versus / term）：底是半透明 ground，左边一条 accent 竖条。
-   位置固定在字幕带之上、人脸两侧的空白里——卡比字面积大，压脸比压字幕更难救。 */
-.mg {{ left:6%; right:6%; top:{mg_top}%; padding:34px 38px 32px;
-      border-radius:var(--radius); background:rgba(16,12,9,0.78);
-      -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px);
-      border-left:6px solid var(--accent); display:flex; flex-direction:column; }}
-.mg .mg-title {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:38px;
-  color:var(--ink); opacity:.86; letter-spacing:.02em; margin-bottom:20px; }}
-.mg-stat .mg-hero {{ display:flex; align-items:baseline; gap:10px; }}
-.mg-stat .num {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:150px;
-  line-height:1; color:var(--accent); letter-spacing:-.01em; }}
-.mg-stat .unit {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:58px;
+/* MG 卡：按 srt-motion-cards 的设计语言重写——渐变压暗 + 居中排版 + 强对比字号。
+   自造那版是「顶部一小块 78% 黑底」，看着像贴了个便签；这一版把卡放进画面中段的一块
+   暗场里，字号撑开，读起来是「这一幕在讲这个数」。位置限制在字幕带之上（18%–62%H），
+   不压人脸上半张。class 名沿用旧的，GSAP 的入场不用改。 */
+/* 整屏暗场 + 内容限制在字幕带之上：srt-motion-cards 的 scrim 就是铺满整个画面的，
+   只在卡片那一小块压暗，等于没压——字照样会跟背景糊在一起（2026-11-12 实测）。 */
+.mgwrap {{ position:absolute; inset:0; }}
+.mgwrap::before {{ content:""; position:absolute; inset:0;
+  background:radial-gradient(66% 50% at 50% 44%, rgba(0,0,0,.82) 0%, rgba(0,0,0,.58) 48%, rgba(0,0,0,.22) 100%); }}
+.mg {{ position:absolute; left:{mg_pad}px; right:{mg_pad}px; top:{mg_lo}%; bottom:{mg_hi}%;
+  display:flex; flex-direction:column; justify-content:center;
+  align-items:center; text-align:center; }}
+.mg-stat .mg-kick {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
+  letter-spacing:.16em; color:rgba(255,255,255,.6); margin-bottom:{mg_gap}px; }}
+.mg .mg-title {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_h}px;
+  color:#fff; letter-spacing:.01em; margin-bottom:{mg_gap}px; text-align:center; }}
+/* stat：kicker → 巨数字 → 说明 → 出处，四行都是居中 */
+.mg-stat .mg-hero {{ display:flex; align-items:baseline; justify-content:center; gap:{mg_gap2}px; }}
+.mg-stat .num {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_num}px;
+  line-height:.94; color:#fff; letter-spacing:-.035em; text-shadow:0 16px 54px rgba(0,0,0,.65); }}
+.mg-stat .unit {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_unit}px;
   color:var(--accent); }}
-.mg-stat .mg-label {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:40px;
-  color:var(--ink); margin-top:14px; line-height:1.3; }}
-.mg-stat .mg-src {{ font-family:"SC-Sub", sans-serif; font-size:24px; color:var(--ink);
-  opacity:.55; margin-top:12px; }}
-.mg-steps ol {{ list-style:none; display:flex; flex-direction:column; gap:16px; }}
-.mg-steps li {{ display:flex; align-items:center; gap:18px; position:relative; }}
-/* 序号之间连一条竖线：这是「先后」，不是「三条并列」 */
-.mg-steps li:not(:last-child)::after {{ content:""; position:absolute; left:25px;
-  top:100%; height:16px; width:2px; background:var(--accent); opacity:.32; }}
-.mg-steps li b {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:34px;
-  color:var(--accent); min-width:52px; }}
-.mg-steps li span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:42px;
-  color:var(--ink); line-height:1.24; }}
-.mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:16px; position:relative; }}
-/* 中缝竖线：两列裸字看着就是「一行字分成两半」，有了线才是对比 */
-.mg-versus .mg-ver::after {{ content:""; position:absolute; left:50%; top:6%; bottom:6%;
-  width:2px; margin-left:-1px; background:var(--accent2); opacity:.28; }}
-.mg-versus .side {{ flex:1; display:flex; flex-direction:column; gap:10px; padding:18px 16px;
-  border-radius:calc(var(--radius) - 6px); background:rgba(255,255,255,0.06); }}
-.mg-versus .side b {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:42px;
-  color:var(--accent); }}
-.mg-versus .side span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:40px;
-  color:var(--ink); line-height:1.28; }}
-.mg-versus .vs {{ align-self:center; font-family:"SC-Big", sans-serif; font-weight:900;
-  font-size:36px; color:var(--accent2); opacity:.95; }}
-.mg-versus .mg-tail {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:32px;
-  color:var(--ink); opacity:.9; margin-top:16px; }}
-.mg-term .mg-term {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:86px;
-  color:var(--accent); line-height:1.06; }}
-.mg-term .mg-def {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:42px;
-  color:var(--ink); opacity:.92; margin-top:16px; line-height:1.3;
-  border-left:3px solid var(--accent2); padding-left:16px; }}
+.mg-stat .mg-label {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_label}px;
+  color:#fff; opacity:.95; margin-top:{mg_gap}px; line-height:1.32; }}
+.mg-stat .mg-src {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_src}px;
+  color:#fff; opacity:.52; margin-top:{mg_gap2}px; letter-spacing:.02em; }}
+/* steps：序号是实心圆点，条目左对齐——「先后」靠上下排，不靠居中对齐 */
+.mg-steps {{ align-items:stretch !important; text-align:left; }}
+.mg-steps ol {{ list-style:none; display:flex; flex-direction:column; gap:{mg_gap}px;
+  width:100%; align-items:flex-start; padding:0 {mg_pad2}px; }}
+.mg-steps li {{ display:flex; align-items:flex-start; gap:{mg_gap2}px; position:relative; }}
+.mg-steps li:not(:last-child)::after {{ content:""; position:absolute; left:{mg_dot_r}px;
+  top:100%; height:{mg_gap}px; width:2px; background:#fff; opacity:.22; }}
+.mg-steps li b {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_dot}px; color:#0b0d11;
+  background:var(--accent); width:{mg_dot_w}px; height:{mg_dot_w}px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center; flex:0 0 auto; margin-top:{mg_dot_t}px; }}
+.mg-steps li span {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
+  color:rgba(255,255,255,.94); line-height:1.3; }}
+/* versus：两栏面板 + 圆形 VS 徽标。徽标是「这是对立」的唯一视觉信号 */
+.mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:{mg_gap2}px; width:100%; }}
+.mg-versus .side {{ flex:1; display:flex; flex-direction:column; gap:{mg_gap2}px;
+  padding:{mg_pan}px {mg_pad2}px; border-radius:{mg_rad}px;
+  background:rgba(10,13,19,.76); border:1px solid rgba(255,255,255,.16); }}
+.mg-versus .side b {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_vh}px; color:#fff; }}
+.mg-versus .side span {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_vs}px;
+  color:rgba(255,255,255,.78); line-height:1.32; }}
+.mg-versus .vs {{ align-self:center; flex:0 0 auto; width:{mg_badge}px; height:{mg_badge}px;
+  border-radius:50%; display:grid; place-items:center; font-family:"SC-Big"; font-weight:900;
+  font-size:{mg_badge_t}px; color:#0b0d11; background:var(--accent); }}
+.mg-versus .mg-tail {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
+  color:rgba(255,255,255,.88); margin-top:{mg_gap}px; }}
+/* term：像一张词条卡，左边一条 accent 竖条把「词」和「释义」分开 */
+/* term 是一张「词条卡」，要有一块自己的面板——白字直接压在杂树/浅墙上必糊
+   （srt-motion-cards 的 term-card 就是 rgba(12,15,21,.84) 的底，这层别省） */
+.mg-term {{ background:rgba(12,15,21,.84); border:1px solid rgba(255,255,255,.14);
+  border-radius:{mg_rad}px; padding:{mg_pan}px {mg_pad2}px; text-align:left;
+  align-items:flex-start !important; display:flex; flex-direction:column; }}
+.mg-term .mg-term {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_term}px;
+  color:#fff; line-height:1.04; letter-spacing:-.02em; }}
+/* 不加左侧竖条：它只对着释义，看着像列表符号，把版面切散（srt 的 term-card 也没有） */
+.mg-term .mg-def {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_step}px;
+  color:rgba(255,255,255,.92); margin-top:{mg_gap}px; line-height:1.42; text-align:left; }}
 {gen_css}
 </style>
 </head>
@@ -1154,13 +1171,18 @@ document.querySelectorAll(".kw").forEach((c) => {{
         t + Math.max(0, d - 0.16));
 }});
 // MG 卡：件与件之间要有先后，否则就是一页 PPT 硬切上来。
-document.querySelectorAll(".mg").forEach((c) => {{
-  const t = parseFloat(c.dataset.start);
-  const d = parseFloat(c.dataset.duration);
-  tl.set(c, {{ opacity: 0 }}, t);
-  tl.fromTo(c, {{ opacity: 0, y: 26 }},
-    {{ opacity: 1, y: 0, duration: 0.26, ease: "power2.out", immediateRender: false }}, t);
-  // 数字卡：从 0 滚上去。单位跟着数字尾巴一起淡入，读起来是「先说数，再说量纲」
+document.querySelectorAll(".mgwrap").forEach((w) => {{
+  // 时间窗在 .mgwrap 上（它是 .clip），视觉主体在里面那层 .mg
+  const c = w.querySelector(".mg") || w;
+  const t = parseFloat(w.dataset.start);
+  const d = parseFloat(w.dataset.duration);
+  tl.set(w, {{ opacity: 0 }}, t);
+  tl.set(w, {{ opacity: 1 }}, t);
+  tl.fromTo(c, {{ opacity: 0, y: 30, scale: 0.97 }},
+    {{ opacity: 1, y: 0, scale: 1, duration: 0.32, ease: "power2.out", immediateRender: false }}, t);
+  // 数字卡：de-blur + 轻微放大入场，同时数字从 0 滚上去。
+  // 曲线照 srt-motion-cards 的 stat-in：scale .82 / blur 10px → 1 / 0，cubic-bezier(.16,1,.3,1)。
+  // 这一下是「高级感」的主要来源——硬切上来就是贴便签，模糊化开才像镜头语言。
   const num = c.querySelector(".num");
   if (num) {{
     const raw = num.dataset.to || num.textContent;
@@ -1168,16 +1190,29 @@ document.querySelectorAll(".mg").forEach((c) => {{
     if (!isNaN(target)) {{
       const o = {{ v: 0 }};
       const dec = /\\d[.,]\\d/.test(String(raw)) ? 1 : 0;
+      tl.fromTo(num, {{ scale: 0.82, filter: "blur(10px)", opacity: 0 }},
+        {{ scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.8,
+           ease: "expo.out", immediateRender: false }}, t + 0.04);
       tl.fromTo(o, {{ v: 0 }}, {{
-        v: target, duration: 0.45, ease: "power2.out", immediateRender: false,
+        v: target, duration: 0.5, ease: "power2.out", immediateRender: false,
         onUpdate: () => {{ num.textContent = dec ? o.v.toFixed(1) : String(Math.round(o.v)); }},
         onComplete: () => {{ num.textContent = raw; }}
-      }}, t + 0.06);
+      }}, t + 0.04);
       const unit = num.parentElement.querySelector(".unit");
       if (unit) {{
-        tl.fromTo(unit, {{ opacity: 0 }},
-          {{ opacity: 1, duration: 0.2, immediateRender: false }}, t + 0.5);
+        tl.fromTo(unit, {{ opacity: 0, y: 8 }},
+          {{ opacity: 1, y: 0, duration: 0.4, ease: "expo.out", immediateRender: false }}, t + 0.42);
       }}
+      const kick = c.querySelector(".mg-kick");
+      if (kick) {{
+        tl.fromTo(kick, {{ opacity: 0, y: 8 }},
+          {{ opacity: 1, y: 0, duration: 0.4, ease: "expo.out", immediateRender: false }}, t + 0.12);
+      }}
+      const lab = c.querySelector(".mg-label"), sr = c.querySelector(".mg-src");
+      if (lab) tl.fromTo(lab, {{ opacity: 0, y: 10 }},
+        {{ opacity: 1, y: 0, duration: 0.45, ease: "expo.out", immediateRender: false }}, t + 0.3);
+      if (sr) tl.fromTo(sr, {{ opacity: 0 }},
+        {{ opacity: 0.52, duration: 0.4, immediateRender: false }}, t + 0.46);
     }}
   }}
   // 条目逐条进来（步骤卡 / 对比卡的两栏 / 术语卡的释义）
@@ -1199,7 +1234,7 @@ document.querySelectorAll(".mg").forEach((c) => {{
     tl.fromTo(def, {{ opacity: 0, y: 12 }},
       {{ opacity: 1, y: 0, duration: 0.26, immediateRender: false }}, t + 0.3);
   }}
-  tl.to(c, {{ opacity: 0, duration: 0.18, ease: "power1.in" }}, t + Math.max(0.2, d - 0.18));
+  tl.to(w, {{ opacity: 0, duration: 0.18, ease: "power1.in" }}, t + Math.max(0.2, d - 0.18));
 }});
 document.querySelectorAll(".idcard > span").forEach((el, i) => {{
   tl.fromTo(el, {{ x: -18, opacity: 0 }},
@@ -1291,8 +1326,11 @@ def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
         label = str(d.get("label") or c.get("text") or "")
         src = str(d.get("source") or "")
         approx = bool(d.get("approx"))
-        body = (f'      <div class="mg-hero"><span class="num" data-to="{esc(num)}">{esc(num)}</span>'
-                f'<span class="unit">{esc(unit)}</span></div>')
+        body = ''
+        if d.get("kicker"):
+            body += f'      <div class="mg-kick">{esc(str(d["kicker"]))}</div>\n'
+        body += (f'      <div class="mg-hero"><span class="num" data-to="{esc(num)}">{esc(num)}</span>'
+                 f'<span class="unit">{esc(unit)}</span></div>')
         if label:
             body += f'\n      <div class="mg-label">{esc(label)}</div>'
         if src or approx:
@@ -1321,8 +1359,11 @@ def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
         term = str(d.get("term") or c.get("text") or "")
         body = (f'      <div class="mg-term">{esc(term)}</div>'
                 f'\n      <div class="mg-def">{esc(str(d.get("def") or ""))}</div>')
-    return (f'    <div id="mg-{i:02d}" class="clip mg mg-{kind}" '
-            f'data-start="{c["start"]}" data-duration="{dur}">\n{body}\n    </div>')
+    # 外面裹一层定位层：卡在「字幕带之上」的一块暗场里垂直居中，
+    # 不是贴在屏幕顶部当便签（2026-11-12 Jerry：MG 美观度太差，改用 srt-motion-cards 的卡）。
+    return (f'    <div id="mg-{i:02d}" class="clip mgwrap" '
+            f'data-start="{c["start"]}" data-duration="{dur}">\n'
+            f'      <div class="mg mg-{kind}">\n{body}\n      </div>\n    </div>')
 
 
 def esc(t: str) -> str:
@@ -1332,7 +1373,12 @@ def esc(t: str) -> str:
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
                punch_map=None,
                fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None,
-               gen_spans=None, kw_top_override=None):
+               gen_spans=None, kw_top_override=None,
+               mg_lo=None, mg_hi=None, mg_pad=None, mg_pad2=None, mg_gap=None,
+               mg_gap2=None, mg_num=None, mg_unit=None, mg_label=None, mg_src=None,
+               mg_h=None, mg_step=None, mg_term=None, mg_vh=None, mg_vs=None,
+               mg_badge=None, mg_badge_t=None, mg_rad=None, mg_pan=None, mg_dot=None,
+               mg_dot_w=None, mg_dot_r=None, mg_dot_t=None):
     sub = style.get("subtitle") or {}
     emph = style.get("emphasis") or {}
     # 字号按字体宽度反算：得意黑比思源窄 22%，同一个 80px 出来的字幕小一整圈。
@@ -1384,6 +1430,20 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     ])
     # MG 卡的上沿：默认 0.21H，压在字幕带之上；pack 可用 card.mg_top_h 调
     mg_top = round(float((style.get("card") or {}).get("mg_top_h") or 0.21) * 100, 2)
+    # 卡片区的上下沿（占屏高百分比）。上限压在字幕带之上：字幕中心 0.693H，
+    # 字高约 0.03H，所以 0.62H 以下一定不撞字幕。
+    _mgtop = float((style.get("card") or {}).get("mg_top_h") or 0.21)
+    mg_lo = round(_mgtop * 100, 2)
+    mg_hi = round((1.0 - 0.38) * 100, 2)
+    # 全部尺寸按屏宽 1080 标定，换分辨率时整体等比
+    _u = W / 1080.0
+    _px = lambda v: max(12, int(round(v * _u)))          # noqa: E731
+    mg_pad, mg_pad2, mg_gap, mg_gap2 = _px(28), _px(26), _px(22), _px(14)
+    mg_num, mg_unit, mg_label, mg_src = _px(214), _px(76), _px(48), _px(30)
+    mg_h, mg_step, mg_term = _px(56), _px(46), _px(92)
+    mg_vh, mg_vs, mg_badge, mg_badge_t = _px(50), _px(40), _px(104), _px(38)
+    mg_rad, mg_pan = _px(26), _px(30)
+    mg_dot, mg_dot_w, mg_dot_r, mg_dot_t = _px(34), _px(58), _px(29), _px(8)
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
 
@@ -1528,6 +1588,12 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                    if sub.get("stroke") else ""),
         cap_em=sub.get("em_color") or (emph.get("keyword_color") or "#FFD400"),
         kw_top=kw_top, kw_px=kw_px, kwb_top=kwb_top, kwb_px=kwb_px, mg_top=mg_top,
+        mg_lo=mg_lo, mg_hi=mg_hi, mg_pad=mg_pad, mg_pad2=mg_pad2, mg_gap=mg_gap,
+        mg_gap2=mg_gap2, mg_num=mg_num, mg_unit=mg_unit, mg_label=mg_label,
+        mg_src=mg_src, mg_h=mg_h, mg_step=mg_step, mg_term=mg_term, mg_vh=mg_vh,
+        mg_vs=mg_vs, mg_badge=mg_badge, mg_badge_t=mg_badge_t, mg_rad=mg_rad,
+        mg_pan=mg_pan, mg_dot=mg_dot, mg_dot_w=mg_dot_w, mg_dot_r=mg_dot_r,
+        mg_dot_t=mg_dot_t,
         kw_color=emph.get("keyword_color") or "#FFD400",
         kw_extra=("background:linear-gradient(180deg,%s 0%%,%s 100%%);"
                   "-webkit-background-clip:text;color:transparent;" %

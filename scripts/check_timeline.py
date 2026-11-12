@@ -435,6 +435,16 @@ def main() -> int:
         probs.append(("error", f"口播洁净度检查没跑起来（{exc}）——不许静默跳过"))
     except Exception as exc:                      # noqa: BLE001
         probs.append(("warning", f"口播洁净度检查出错：{type(exc).__name__}: {exc}"))
+    # 边界审计：主播自己念题的半截词、尾巴挂着下一句、话停了画面还在演。
+    # 2026-11-12 Jerry 指出的「包房」「仲有」「穿帮」三类，都在这一层。
+    try:
+        import edge_audit
+        for lv, msg in edge_audit.audit(proj, lib):
+            probs.append(("error" if lv == "红" else "warning", msg))
+    except ImportError as exc:
+        probs.append(("error", f"边界审计没跑起来（{exc}）——不许静默跳过"))
+    except Exception as exc:                      # noqa: BLE001
+        probs.append(("warning", f"边界审计出错：{type(exc).__name__}: {exc}"))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)

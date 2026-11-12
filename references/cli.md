@@ -470,6 +470,14 @@
 | `--fix` | — |
 | `--words` | — |
 
+### `edge_audit.py`
+*边界审计：每一格的开头 / 结尾 / 中间，有没有「不干净」的东西。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+
 ### `evidence_guard.py`
 *CutSkills · 台词真值守卫：timeline 里的 evidence 必须能由词级 ASR 复现。*
 

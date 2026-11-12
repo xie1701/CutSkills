@@ -546,12 +546,26 @@ def main() -> int:
                     im_ = frame_at(tt, f"mg{c.get('el')}{frac}", "RGB")
                     if im_ is None:
                         continue
-                    share = max(share, kw_share(im_, (0, int(H * 0.19), W, int(H * 0.62))))
-                add(f"MG 卡烧进画面（{kind}）",
-                    f"{mid:.1f}s 处 accent 占比 {share * 100:.2f}%",
-                    "green" if share > 0.0008 else "red",
-                    "" if share > 0.0008 else
-                    f"{kind} 卡在 {a_:.1f}–{b_:.1f}s，画面里找不到包装 accent 色——卡没上去")
+                    _box = (0, int(H * 0.19), W, int(H * 0.62))
+                    if kind == "term":
+                        share = max(share, color_share(im_, "#FFFFFF", _box, tol=46))
+                    else:
+                        share = max(share, kw_share(im_, _box))
+                # term 卡的特征不是 accent：词和释义都是白字，accent 只有释义左边一条 4px 细线，
+                # 拿 accent 占比判它必然报红（2026-11-12 实测 0.02%）。这是判据选错了特征，
+                # 不是卡没上去——所以 term 改判白字占比，其余三种照旧判 accent。
+                if kind == "term":
+                    add(f"MG 卡烧进画面（{kind}）",
+                        f"{mid:.1f}s 处白字占比 {share * 100:.2f}%",
+                        "green" if share > 0.0012 else "red",
+                        "" if share > 0.0012 else
+                        f"term 卡在 {a_:.1f}–{b_:.1f}s，画面里找不到卡片文字——卡没上去")
+                else:
+                    add(f"MG 卡烧进画面（{kind}）",
+                        f"{mid:.1f}s 处 accent 占比 {share * 100:.2f}%",
+                        "green" if share > 0.0008 else "red",
+                        "" if share > 0.0008 else
+                        f"{kind} 卡在 {a_:.1f}–{b_:.1f}s，画面里找不到包装 accent 色——卡没上去")
             elif kind == "idcard":
                 whites = color_share(im, "#FFFFFF", (0, 0, W, int(H * 0.42)), tol=40)
                 add("身份卡烧进画面", f"{mid:.1f}s 处白字占比 {whites * 100:.2f}%",
