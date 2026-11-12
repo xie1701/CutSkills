@@ -294,6 +294,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_brand_safety.py")])
     must("品牌安全与第三方字样处置回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑭ 口播段音画同源（画面起点被清零＝嘴形全错，原案 2026-11-12）")
+    r = sh([PY, str(ROOT / "scripts" / "test_av_lock.py")])
+    must("口播段音画同源", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     print("⑬ 仓库不夹带生成中间物（references/**/work/）")
     r = sh(["git", "-C", str(ROOT), "ls-files", "references"])
     bad = [ln for ln in (r.stdout or "").splitlines() if "/work/" in ln]

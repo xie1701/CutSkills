@@ -2093,6 +2093,17 @@ def main():
             # 而 want 是从这一刀自己 0.0 起算的相对秒数。以前直接拿两者比大小，
             # 差值几百秒，吸附条件恒为假 → 声称的「吸附字界」100% 静默失效（实测 0/7）。
             a_in = float((el.get("audio") or {}).get("in") or el.get("in") or 0.0)
+            # 稳定度曲线：切点不仅要落在字界，还得落在「人站定了」的那半秒。
+            # 光对字界会出现「字没错、但切进一张转头中间帧」，观众读作废镜头。
+            _cur: list[float] = []
+            try:
+                _sa = (el.get("audio") or {}).get("asset") or el.get("asset")
+                _sp = lib / _sa if _sa else None
+                if _sp and _sp.exists():
+                    import stability as _st
+                    _cur = _st.curve(_sp, proj / "hf" / "work")
+            except Exception:
+                _cur = []
             rel = [0.0]
             for j in range(1, k):
                 want = d * j / k
@@ -2102,6 +2113,19 @@ def main():
                     if abs(near - (a_in + want)) <= 0.35:
                         want = round(near - a_in, 3)
                         snap_hit += 1
+                if _cur:
+                    # 在 want ±0.28 里找最稳的时刻；稳得差不多时仍优先字界
+                    # （所以先扣掉字界优惠，而不是二选一）。
+                    cands = [round(want + off, 3) for off in
+                             (-0.28, -0.20, -0.12, -0.06, 0.0, 0.06, 0.12, 0.20, 0.28)]
+                    best, best_s = want, None
+                    for c in cands:
+                        if c - rel[-1] < 0.8 or d - c < 0.8:
+                            continue
+                        s = _st.motion_at(_cur, a_in + c) + (0.0 if abs(c - want) < 0.01 else 0.8)
+                        if best_s is None or s < best_s:
+                            best, best_s = c, s
+                    want = best
                 snap_try += 1
                 if want - rel[-1] >= 0.8 and d - want >= 0.8:
                     rel.append(round(want, 3))

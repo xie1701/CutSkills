@@ -780,6 +780,11 @@
 | `--library` | — |
 | `--json` | 开关 |
 
+### `stability.py`
+*画面稳定度曲线：某一秒的这个人，是站定了在说话，还是正在转头挥手。*
+
+（无参数）
+
 ### `style_menu.py`
 *CutSkills · 风格菜单：把 4 套剪法 + 3 套包装摆给用户点，而不是让他写配置。*
 
@@ -807,6 +812,11 @@
 | `--timeline` | — |
 | `--tolerance` | （默认 TOL_MS） |
 | `--json` | 开关 |
+
+### `test_av_lock.py`
+*口播段音画同源：画面裁切点必须和声音裁切点逐帧一致。*
+
+（无参数）
 
 ### `test_blind_negative.py`
 *CutSkills · 盲测收口与阴性防误杀测试套件 (P4)*
