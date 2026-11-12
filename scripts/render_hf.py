@@ -845,7 +845,9 @@ def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
 
 # ------------------------------------------------------------------ 卡片
 
-CARD_LAG = 0.10     # 卡片比它锚定的那个词晚多少秒出场（声音先到）
+# 卡片比锚词晚多少出场。0.10 太小：字幕还没听到字就先看见，读到的和听到的对不上。
+# 上游的硬规则是 0.15s（声音在前），照它。
+CARD_LAG = 0.15
 
 
 def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
@@ -2090,6 +2092,22 @@ def main():
     (proj / "out" / "cards.json").write_text(json.dumps(
         {"cards": cards, "engine": "hyperframes"}, ensure_ascii=False, indent=1),
         encoding="utf-8")
+
+    # 声音在前（硬规则）：卡比锚词晚得不够、或者压根没有锚词，就不许往下渲。
+    # 上游的做法是「生成后自动 check、有 error 直接退出，--force 才能越过」——
+    # 渲完再发现抢拍，等于把几个小时的渲染白扔。
+    if not getattr(a, "force", False):
+        try:
+            import check_timing
+            _tv = [m for lv, m in check_timing.check(proj) if lv == "error"]
+            if _tv:
+                print("！声音在前没过，拒绝渲染（用 --force 可越过）：", file=sys.stderr)
+                for m in _tv[:6]:
+                    print(f"   · {m}", file=sys.stderr)
+                return 5
+        except Exception as _e:                                    # noqa: BLE001
+            print(f"！声音在前检查没跑起来：{_e}", file=sys.stderr)
+            return 5
 
     # 1b) 逐镜校对亮度与白平衡（整片一个平均值不够——口播段和工地段差一倍）
     if a.shot_match > 0 and videos:

@@ -430,6 +430,15 @@
 | `--strict` | 把 warning 当 error |
 | `--json` | 开关 |
 
+### `check_timing.py`
+*CutSkills · 声音在前（硬规则）：画面里的每一个字，都得等它那句话被说出来。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--json` | 开关 |
+
 ### `compare_films.py`
 *成片 vs 参考片 · 逐帧对照台。*
 
@@ -607,6 +616,16 @@
 | `--json` | 打印机器可读结果 |
 | `--no-write` | 不写 pack-choice.md |
 
+### `pick_take.py`
+*CutSkills · 一个论点有好几个 take 时，选哪个。*
+
+| 参数 | 说明 |
+|---|---|
+| `--library` | **必填** |
+| `--about` | **必填**　要找的论点关键词 |
+| `--top` | （默认 5） |
+| `--json` | 开关 |
+
 ### `plan_card.py`
 *剪辑 + 包装方案：动手之前先让人看一遍、拍一次板。*
 
@@ -743,6 +762,15 @@
 | `--apply` | 真写回 timeline.json |
 | `--max-delta` | （默认 0.25） |
 
+### `speech_hygiene.py`
+*CutSkills · 口播洁净度：进片的声音里不许有片场残渣。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--json` | 开关 |
+
 ### `style_menu.py`
 *CutSkills · 风格菜单：把 4 套剪法 + 3 套包装摆给用户点，而不是让他写配置。*
 
@@ -798,6 +826,11 @@
 
 ### `test_pip_judge.py`
 *T-012 回归：PiP 判据的三层负样本必须红（缺键 / 贴回失败 / 数量不足）。*
+
+（无参数）
+
+### `test_speech_hygiene.py`
+*speech_hygiene 的合同测试：五类残渣必须各自被抓到。*
 
 （无参数）
 
