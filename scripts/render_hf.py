@@ -908,11 +908,10 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             _sd = float(s.get("_dur_q", 9))
             if _sd > MG_ENTRY_CALM:
                 start = round(start + min(MG_ENTRY_MAX, (_sd - MG_ENTRY_CALM) * 0.35), 3)
-        d = max(h0, min(float(c.get("dur") or h1), h1))
-        if kind in MG_KINDS:
-            _mn = mg_min_s(kind, c.get("data") or {})
-            if _mn:
-                d = max(d, _mn)
+        is_mg = kind in MG_KINDS
+        # 大字（四五个字）用 hold_s 的一两秒就够；信息卡要按内容量算，不能被它锁死。
+        d = card_hold(kind, c.get("data") or {}) if is_mg else max(
+            h0, min(float(c.get("dur") or h1), h1))
         on = str(c.get("on") or "").strip()
         aid = (s.get("audio") or {}).get("asset") or s["asset"]
         a_in = float((s.get("audio") or {}).get("in", s["in"]))
@@ -936,7 +935,13 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
                     start = round(start + min(MG_ENTRY_MAX,
                                               (_sd - MG_ENTRY_CALM) * 0.35), 3)
                 anchor_t = round(win[j][1] - a_in + s["_start"], 3)
-                d = round(min(h1, max(h0, st1 - start + 0.25)), 3)
+                # 锚词只决定「什么时候出」，不决定「放多久」——以前这里用
+                # st1-start+0.25 算时长，锚词一短（「十个人」0.5s）卡就只剩 1.0s，
+                # 观众刚看清就切走。MG 卡时长归 card_hold，这里只负责保住下限。
+                if is_mg:
+                    d = card_hold(kind, c.get("data") or {})
+                else:
+                    d = round(min(h1, max(h0, st1 - start + 0.25)), 3)
             else:
                 print(f"  ！大字对不上原话「{on}」（段 {s['n']}），沿用默认时机",
                       file=sys.stderr)
@@ -970,7 +975,43 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         if deferred is not None:
             _cd["deferred_to"] = deferred
         cards.append(_cd)
-    return cards
+    return settle_cards(cards)
+
+
+def settle_cards(cards: list[dict], total: float | None = None) -> list[dict]:
+    """按时间顺序排卡：卡能跨格活着，但两张卡不许打架。
+
+    Jerry 2026-11-12：「出现的太短，观众都没有看完就切了」。根因不只是长度下限，
+    还有卡被锁在**它所在的那一格**里：一句 2.1 秒的话配一张要 2.6 秒才能读完的卡，
+    不管下限怎么调都会漏字。所以卡允许跨切点存活（渲染层是独立的 clip，本来就支持）。
+
+    先来先到：前一张不够长就把后一张往后推，而不是把前一张掐短——被掐短的那张
+    就是观众没看完的那张。实在排不进去的（整片只剩不够一格的位置）就丢，并说明。
+    """
+    if not cards:
+        return cards
+    cards = sorted(cards, key=lambda c: (float(c["start"]), c.get("seg") or 0))
+    lim = float(total) if total else None
+    keep: list[dict] = []
+    for c in cards:
+        want = round(float(c["end"]) - float(c["start"]), 3)
+        if keep and float(c["start"]) < float(keep[-1]["end"]) + CARD_GAP:
+            # 往前挤：能挤多长算多长，下限还是 CARD_HOLD_MIN
+            c["start"] = round(float(keep[-1]["end"]) + CARD_GAP, 3)
+        end = round(float(c["start"]) + want, 3)
+        if lim is not None:
+            end = min(end, round(lim - 0.15, 3))
+        held = round(end - float(c["start"]), 3)
+        # 下限只对信息卡（stat / steps / versus / term）有意义：卡上同时有标题、
+        # 数字、说明、出处，要读完。大字（四五个字）本来就该一两秒——
+        # 对它套 2.6s 的下限，结果是一条片的大字全被当成「排不下」撤光。
+        if c.get("kind") in MG_KINDS and held < CARD_HOLD_MIN and held < 1.2:
+            print(f"  ！卡「{c.get('text') or c.get('kind')}」排不下（只剩 {held:.2f}s），撤掉",
+                  file=sys.stderr)
+            continue
+        c["end"] = end
+        keep.append(c)
+    return keep
 
 
 def mask_stats(mdir: Path, W: int, H: int) -> dict | None:
@@ -1078,11 +1119,12 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
    只在卡片那一小块压暗，等于没压——字照样会跟背景糊在一起（2026-11-12 实测）。 */
 .mgwrap {{ position:absolute; inset:0; }}
 .mgwrap::before {{ content:""; position:absolute; inset:0;
-  background:radial-gradient(66% 50% at 50% 44%, rgba(0,0,0,.82) 0%, rgba(0,0,0,.58) 48%, rgba(0,0,0,.22) 100%); }}
+  background:radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%); }}
 .mg {{ position:absolute; left:{mg_pad}px; right:{mg_pad}px; top:{mg_lo}%; bottom:{mg_hi}%;
   display:flex; flex-direction:column; justify-content:center;
   align-items:center; text-align:center; }}
-.mg-stat .mg-kick {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
+.mg-stat .mg-kick {{ text-shadow:0 2px 10px rgba(0,0,0,.85);
+  font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
   letter-spacing:.16em; color:rgba(255,255,255,.6); margin-bottom:{mg_gap}px; }}
 .mg .mg-title {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_h}px;
   color:#fff; letter-spacing:.01em; margin-bottom:{mg_gap}px; text-align:center; }}
@@ -1092,10 +1134,12 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   line-height:.94; color:#fff; letter-spacing:-.035em; text-shadow:0 16px 54px rgba(0,0,0,.65); }}
 .mg-stat .unit {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_unit}px;
   color:var(--accent); }}
-.mg-stat .mg-label {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_label}px;
-  color:#fff; opacity:.95; margin-top:{mg_gap}px; line-height:1.32; }}
-.mg-stat .mg-src {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_src}px;
-  color:#fff; opacity:.52; margin-top:{mg_gap2}px; letter-spacing:.02em; }}
+.mg-stat .mg-label {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_label}px;
+  color:#fff; opacity:1; margin-top:{mg_gap}px; line-height:1.32;
+  text-shadow:0 2px 6px rgba(0,0,0,.9), 0 6px 22px rgba(0,0,0,.7); }}
+.mg-stat .mg-src {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
+  color:#fff; opacity:.86; margin-top:{mg_gap2}px; letter-spacing:.06em;
+  text-shadow:0 2px 10px rgba(0,0,0,.95); }}
 /* steps：序号是实心圆点，条目左对齐——「先后」靠上下排，不靠居中对齐 */
 .mg-steps {{ align-items:stretch !important; text-align:left; }}
 .mg-steps ol {{ list-style:none; display:flex; flex-direction:column; gap:{mg_gap}px;
@@ -1131,7 +1175,8 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   color:#fff; line-height:1.04; letter-spacing:-.02em; }}
 /* 不加左侧竖条：它只对着释义，看着像列表符号，把版面切散（srt 的 term-card 也没有） */
 .mg-term .mg-def {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_step}px;
-  color:rgba(255,255,255,.92); margin-top:{mg_gap}px; line-height:1.42; text-align:left; }}
+  color:rgba(255,255,255,.95); margin-top:{mg_gap}px; line-height:1.42; text-align:left;
+  text-shadow:0 2px 10px rgba(0,0,0,.9); }}
 {gen_css}
 </style>
 </head>
@@ -1306,12 +1351,46 @@ MG_MIN_S = {"stat": 1.8, "term": 2.2, "versus": 2.4}
 MG_ENTRY_MAX = 1.25       # 入场可以推到块首之后这么多（块越长越晚）
 MG_ENTRY_CALM = 2.5       # 块短于这个秒数就贴着块首出，不再往后推
 
+# 卡要「看得完」。1.0–1.5 秒是一句大字（四五个字）的读速，不是一张信息卡的。
+# 一张卡上同时有标题 + 数字 + 单位 + 说明 + 出处，按 srt-motion-cards 的展示
+# 单位算法（中文每字 1 单位、每 3 个拉丁字母 1 单位、约 6–8 单位/秒的阅读速度），
+# 20 单位上下就要 2.6 秒以上。所以卡的下限不再借用大字的 hold_s。
+CARD_HOLD_MIN = 2.6       # 读完一张卡的下限
+CARD_HOLD_MAX = 4.5       # 再长就是「卡在屏幕上赖着不走」
+CARD_TAIL = 0.35          # 说完那句之后卡还能留一会儿，给眼睛收尾
+CARD_GAP = 0.20           # 相邻两张卡之间必须空这么久，否则画面在打架
+
 
 def mg_min_s(kind: str, data: dict | None) -> float:
     if kind == "steps":
         n = len((data or {}).get("items") or [])
         return 0.6 + 0.7 * min(3, max(1, n))
     return float(MG_MIN_S.get(kind) or 0.0)
+
+
+def card_hold(kind: str, data: dict | None) -> float:
+    """这张卡至少要放多久：内容越多越久，但夹在 [CARD_HOLD_MIN, CARD_HOLD_MAX]。
+
+    按卡上真正要读的字数估：标题/数字/说明/出处都算，拉丁字 3 个折算 1 单位。
+    估出来再和种类下限取大——宁可多留半秒，也不要观众追着字跑。
+    """
+    d = data or {}
+    parts: list[str] = []
+    for k in ("kicker", "value", "unit", "label", "title", "term", "def", "source"):
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            parts.append(v)
+    for side in ("left", "right"):
+        s = d.get(side) or {}
+        parts.extend(str(s.get(k) or "") for k in ("head", "body"))
+    parts.extend(str(x) for x in (d.get("items") or []))
+    units = 0.0
+    for p in parts:
+        cjk = sum(1 for ch in p if "\u4e00" <= ch <= "\u9fff")
+        latin = len([ch for ch in p if ch.isascii() and ch.isalnum()])
+        units += cjk + latin / 3.0
+    guess = units / 7.0 + 0.6                      # 7 单位/秒 的读速 + 入场
+    return round(max(mg_min_s(kind, d), min(CARD_HOLD_MAX, max(CARD_HOLD_MIN, guess))), 3)
 
 
 def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
@@ -1439,7 +1518,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     _u = W / 1080.0
     _px = lambda v: max(12, int(round(v * _u)))          # noqa: E731
     mg_pad, mg_pad2, mg_gap, mg_gap2 = _px(28), _px(26), _px(22), _px(14)
-    mg_num, mg_unit, mg_label, mg_src = _px(214), _px(76), _px(48), _px(30)
+    # 出处行 30px 在 1080 上偏小、压在暗背景上读不出来（原像素复核确认）→ 34px + 不透明
+    mg_num, mg_unit, mg_label, mg_src = _px(214), _px(76), _px(48), _px(34)
     mg_h, mg_step, mg_term = _px(56), _px(46), _px(92)
     mg_vh, mg_vs, mg_badge, mg_badge_t = _px(50), _px(40), _px(104), _px(38)
     mg_rad, mg_pan = _px(26), _px(30)
@@ -1766,22 +1846,40 @@ def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
 
     cur = src
     last = measure(src)
-    for k in range(8):
-        dev = I - last[0]
-        if abs(dev) <= 0.3 and last[1] <= TP:
+    # 限幅点是**自适应**的，不是一个常数。
+    #
+    # 峰值和均值差得远的时候（b 片：输入 −18.9 LUFS，真峰却已经 −0.92），
+    # 要涨 4.9 dB 就得压掉尖峰；限幅点钉在 0.56（−5 dBFS）时，压掉的能量
+    # 和抬上去的一样多，8 遍下来只停在 −15.3，怎么迭代都不收敛。
+    #
+    # 所以从紧到松试：0.56 起步（AAC 编码的回峰最稳），压不上去就逐步放开到 0.72。
+    # 真峰的上限仍然是 TP（−1 dBTP），放开的只是限幅器的工作点——
+    # 能不能用在某一支片上，由最后量出来的真峰说了算，不由这个常数说了算。
+    for limit in (0.56, 0.62, 0.68, 0.72):
+        cur, last = src, measure(src)
+        for k in range(8):
+            dev = I - last[0]
+            if abs(dev) <= 0.3 and last[1] <= TP:
+                break
+            # 往上推的时候多给 60%：限幅会吃掉一部分增益，按差值给永远差一口气。
+            g = dev if dev < 0 else dev * 1.6
+            nxt = dst.with_suffix(f".ln{k}.wav")
+            rc = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-i", str(cur), "-vn",
+                 "-af", f"volume={g:.2f}dB,alimiter=limit={limit}:level=false:"
+                        "attack=1:release=50",
+                 "-c:a", "pcm_s16le", "-ar", "48000", str(nxt)],
+                capture_output=True, text=True).returncode
+            if rc != 0:
+                return rc
+            if cur != src:
+                cur.unlink(missing_ok=True)
+            cur = nxt
+            last = measure(cur)
+        if abs(I - last[0]) <= 0.3 and last[1] <= TP:
             break
-        # 往上推的时候多给 60%：限幅会吃掉一部分增益，按差值给永远差一口气（实测每遍只涨 1 dB）。
-        g = dev if dev < 0 else dev * 1.6
-        nxt = dst.with_suffix(f".ln{k}.wav")
-        rc = subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-i", str(cur), "-vn",
-             "-af", f"volume={g:.2f}dB,alimiter=limit=0.56:level=false:attack=1:release=50",
-             "-c:a", "pcm_s16le", "-ar", "48000", str(nxt)],
-            capture_output=True, text=True).returncode
-        if rc != 0:
-            return rc
-        cur = nxt
-        last = measure(cur)
+        if cur != src:
+            cur.unlink(missing_ok=True)
 
     # 最后一次：把处理好的音轨和原画面拼回去（画面直接 copy，不重编）
     rc = subprocess.run(
@@ -2241,6 +2339,9 @@ def main():
               for el in segs if el.get("kind") == "gen"
               and (el.get("track") or "video") == "overlay"]
     cards = card_windows(active, lib, chars_cache, style, amap=amap, ov_win=ov_win)
+    # 卡能跨格活着，但不能和 overlay 生成物同屏抢位（同屏只讲一件事）。
+    cards = [c for c in cards
+             if not any(c["start"] < b0 - 0.05 and c["end"] > a0 + 0.05 for a0, b0 in ov_win)]
 
     # 大字放人物背后：给这些段做一层带 alpha 的人像，叠在卡上面、字幕下面。
     # 层级：底(全画幅) → 卡 → 人像(透明背景) → 字幕。

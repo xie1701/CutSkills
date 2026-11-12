@@ -362,6 +362,14 @@
 | `--show` | 打印当前 brief |
 | `--reset` | 清空重来（旧文件备份为 brief.json.bak） |
 
+### `broll_split.py`
+*CutSkills · 一组片子的素材互斥：同一批素材剪两条，发出去不能是同一支片。*
+
+| 参数 | 说明 |
+|---|---|
+| `--projects` | **必填** |
+| `--json` | 开关 |
+
 ### `calibrate.py`
 *CutSkills · 用参考片校准「声画同步」的阈值。*
 
@@ -393,6 +401,15 @@
 | `--moods` | 开关 |
 | `--sfx` | — |
 | `--dur` | （默认 60.0） |
+
+### `check_cards.py`
+*CutSkills · 卡准入：一张卡凭什么能进片。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--json` | 开关 |
 
 ### `check_packs.py`
 *CutSkills · 包装包裁判：三套「衣服」的合同测试。*

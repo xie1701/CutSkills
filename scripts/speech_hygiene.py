@@ -102,7 +102,13 @@ def per_element(el: dict, ws: list[tuple[str, float]]) -> list[tuple[str, str]]:
     # filler
     hits = [h for h in FILLER_PAT.findall(txt) if not _ok_is_content(txt, h)]
     soft = [h for h in hits if h in "诶嗯呃"]
-    hard = [h for h in hits if h not in "诶嗯呃"]
+    # 粤语里「所以咧」「因为咧」是正常的连接词（「所以咧，佢饮茶嘅氛围我认为…」），
+    # 单用一次不是废料。只有**堆叠**才算——「因为咧，我觉得咧，因为有咁」这句里
+    # 三个语气短语连着出现，那才是主播在找词。判据要能分开这两件事。
+    conn = {"因为咧", "所以咧", "就咧", "我觉得咧"}
+    conn_n = sum(1 for h in hits if h in conn)
+    hard = [h for h in hits if h not in "诶嗯呃"
+            and not (h in conn and conn_n < 2)]
     if hard:
         out.append(("error", f"#{n} 口水「{''.join(hard)[:6]}」——这段没有信息，换 take"))
     if soft:

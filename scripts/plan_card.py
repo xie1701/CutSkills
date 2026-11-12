@@ -138,24 +138,24 @@ def _mg_section(A, tl: dict, st: dict) -> None:
                 for x in items)
             A(f"| {MG_LABEL[k]} | {cells} | {texts} | {dat} |")
         A("")
-    # 建议：按内容形态数一遍「该有而没有」的卡
-    hints = []
-    for e in tl.get("elements") or []:
-        said = str(e.get("evidence") or "")
-        c = e.get("card") or {}
-        k = str(c.get("kind") or "")
-        if k in MG_LABEL:
-            continue
-        import re as _re
-        if _re.search(r"\d|[一二三四五六七八九十百千万两]+\s*(平|万|个|张|间|人|种|年|月|块)", said):
-            hints.append(f"#{e['n']}「{said[:16]}」里有数字，可上数字卡")
-        elif _re.search(r"早上|晚上|一个.*一个|一边.*一边|系.*定系", said):
-            hints.append(f"#{e['n']}「{said[:16]}」像对比，可上对比卡")
-    if hints:
-        A("建议补的卡（内容形态看出来的，采不采由你）：")
+    # 缺口提示：只报「这一段还没有卡」，不再按「有数字就上数字卡」推荐。
+    #
+    # 以前这一段是「有数字 → 建议上数字卡」，结果每一条带年份、面积、人数的格子
+    # 都被推一张卡，卡就成了把口播重写一遍的贴纸——Jerry 说的「生搬硬套、
+    # 内容关联度不高」正是这么来的。现在改成提问，不替人做决定。
+    used = [e for e in (tl.get("elements") or [])
+            if str((e.get("card") or {}).get("kind") or "") in MG_LABEL]
+    if used:
+        A(f"卡的数量：{len(used)} 张 / "
+          f"{round(float(tl.get('duration_s') or 0), 1)}s。"
+          "每张卡都要回答「所以呢」，不是把口播重写一遍。")
         A("")
-        for h in hints[:5]:
-            A(f"- {h}")
+        A("卡入场条件（三条都要满足，缺一就不要）：")
+        A("1. 卡上的每个要素（数字 / 对比的两边 / 步骤的每一步 / 术语）"
+          "都能在这句口播的词里找到着落；")
+        A("2. 它带来了口播里没有的信息（一个换算、一个因果、一个人话解释），"
+          "而不是把听到的字再看一遍；")
+        A("3. 卡可以跨格活着、放到观众读完（≥2.6s），但不许两张卡打架。")
         A("")
 
 

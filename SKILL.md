@@ -55,6 +55,8 @@ python3 scripts/pick_take.py --library <素材库> --about 关键词   # 同一�
 python3 scripts/stability.py                            # 画面稳定度曲线（跳切切点避开转头挥手）
 python3 scripts/test_av_lock.py                         # 口播段音画同源（画面起点被清零＝嘴形全错）
 python3 scripts/edge_audit.py --project <项目>          # 提词半截词 / 尾巴挂下一句 / 话停了画面还在演
+python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）
+python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
 python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
 ```
 
