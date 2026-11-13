@@ -14,6 +14,10 @@
   D 亮背景（黄字压近白墙，ΔL < 12）       → ② error
   E 同一帧 + 隔离层（卡打开 isolate）      → 转绿（隔离层到底有没有用，能量出来）
   F 单排宽 95%W（fit_width 0.95）         → ③ error
+  H 空格/间隔号/数字的文本（T-046）        → 字号按 em 宽反算，墨迹填到 0.62–0.78；
+                                           包真把它压窄（fit_width 0.55）仍旧 error
+  I behind 放不到脑后（T-046）              → 按渲器落点 5.5%H 量，且把顶部渐变算进 ΔL；
+                                           不合渐变时同一块地方必须 < 12（反证）
   G 真项目对一遍（有真片才跑）            → 0 error，且成片墨迹 bbox 与预测差 ≤ 12px
 
 用法：python3 scripts/test_keyword_text.py
@@ -150,6 +154,28 @@ def main() -> int:
     rc, out = run(pf, pk_wide)
     assert rc == 1 and has(out, "越界"), f"F 95%W 本该判红：\n{out}"
 
+    # H 空格 / 间隔号 / 数字不是一个汉字宽（T-046）：分母按字数算的话，
+    #   「3 个是国产」6 个字只给到 56.5%W、越 62% 下限——而画面上根本没有一个字是小的。
+    #   字号改成按真字体 em 宽反算后它自己填到 69.9%W；下限一个数都没动：
+    #   包真把字压窄（fit_width 0.55）时这条仍要判红。
+    ph = project(base / "H", text="3 个是国产", face=None)
+    rc, out = run(ph, pk)
+    assert rc == 0 and has(out, "全部通过", "156px"), \
+        f"H 空格文本该自己填到 70%W（字号按 em 反算）：\n{out}"
+    pk_narrow = pack(base, name="p1narrow", fit_w=0.55)
+    rc, out = run(ph, pk_narrow)
+    assert rc == 1 and has(out, "越界"), f"H 下限没被放宽：真窄了必须仍判红：\n{out}"
+
+    # I behind 卡到底被画在哪（T-046）：抠像放不到脑后时，渲器把字放到「头顶」
+    #   （≈`KW_HEAD_MIN_TOP` = 5.5%H）并自带一层顶部渐变。判据必须量在**那个位置**、
+    #   并且把那层渐变合上去——拿原始画面量同一块地方，ΔL 只有个位数。
+    #   副产物：这条也钉死「不许拿没上屏的中间态当判据」。
+    pi = project(base / "I", text="售楼部 · 酒店", face=None, color="0xEDE8DC", kind="behind")
+    rc, out = run(pi, pk)
+    assert rc == 0 and has(out, "5.5%H", "头顶大字", "自带顶部渐变"), \
+        f"I behind 该量在渲器真正的落点（5.5%H，自带顶部渐变）：\n{out}"
+    _raw_dl(pi, pk)          # 反证：不合渐变，同一块地方 ΔL < 12（红）
+
     # G 真项目：现在必须 0 error；成片帧的墨迹 bbox 与预测差 ≤ 12px
     if (REAL / "out" / "film-hf.mp4").exists() and (REAL / "out" / "cards.json").exists():
         rc, out = run_real(REAL)
@@ -162,9 +188,30 @@ def main() -> int:
         print("  · 跳过 G（本机没有 dianzan-c 的成片）")
 
     print("✅ T-045 大字判据回归：A 压脸红 / B 挪开绿 / C 空字红 / D 亮底红 / "
-          "E 加隔离绿 / F 越界红" + (" / G 真片对齐" if (REAL / "out" / "film-hf.mp4").exists()
-                                   else ""))
+          "E 加隔离绿 / F 越界红 / H 窄字文本填满且真窄仍红 / I behind 量在渲器落点且算渐变"
+          + (" / G 真片对齐" if (REAL / "out" / "film-hf.mp4").exists() else ""))
     return 0
+
+
+def _raw_dl(proj: Path, pk: Path) -> None:
+    """反证用：同一个字框、**不合顶部渐变**的原始画面ΔL 必须 < 12。
+
+    没有这条，I 那条绿说明不了「渐变是被算进去的」——也可能只是那个位置本身背景就暗。
+    """
+    sys.path.insert(0, str(HERE))
+    import card_layout as CL
+    import check_keyword_text as KT
+    tl = json.loads((proj / "timeline.json").read_text())
+    text = tl["elements"][0]["card"]["text"]
+    cp = sorted((proj / "hf" / "clips").glob("*.mp4"))[0]
+    fr = KT.frame_of(cp, 0.1, W, H, {})
+    assert fr is not None
+    import yaml
+    style = yaml.safe_load(pk.read_text())
+    mask, box = CL.ink_mask(text, style, W, H, CL.KW_HEAD_MIN_TOP)
+    r = KT.readable_dl(fr, mask, box["px"], 91.0)
+    assert r["dl_p10"] is not None and r["dl_p10"] < CL.KW_DL_MIN, \
+        f"反证失败：不合渐变时量到 ΔL {r['dl_p10']}，不是「被背景吃掉」的读数"
 
 
 def run_real(proj: Path) -> tuple[int, str]:

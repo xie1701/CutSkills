@@ -59,6 +59,15 @@ KW_DL_MIN = 12.0           # 墨迹 vs 紧邻背景的 ΔL 下限（与 test_pan
 KW_LINE_H = 1.06           # CSS `.kw span` 的 line-height
 KW_SIZE_MAX_H = 0.34       # 渲染器的字号上限：H × 这个数
 KW_TOUCH_EPS = 0.0         # 字框与人脸框的重叠面积上限：> 0 就是压上了（硬线，禁止调大）
+# 「头顶大字」那条路自带的一层顶部渐变（`.scrim`）。它不是一个装饰：大字上移到头顶之后，
+# 画面顶部的梁柱管道会从字缝里透出来，渲器就是靠这层把它压下去的。
+# 所以**判据量可读性时必须把它合上去**——不合就是在量一张没上屏的中间态：
+# `qizao-ground-01` 那张 behind 实测「原始画面 ΔL 11.0（判红）/ 合上渐变 28.4（人眼看的是这个）」。
+KW_SCRIM_ALPHA = 0.58      # `.scrim` 顶端的黑浓度（CSS `linear-gradient(to bottom, a, 0)`）
+KW_SCRIM_H_MAX = 0.30      # 渐变最高压到画幅的这个比例
+KW_SCRIM_PAD = 0.14        # 渐变底边 = 大字上沿 + 这么高
+KW_HEAD_MIN_TOP = 0.055    # 头顶大字的上沿下限（再高就顶到平台 UI）
+KW_HEAD_GAP = 0.095        # 字底与头顶之间留的距离
 # 隔离层缺省（包没写 emphasis.isolate 时用这一份；只有 card.isolate 打开的那张才画）。
 # 为什么是「字后局部压暗」而不是「整屏暗场」：整屏暗场在口播格是 B7 红线，
 # 而且它改的是整个画面的曝光；一块跟着字框走的柔化板只改「字底下的那几行像素」。
@@ -329,15 +338,42 @@ def plate_tint(proj: Path, clip: Path, t: float, alpha: float = 0.26) -> dict | 
 
 # ---------------------------------------------------------------- 大字几何（T-045）
 
+def kw_adv_em(text: str, style: dict) -> float:
+    """卡面文本的**可视宽度**（单位 em）：真字体量的 advance ÷ 字号。
+
+    为什么不是字数：Jerry 的规则是「单排撑满屏宽 70%」，撑的是**看得见的宽度**。
+    而「3 个是国产」「售楼部 · 酒店」「原料成本差 4–5 倍」里有空格、间隔号、阿拉伯数字——
+    它们都不是一个汉字那么宽。按字数当分母，每个空格都白占一整个 em 的额度，
+    字就小一整截（T-046 实测：「3 个是国产」6 个字算出 126px → 墨迹只 56.5%W；
+    「售楼部 · 酒店」8 个字算出 94px → 56.2%W），判据那条 0.62W 下限于是永远过不去，
+    而**画面上根本没有一个字是小的**，只是分母错了。
+
+    纯汉字文本（含全角标点）的 advance 恰好 = 字数 em，所以这一改对
+    `dianzan-c` 三张、`proj79` 四张、`naming-01`「柒造」的像素是零影响（T-046 逐张量过）。
+    """
+    t = str(text or "")
+    fp = _font_file((style.get("emphasis") or {}).get("font"))
+    if fp is None:                       # 字体找不到：退回字数，别让字号变成 0
+        return float(max(1, len(t)))
+    try:
+        from PIL import ImageFont
+        ref = 100.0
+        return max(1.0, float(ImageFont.truetype(str(fp), int(ref)).getlength(t)) / ref)
+    except OSError:
+        return float(max(1, len(t)))
+
+
 def kw_font_px(text: str, style: dict, W: int, H: int) -> int:
     """渲染器给一张大字卡定的字号（**同一份公式**，判据不许自己再估一个）。
 
-    渲染器那行的原话：先按「fit_width × 画幅宽 ÷ 字数」给字号，再用 H×0.34 兜住
-    1–2 个字的极端情况。字数算的是卡面文本的长度（带标点，标点也是字）。
+    「fit_width × 画幅宽 ÷ 这张字实际占几 em」，再用 H×0.34 兜住 1–2 个字的极端情况。
+    分母是 `kw_adv_em`（真字体的 advance），不是字数——见那个函数的说明。
+    包里的 `emphasis.big_keyword_px` 不是这条路的上限：那条只当 CSS 兜底，
+    渲器给每个 `.kw span` 都写了 inline font-size，上限实际是 H×0.34（652px@1920）。
     """
     emph = style.get("emphasis") or {}
     fit_w = float(emph.get("fit_width") or 0.70)
-    n = max(1, len(str(text or "")))
+    n = kw_adv_em(text, style)
     return min(int(round(W * fit_w / n)), int(H * KW_SIZE_MAX_H))
 
 
@@ -372,6 +408,31 @@ def _font_file(name: str | None):
     """字体名 → 盘上的真文件（仅判据侧用：渲染器自己已经有 find_font）。"""
     from render_hf import find_font          # 延迟 import：render_hf 顶层 import 本模块
     return find_font(name) if name else None
+
+
+def kw_scrim_h(top_h: float) -> float:
+    """顶部渐变的高度（画幅比例）：字上沿 + KW_SCRIM_PAD，最多 KW_SCRIM_H_MAX。"""
+    return round(min(KW_SCRIM_H_MAX, float(top_h or 0.0) + KW_SCRIM_PAD), 4)
+
+
+def kw_scrim_alpha(W: int, H: int, top_h: float):
+    """顶部渐变的 alpha 场（0–1，H×W）：顶端 `KW_SCRIM_ALPHA`、底边 0。判据合成背景用。"""
+    import numpy as np
+    h = max(1, min(H, int(round(kw_scrim_h(top_h) * H))))
+    a = np.zeros((H, W), dtype=np.float32)
+    a[:h, :] = np.linspace(KW_SCRIM_ALPHA, 0.0, h, dtype=np.float32)[:, None]
+    return a
+
+
+def kw_head_override(stats: dict | None) -> float:
+    """behind / cutout 放不到脑后时，「头顶大字」的上沿（画幅比例）。**渲器与判据同一份**。
+
+    渲器那边的原话是 `max(0.055, head - 0.095)`，读的是 `render_hf.mask_stats()` 的
+    `head_top`；取不到就按 0.15 当头顶（与渲器 `(st or {}).get("head_top") or 0.15` 同义，
+    所以 head_top=0.0 也走 0.15）。
+    """
+    head = float((stats or {}).get("head_top") or 0.15)
+    return round(max(KW_HEAD_MIN_TOP, head - KW_HEAD_GAP), 4)
 
 
 def kw_ink_box(text: str, style: dict, W: int, H: int, top_h: float | None = None):
