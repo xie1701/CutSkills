@@ -118,6 +118,7 @@ python3 scripts/bgm_gen.py --project <项目> --mood auto     # 按 brief 挑情
 python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频：谱质心 <350Hz 就是闷
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
+python3 scripts/test_scene_determinism.py             # 代码场景可重复渲染：同输入两遍逐帧一致，非确定源（无种子随机/时钟）混进场景即红（T-055）
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/test_overlay_judge.py                 # 叠加态判据负样本（T-019 压脸/口播整屏暗场/重卡撞字幕 + T-042 压主体与主体量不到两条 warning）
 python3 scripts/test_panel_light.py                   # 面板光感可读性（T-042：四个包 × 五档背景，笔画 vs 紧邻底板 ΔL ≥ 12）
@@ -804,7 +805,7 @@ ttc 要写 face 序号，苹方第 0 个是 HK Regular，不是你要的那个�
 （`acompressor ratio 3.5`）再归一到 -14 LUFS。三个数对着参考片量：底噪 -27.8 dB、动态差 14.0 dB、
 静音 0.2%。**没有 BGM 的片子，人声一停就是录音棚空场**——观众说不出哪不对，但会觉得"没做完"。
 
-**音效**（`gen_sfx.py` 合成 + `mix_sfx.py` 混，细节见 [references/sfx.md](references/sfx.md)）：只给**换介质**的切点和**大字/卡出场**，再按模板 `sfx_density_per_min` 截断。每刀都给是最典型的音效疲劳（参考片实测：95 个切点只有 13 个带瞬态，还低于随机基线）。混音用 numpy 直接相加，**不要用 ffmpeg amix**——amix 按输入数归一，人声会被压下去。
+**音效**（`gen_sfx.py` 合成 + `mix_sfx.py` 混，细节见 [references/sfx.md](references/sfx.md)）：只给**换介质**的切点和**大字/卡出场**，再按模板 `sfx_density_per_min` 截断。每刀都给是最典型的音效疲劳（参考片实测：95 个切点只有 13 个带瞬态，还低于随机基线）。混音用 numpy 直接相加，**不要用 ffmpeg amix**——amix 按输入数归一，人声会被压下去。渲染收尾自动写 `out/sfx_manifest.json`（原则 B13）：BGM 与每条音效的文件、许可、哈希、来源，商用交付被问「这段音乐能不能用」时看它。
 
 **D 只覆盖能量出来的东西。** 节奏顺不顺、话说清没清，得人看一遍——报告末尾就写着这句，别让人误以为绿灯等于能发。
 

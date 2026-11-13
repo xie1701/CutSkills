@@ -2335,6 +2335,83 @@ def measure_audio(path: Path) -> tuple[float, float]:
 LAST_LOUDNESS: dict[str, float] = {}
 
 
+def write_sfx_manifest(proj: Path, sfx_events: list[dict]) -> Path | None:
+    """把这条片用了哪些声音、什么许可写进 out/sfx_manifest.json（T-055 授权留痕）。
+
+    发布平台只验成片本身，但商用交付要能答「这段 BGM/音效从哪来的、能不能商用」。
+    以往 BGM 只在 bgm.json 记了选曲、音效只记了时间点——文件、许可、哈希全链路无留痕。
+    来源：CC0 库 → 许可 CC0 1.0（公有领域，可商用无需署名）；
+    本地合成 → source=procedural，无第三方风险；
+    外部文件 → licence=null，必须人工确认后才能商用。
+    """
+    import hashlib
+    out = proj / "out"
+    out.mkdir(parents=True, exist_ok=True)
+
+    def _sha(p: str | Path) -> str | None:
+        try:
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.hexdigest()[:16]
+        except OSError:
+            return None
+
+    try:
+        import cc0_lib
+    except ImportError:
+        cc0_lib = None
+
+    bgm_row = None
+    stamp = proj / "bgm.json"
+    if stamp.exists():
+        try:
+            b = json.loads(stamp.read_text())
+            if b.get("source") == "cc0" and b.get("file"):
+                lic = (cc0_lib.licence_of(b["file"]) if cc0_lib else None) or "CC0 1.0 Universal"
+                bgm_row = {"source": "cc0", "title": b.get("title"), "file": b.get("file"),
+                           "licence": lic, "sha256_16": _sha(b["file"]), "why": b.get("why")}
+            else:
+                # 合成的（无 file）与外部指定的（有 file 无许可）都要如实写
+                bgm_row = {"source": b.get("source") or "unknown", "title": b.get("title"),
+                           "file": b.get("file"), "licence": None,
+                           "sha256_16": _sha(b["file"]) if b.get("file") else None,
+                           "note": "许可未核验：商用发布前必须人工确认授权"}
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    sfx_rows, seen = [], set()
+    for e in sfx_events or []:
+        name = e.get("name") or ""
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        spec = sfx_spec(name)
+        if not spec:
+            sfx_rows.append({"name": name, "source": "missing", "licence": None})
+            continue
+        p = spec.get("path") or ""
+        lic = (cc0_lib.licence_of(p) if cc0_lib else None) or spec.get("licence")
+        row = {"name": name, "id": spec.get("id"), "file": p,
+               "licence": lic, "sha256_16": _sha(p) if p else None}
+        if lic is None:
+            row["source"] = "procedural"
+            row["note"] = "本地代码合成，无第三方素材风险" if p else "未找到音效文件"
+        else:
+            row["source"] = "cc0"
+        sfx_rows.append(row)
+
+    lic_all = {r.get("licence") for r in ([bgm_row] + sfx_rows) if r}
+    summary = ("全部 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名）"
+               if lic_all == {"CC0 1.0 Universal"}
+               else "存在未核验或非 CC0 来源：商用发布前逐条人工确认")
+    m = {"licence_summary": summary, "bgm": bgm_row, "sfx": sfx_rows}
+    dst = out / "sfx_manifest.json"
+    dst.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+    return dst
+
+
 def loudnorm(src: Path, dst: Path, I: float, TP: float) -> int:
     """把混音拉回样式包给的响度，并且真的落在断言上。
 
@@ -3349,6 +3426,9 @@ def main():
         except (json.JSONDecodeError, OSError):
             pass
     print(f"  → {dst}")
+    _mf = write_sfx_manifest(proj, sfx_events)
+    if _mf:
+        print(f"  授权留痕 → {_mf}")
     print(f"  下一步：python3 scripts/verify_film.py --project {proj}")
 
 

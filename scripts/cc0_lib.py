@@ -24,6 +24,24 @@ from pathlib import Path
 BGM_LIB = Path(os.environ.get("CUTSKILLS_BGM_LIB") or (Path.home() / "Downloads" / "cc0-bgm-library"))
 SFX_LIB = Path(os.environ.get("CUTSKILLS_SFX_LIB") or (Path.home() / "Downloads" / "cc0-sfx-library"))
 
+# 授权口径（2026-11-14 补）：成片要能发布，用了哪个文件、什么许可必须有留痕。
+# 两个库都是 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名），
+# 出处文件由库自己带：BGM 看 SOURCES.md（逐首核过），SFX 看 LICENSE-CC0.txt。
+# 换库的人必须同步改这两个字段——manifest 只负责照抄，不负责猜。
+LICENCE = "CC0 1.0 Universal"
+LICENCE_PROOF = {"bgm": "SOURCES.md", "sfx": "LICENSE-CC0.txt"}
+
+
+def licence_of(path: str | Path) -> str | None:
+    """给一个素材文件路径，回它的许可口径。库外的回 None（调用方必须显式处理）。"""
+    p = Path(path)
+    try:
+        if p.resolve().is_relative_to(BGM_LIB.resolve()) or p.resolve().is_relative_to(SFX_LIB.resolve()):
+            return LICENCE
+    except OSError:
+        pass
+    return None
+
 # 情绪 → 类目 / 中文标签。不是"我觉得好听"，是对着库里的选曲指南定的：
 # 口播讲解要律动稳、没旋律抢注意力；治愈/希望要环境感；紧张要压迫。
 MOODS: dict[str, dict] = {
@@ -107,7 +125,7 @@ def pick_bgm(mood: str = "clear", need_s: float = 60.0, seed: str = "") -> dict 
     rnd = random.Random(seed or f"{mood}-{int(need_s)}")
     r = rnd.choice(pool)
     return {"path": str(BGM_LIB / r["file"]), "title": r["title"], "dur": float(r["duration_s"]),
-            "category": r["category_zh"], "why": spec["why"]}
+            "category": r["category_zh"], "why": spec["why"], "licence": LICENCE}
 
 
 def pick_sfx(name: str) -> dict | None:
@@ -126,7 +144,7 @@ def pick_sfx(name: str) -> dict | None:
             "dur": float(hit["duration_s"] or 0),
             "sync_at": float(hit["sync_at_s"] or 0),
             "gain_db": float(hit["under_voiceover_db"] or -6),
-            "use": hit["use_zh"]}
+            "use": hit["use_zh"], "licence": LICENCE}
 
 
 if __name__ == "__main__":
