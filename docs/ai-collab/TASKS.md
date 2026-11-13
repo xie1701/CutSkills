@@ -46,6 +46,9 @@
 | T-030 | **【判据假红】`evidence_guard` 查词级真值用 `h12(asset_id)`，缓存却按 `legacy_key` 命名**：找不到就退到句级，于是 `qizao-protect-01` #8 被判「台词里『分色』音频没说（2 处）」——词级真值明明写着 `分`=32.40 / `色`=32.58 / `纸`=32.76。同仓 `render_film.load_chars` 用的是 `legacy_key`。修法：两套键都查（先新后旧），查不到仍如实报「没有词级真值」而不是静默退句级。附负样本：把键彻底改坏 → 必须报「缺词级真值」 | 未开工 | — | — | — | 验收：`evidence_guard --project qizao-protect-01` 不再出那条假 warning；`check_timing` / `edge_audit` 同源调用口径一致；`test_evidence_guard` 5/5 仍过 |
 | T-031 | **【内容清账】`qizao-protect-01` 剩余 3 条 `check_timeline` error**：#6 画面 22.32–26.40 / 声音 22.32–26.47、#12 画面 53.87–60.75 / 声音 53.94–60.82（各差 0.07s≈2 帧）、#1 B-roll 从 0.00s 起（起幅余量不足 0.40s）。三条都是重渲前必须清掉的真缺陷 | 未开工 | — | — | — | 验收：该片 `check_timeline` error **0**；`check_subs` 仍「过」；`verify_film` 不掉绿；每处改动写进 `decisions.md` |
 | T-032 | **【产线】`subs.py` 拆条必须按实测静音，不能只按词起点间隔**：ASR 把 1.2–1.7s 的停顿记进前一个字的时长，`GAP_SPLIT = 0.12` 看不到，于是三支老片各留 3–8 条「真静音却仍撑 3.5s+」的字幕。T-029 已把判据改严（量出停顿就判红），现在要改产线去满足它：拆条时对候选切点用 `silence.silent_between()` 实量，≥0.30s 才算一口气断开，优先在此处断。**验收**：`qizao-ground-01` / `proj79` 停留红清零且 `check_subs` 仍「过」；`dianzan-a/b/c` 字幕条数与停留不退化；负样本：把停顿改成 0.10s（不足一口气）时**不许**拆 | 未开工 | — | — | — |
+| T-033 | **【内容】`qizao-ground-01` #14 卡面数字与口播不符**：卡面「报价只贵 2–3 倍」，词级真值里是「差到 4 倍、四到 5 倍」，全片没有「2–3 倍」。按原则 A4（反意外反讽）与 MG 硬规矩第 4 条（数字必须有出处）改写卡面或换格；另定夺 `protect-01` #2「先保哪里」这句问句要不要换词（现在锚词取的是答案词「地面」） | 未开工 | — | — | — | 验收：`check_cards` 该卡词证通过且卡面数字与真值一致；`check_timing` 仍 error 0；改动写进 `decisions.md` |
+| T-034 | **【判据漏洞】卡锚词在真值里找不到时 `render_hf` 静默回落，`check_timing` 照样放行**：T-027 负样本 B 实证——`on` 写成窗口外不存在的词，渲器只往 stderr 打「大字对不上原话」，仍写 `anchor_word` + 重音点，`check_timing` 判 error 0（lag 3880ms）。修法：渲器遇到对不上的锚词**不许沿用默认时机**（应报 error 并停），`check_timing` 增加「锚词必须在该格词级真值里」的判据。负样本已备好 | 未开工 | — | — | — | 验收：负样本 B 从 error 0 变 error；两支样片正常卡不新增红；`test_av_lock` / `test_semantic_check` 仍过 |
+
 
 
 
