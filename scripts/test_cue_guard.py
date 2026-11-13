@@ -10,7 +10,9 @@
   3. 有词级真值时，窗口中间夹着「三二一」必判 error（闸门本身）；干净窗口不误报；
   4. 没有词级真值**不许静默**：返回空必须带上等级（`sentence` / `none`），
      `--check` 要打出「该格没有词级真值，口令判不了」——空列表不等于「这段干净」；
-  5. 键改回来以后必须恢复命中（证明 ④ 的黄是键坏了，不是判据坏了）。
+  5. 键改回来以后必须恢复命中（证明 ④ 的黄是键坏了，不是判据坏了）；
+  6. 弱口令过词界（T-043）：真实说话里夹着的「开始 / 再来 / 收到 / 可以了」不算口令，
+     真喊的那几句 / 连喊两句 / 黏在强口令旁边一句都不能漏。
 
 不跑 ASR、不碰真素材库，纯合成（秒级）。跑法：`python3 scripts/test_cue_guard.py`
 """
@@ -144,7 +146,51 @@ def main() -> int:
               f"（应是 {len(SPEECH)}）")
         bad += 0 if ok else 1
 
-    n = 6
+        # ⑦ 弱口令过词界（T-043）：四条真片段（原话与时间戳抄自 TASKS 的 T-043）
+        def cues_of(seq: list[tuple[str, float]]) -> list[str]:
+            return [c["text"].replace("…", "") for c in CG.find_cues(CG._timeline_of(seq))]
+
+        def spaced(text: str, t0: float = 100.0, step: float = 0.22) -> list[tuple[str, float]]:
+            return [(ch, round(t0 + i * step, 2)) for i, ch in enumerate(text)]
+
+        fp = {
+            "所以一开始我们做的品类": [],
+            "明天咱上再来一趟": [],
+            "容易就是说收到空气的水化": [],
+            "到时候可以呃通过木板收就可以了": [],
+        }
+        for text, want in fp.items():
+            got = cues_of(spaced(text))
+            ok = got == want
+            print(f"  {'✓' if ok else '✗'} 假红不命中「{text}」→ {got or '无'}")
+            bad += 0 if ok else 1
+
+        # ⑧ 真口令一句都不许漏：单独成句的弱口令、强口令、连喊两句
+        tp = {
+            "等一下再一次": ["等一下", "再一次"],
+            "再来一次": ["再来一次"],
+            "慢啲讲": ["慢啲讲"],
+            "好，开始": ["开始"],
+        }
+        for text, want in tp.items():
+            # 合并后一段里可能是「等一下|再一次」这种连喊两句，只看每个口令在不在
+            parts = {x for g in cues_of(spaced(text)) for x in g.split("|")}
+            ok = all(w in parts for w in want)
+            print(f"  {'✓' if ok else '✗'} 真口令仍命中「{text}」→ {sorted(parts)}（缺 {[w for w in want if w not in parts]}）")
+            bad += 0 if ok else 1
+
+        # ⑨ 口吃不是重说，真重说才算：重复段后面还有别的话才算「这一遍作废」
+        stutter = [("对", 200.0 + i * 0.12) for i in range(9)]
+        real = [("所", 300.0), ("以", 300.2), ("我", 300.4), ("觉", 300.6), ("得", 300.8),
+                ("所", 301.0), ("以", 301.2), ("我", 301.4), ("觉", 301.6), ("得", 301.8),
+                ("这", 302.0), ("事", 302.2), ("做", 302.4), ("不", 302.6), ("成", 302.8)]
+        ok_a = [c["kind"] for c in CG.find_cues(CG._timeline_of(stutter))] == []
+        ok_b = "retake" in [c["kind"] for c in CG.find_cues(CG._timeline_of(real))]
+        ok = ok_a and ok_b
+        print(f"  {'✓' if ok else '✗'} 口吃不判重说（{ok_a}）· 真重说仍判（{ok_b}）")
+        bad += 0 if ok else 1
+
+    n = 9
     print(f"\n口令守卫查表口径：{n - bad}/{n} 过")
     return 1 if bad else 0
 

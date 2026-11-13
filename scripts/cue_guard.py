@@ -69,6 +69,17 @@ WEAK_CUES = [
 ]
 CUE_WORDS = [(w, True) for w in STRONG_CUES] + [(w, False) for w in WEAK_CUES]
 
+# 弱口令的词界宽容：**单独成句才算口令**。
+#
+# 弱口令都是正常词（开始 / 再来 / 收到 / 继续…），只要按子串匹配，正常说话就全被当成指导语——
+# 「所以**开始**我们做的品类」（「一开始」）、「明天咱上**再来**一趟」、「容易就是说**收到**空气的水化」
+# （ASR 把「说到」写歪）三条真的都踩中过（T-043）。区别不在词本身，在**句子长度**：
+# 导演喊口令是一句短话（最多多带两三个字：好 / 来 / 一下），而夹在长句中间的是内容。
+# 所以判「口令所在这句还剩几个字」，跟长度阈值（停 ≥0.90s / 端点 0.8s）无关，阈值一律不动。
+# 宽容只留 1 个字（「好开始」「开始吧」这种口气词）：「一开始就完」剩 3 个字就已经是内容了，
+# 实测这一条在柒造库里自主播句中断（T-043 复测）。
+WEAK_SLACK = 1
+
 # 只判「窗口边缘」的宽容：口令后面通常有个气口，切到气口中间最安全。
 EDGE_PAD = 0.06
 RETAKE_MIN_LEN = 3          # 少于 3 个字的重说不算（「我我」这种口吃归字幕管）
@@ -160,6 +171,46 @@ def _is_word_char(ch: str) -> bool:
 
 # ---------------------------------------------------------------- 检出
 
+def _phrase_spans(words: list[dict]) -> list[tuple[int, int]]:
+    """词级时间轴 → 每个**小句**在「净串」里的字符区间 `[a, b)`。
+
+    净串 = 剔掉标点后的全文（`find_cues` 里那个 `cstr`），这里按同一条口径重建
+    （逐词的 `_is_word_char` 字符）。切在两种地方：
+
+    - 停顿 > `PHRASE_GAP`；
+    - 标点词（ASR 把它当独立 token 吐出来）。
+
+    下标点那刀是必须的：喊口令的人常在口令前先撂一句评语（「太鸡贼了，再来下」），
+    按停顿切会把整句算成一句长话，真口令被当成内容放过去（T-043 实测）。
+    不能直接数 `phrase_views()` 的文本长度，那个会把不足 2 字的碎片句丢掉，位置就串了。
+    """
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    cur_start = 0
+    for i, w in enumerate(words):
+        tok = str(w["t"])
+        n = sum(1 for c in tok if _is_word_char(c))
+        if n == 0:                      # 标点：在这里断句
+            if pos > cur_start:
+                spans.append((cur_start, pos))
+            cur_start = pos
+            continue
+        pos += n
+        gap = (words[i + 1]["start"] - w["end"]) if i + 1 < len(words) else 9.9
+        if gap > PHRASE_GAP or i == len(words) - 1:
+            if pos > cur_start:
+                spans.append((cur_start, pos))
+            cur_start = pos
+    return spans
+
+
+def _phrase_of(spans: list[tuple[int, int]], k: int) -> tuple[int, int] | None:
+    for a, b in spans:
+        if a <= k < b:
+            return a, b
+    return None
+
+
 def find_cues(words: list[dict]) -> list[dict]:
     """词级时间轴 → 口令区间 [{kind, t0, t1, text}]，按时间排序。"""
     if not words:
@@ -183,6 +234,9 @@ def find_cues(words: list[dict]) -> list[dict]:
             clean.append(ch)
             back.append(n)
     cstr = "".join(clean)
+    spans = _phrase_spans(words)
+
+    strong_cov: set[int] = set()          # 已确认是口令的净串位置（弱口令判词界时不算「内容」）
 
     for pat in COUNT_PATTERNS:
         for m in re.finditer(pat, cstr):
@@ -190,26 +244,50 @@ def find_cues(words: list[dict]) -> list[dict]:
             t0, t1 = span(pos2i[a], pos2i[b])
             hits.append({"kind": "count", "t0": round(t0, 3), "t1": round(t1, 3),
                          "text": text[a:b + 1]})
+            strong_cov.update(range(m.start(), m.end()))
 
+    weak: list[tuple[int, int, dict]] = []
     for cw, strong in CUE_WORDS:
-        start = 0
-        while True:
-            k = cstr.find(cw, start)
-            if k < 0:
-                break
+        k = cstr.find(cw)
+        while k >= 0:
             a, b = back[k], back[k + len(cw) - 1]
             t0, t1 = span(pos2i[a], pos2i[b])
-            hits.append({"kind": "cue" if strong else "cue-weak",
-                         "t0": round(t0, 3), "t1": round(t1, 3), "text": text[a:b + 1]})
-            start = k + len(cw)
+            h = {"kind": "cue" if strong else "cue-weak",
+                 "t0": round(t0, 3), "t1": round(t1, 3), "text": text[a:b + 1]}
+            if strong:
+                hits.append(h)
+                strong_cov.update(range(k, k + len(cw)))
+            else:
+                weak.append((k, k + len(cw), h))
+            k = cstr.find(cw, k + len(cw))
+
+    # 弱口令过词界：这句（小句）里**除掉口令字**之后还剩几个字。
+    # 剩下的都是内容 → 这个「开始 / 再来 / 收到」是话里的词，不是喊给主播听的。
+    # 「除掉」要连别的口令一起算（`strong_cov`）：连喊两句口令时（「等一下再一次」），
+    # 弱口令旁边站着的也是口令，不能被当成内容把它顶掉。
+    for k, e, h in weak:
+        sp = _phrase_of(spans, k)
+        if sp is None:
+            hits.append(h)             # 跨小句找不到归属：宁可报，不静默
+            continue
+        rest = [i for i in range(sp[0], sp[1]) if i not in strong_cov and not (k <= i < e)]
+        if len(rest) > WEAK_SLACK:
+            continue
+        hits.append(h)
 
     # 重说只认两种：句内把开头连说两遍、相邻两句开头一样。
     # 别用 n-gram 泛匹配——「两个门口…两个门口」是排比，不是重说，机器分不清就该闭嘴。
+    # 两条都必须排除**纯口吃**：「对对对对对对对」是卡住，不是「这一遍作废、下一遍才算」。
+    # 判法是看重复段**后面还有没有别的话**——重说的人一定会接着往下说完，口吃的人只是同一口气。
     for ph in phrase_views(words):
         t = ph["text"].replace(" ", "")
         m = re.match(r"^(.{3,8}?)\1", t)
         if m:
-            seg = t[:len(m.group(1)) * 2]
+            unit = m.group(1)
+            tail = t[len(unit) * 2:]
+            if len(set(unit)) == 1 or not tail:
+                continue                      # 单字反复 / 说完就停：口吃，不算重说
+            seg = t[:len(unit) * 2]
             t0 = ph["start"]
             t1 = min(ph["end"], t0 + 0.9)
             hits.append({"kind": "retake", "t0": round(t0, 3), "t1": round(t1, 3),
