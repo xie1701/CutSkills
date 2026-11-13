@@ -174,7 +174,11 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                     # 而素材开头往往正是场记口令和重来的地方，画面跟着从 0 起会把坏 take 也带进来。
                     if au["asset"] == aid:
                         ai, ao = float(au.get("in") or 0), float(au.get("out") or 0)
-                        if abs(ai - tin) > 0.02 or abs(ao - tout) > 0.02:
+                        # 0.02 的容差是给「按帧取整」的，但浮点数减出来是 0.02000000000000135，
+                        # 于是「恰好差两帧」会被判成不同源——三支老片各被这条假红挂了一整天
+                        # （2026-11-13 实测：偏移都写的是 0.020）。判据的意图是「差两帧以上」，
+                        # 所以比较对象要带上浮点余量，不是把容差放宽。
+                        if abs(ai - tin) > 0.02 + 1e-6 or abs(ao - tout) > 0.02 + 1e-6:
                             out.append(("error", f"#{n} 口播段音画不同源：画面 [{tin:.2f}, {tout:.2f}]s、"
                                                  f"声音 [{ai:.2f}, {ao:.2f}]s——嘴形会对不上"))
                     else:
