@@ -204,3 +204,35 @@ MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `
 **v2 不废，但不再是主路径**——它表达不了 `gen` 和 `silence`。
 停在 v2 的项目想升级：`timeline.py --from-edl` 会把 `segments[]` 原样搬成 `elements[]`（全部 `kind: clip`），
 之后再手工把该造的那几格改成 `gen`。
+
+### v2 项目升级的四步（以 `packtest-2026-11-08/proj79` 为例，T-028）
+
+有些老工具只认 `timeline.json`，它们对 v2 项目是硬失败，不是降级：`lock.py --lock` 直接
+`FileNotFoundError`（签不了锁），`check_cards.py` / `check_timing.py` 同样硬读。升级走这四步：
+
+```bash
+P="references/packtest-2026-11-08/proj79"
+python3 scripts/timeline.py        --project "$P" --from-edl --library <素材库根>   # ① v2 → v4
+python3 scripts/schema_upgrade.py  --project "$P" --write                          # ② v4 → v5（只加字段）
+python3 scripts/check_timeline.py  --project "$P" --library <素材库根>              # ③ 看它真实缺什么
+python3 scripts/lock.py            --project "$P" --lock --note "<为什么拍板>"       # ④ 签锁
+```
+
+① 必须带 `--library`：项目不在 `<库>/_cutskills/projects/<slug>` 下时，往上三层解析不到索引。
+`--from-edl` 只搬**真值**：`kind: clip` / `track: video` / `medium` 全取自 `edl.json`，
+B-roll 格的 `audio`（指向盖在它下面的口播段）和 `card` 的 `on`（锚词）也原样跟着走；
+它**不会**替你补 `props`（没有 `gen` 格就不需要）、更不会编台词。
+
+② `schema_upgrade.py` **不能从无到有**：没有 `timeline.json` 时它只打印「没有 …/timeline.json」并以 1 退出，
+所以第 ① 步不能省。它推不出来的字段（`plan` / `pack`）会写默认值并在屏幕上说「推不出来」——
+**默认值不是事实**：`plan` 会一路带进 `verify_film.py` 的骨架档判定（`S2-live-mid` = 2.2–2.7s），
+旧片本来中位 3.37s，写进去立刻多两条 🟡。没有 `brief.json` / `order.json` / `arrange.json` /
+`decisions.md` 的开场选择的项目，把这两个字段**留空**，在 `_notes` 里写清「推不出来、需要人定」。
+
+③ v2 升上来的时间轴全部是 `kind: clip`，缺的只可能是内容层的真值，不是结构：
+`check_timeline` 会如实报「窗口里没有词级真值」「台词里的字音频没说」这类，这类要人判，
+**不许**为了让 error 归零去改 `evidence` 或放宽判据。
+
+没有时间轴的项目跑 `check_timing.py` 不再崩：它报一行
+`🟡 该项目没有时间轴（v2），声音在前判据跳过` 并以 0 退出（不静默、也不把不依赖时间轴的卡判据一起放过）；
+但 `render_hf.py` 渲完会拿它当硬判定，卡缺 `on` 仍会被拦——**要渲就去升级，不要去关闸门**。
