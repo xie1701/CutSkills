@@ -442,7 +442,7 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   python3 scripts/verify_film.py --project "$P" | grep 字幕密度     # 🟢 28.2 · 期望 25
   python3 scripts/golden.py && python3 scripts/audit_skill.py
   ```
-- **已知边界（如实记）**：① 期望值的锚是参考片的**中位** 8 字/条（均 8.9、上限 12），不是均值——取中位是因为本片切法落在 7.2–9.0 字；换成均值 8.9 会把 7.2/7.3 那两条判黄，那等于用参考的尾巴当标准。② 判据对「粗切」变严了（旧式对 12 字/条是绿的，现在红）——这是把假的删掉后必然多出来的一侧，七片实测 0 例受影响；③ `golden.py` 与 `selftest.py` 退出码仍是 1，都是 master 上就有的欠账（proj79 3 红 / 验收无红、check_subs、edge_audit），逐条比对过、本单没有多出来；④ `audit_skill` 🟡1 = worktree 目录名与 `name: cutskills` 不一致（工作树形态固有），🔴0；⑤ 期间主目录被别的工位切到 T-042，所以 A/B 用的是 `/tmp/t041-base`（master@60b134e 的独立工作树），不是主目录。
+- **已知边界（如实记）**：① 期望值的锚是参考片的**中位** 8 字/条（均 8.9、上限 12），不是均值——取中位是因为本片切法落在 7.2–9.0 字；换成均值 8.9 会把 7.2/7.3 那两条判黄，那等于用参考的尾巴当标准。② 判据对「粗切」变严了（旧式对 12 字/条是绿的，现在红）——这是把假的删掉后必然多出来的一侧，七片实测 0 例受影响；③ `golden.py` 与 `selftest.py` 退出码仍是 1，都是 master 上就有的欠账（proj79 3 红 / 验收无红、check_subs、edge_audit），逐条比对过、本单没有多出来；④ `audit_skill` 🟡1 = worktree 目录名与 `name: cutskills` 不一致（工作树形态固有），🔴0；⑤ 期间主目录被别的工位切到 T-042，所以 A/B 用的是 `/tmp/t041-base`（master@60b134e 的独立工作树），不是主目录；该工作树复核完已 `git worktree remove`，要重跑就 `git worktree add /tmp/t041-base 60b134e --detach`。
 
 ### 2026-11-13 · Cola · T-040 待复核（字幕比对接双向同音放行，`naming-01` 那条「什么」假红清零）
 
