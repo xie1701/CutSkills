@@ -527,6 +527,13 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 - **证据 / 备份**：`references/fixes-t033-cards.md`（逐卡窗口词级真值 + 时间戳 + 五张卡的视觉复核表）；改动前的整份项目在 `/tmp/t033-backup/qizao-ground-01`、`/tmp/t033-backup/qizao-protect-01`。
 - **留下没动的三件事**：① `ground-01` 剩 1 条红是 `behind` 卡「售楼部 · 酒店」的「大字烧进画面（可见部分）」，卡型性质，要改得动卡型或判据；② `thesis.json` 的「成品报价只差两到三倍」仍无口播出处，将来重做这支片会被再抄一次；③ ASR 把 `protect-01` 那格的「工人」听成「功能」，字幕跟着打成「功能，进行保护」——库词表加 `功能→工人` 会把 4 处真「功能」一起改坏，需人拍板或给词表加位置限定。
 
+### 2026-11-13 · Cola · T-046 判收（qizao 两片大字清账）
+
+- **子代理交付 `282b036`，我复核后收尾**：字号分母改真字体 em 宽（`kw_adv_em()`）——空格/「·」/阿拉伯数字不是一个汉字宽，protect-01「局部地面 · 地柜」的 58.0%W 是公式 bug，时间轴没动、修完自然 70.0%W；`check_keyword_text.place_of()` 量在渲器实际落点（behind 放不进脑后时渲器走 5.5%H 头顶 override，旧判据却在 28.5%H 量一个卡没出现的位置）；`.scrim` 顶部渐变提成 `card_layout` 常量，判据量 ΔL 前先合上。**behind 宽度那条的结论：下限适用**——`behind_top_h` 只管位置，字号与 keyword 同一个 `kw_font_px`（CSS `kwb_px` 被 inline 覆盖、从未生效），56.2%W 是公式 bug 不是卡型特性；判据阈值（0.62–0.78W / ΔL ≥ 12 / 压脸 > 0）一个数没动。合同单新增 H（空格/间隔号/数字文本必须填满 0.62–0.78W）与 I（behind 按 override 落点量、附「不算渐变必 < 12」反证）。
+- **我追的两刀**：ground-01 #12「3 个是国产」子代理放 `top_h 0.42` 躲脸，字却落在脸框下沿之下的脖子/肩上（脸 509–749px、字 822–975px，1080 判词 5/10「贴在人身上」）→ 0.09；再量出**字底距发顶只有 19px** → 与 #5 统一 **0.075**（缝 60px+、脸框余量 165px）。两次都 `lock.py --lock` 重签留痕，没碰 evidence/口播真值。
+- **终版读数（本工位重跑）**：ground-01 `check_keyword_text` 0e（mg-04 ΔL 20.1、68.6%W）、`verify_film` **🟢31🟡0🔴0**、`check_cards` 0e2w、`check_timing`/`check_overlay`/`check_subs`/`edge_audit` 与改前逐条相同；protect-01 大字 0e、29/1/0（时间轴未动，只吃公式修复）；`audit_skill` 🔴0🟡0；`golden` 两片 OK、proj79 仍 🔴3（= T-047 老账）。
+- **如实记**：视觉模型对几何的描述不可信——同一格一会「留白」一会「印在脑袋上」，位置判定一律按脸框/pstats 遮罩实测（这次发顶 360px 是按行亮度量的）。「人形遮罩 × 字框」判据没加：`person_frames` 对特写手部报 0.78–1.00（诬告）、对 dianzan-c 真压头原案报 0.0（漏判），要做先得有「头形连通块」，留给下一单。
+
 ### 2026-11-13 · Cola · T-046 待复核（`qizao` 两片大字：字号分频修对、判据量在渲器落点、四张卡移出人脸）
 
 - **分支 / worktree**：`ai/cola/T-046` @ `282b036`／`/Users/jerry/Downloads/AIworks/CutSkills-wsT046`（基于 master `4a763bf`）。主目录只落 TASKS/HANDOFF 状态行。
