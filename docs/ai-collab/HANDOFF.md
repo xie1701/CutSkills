@@ -315,3 +315,15 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 - **没解决**：`.git` 仍约 1.0GB（历史 blob），只能走 **T-013** 的 filter-repo + 全员 re-clone；T-014 只把工作树与未来提交瘦下来。
 - **项目级 review 附注**：主线（索引→EDL→时间轴/看板→渲染→验收）依赖清晰，三项 CI 是硬底；长尾是 77 个脚本 / 64 份 md 与若干历史报告，属于「可归档不可急删」；`render_film.py` 仍是旧 ffmpeg 链、`render_hf.py` 是现役，若要收敛入口建议单开任务，不在本次动。
 - **状态**：T-014 待复核；T-013（历史瘦身）仍待全员窗口。
+
+### 2026-11-13 08:50 · Cola · 第五轮审查准绳入库 + T-015～T-023 改造任务单立项
+
+- **背景**：对欧阳三支片（`dianzan-a/b/c`）做逐格首/中/尾帧与 1080p 原尺寸卡面对抗式审查，定位出「8 道脚本报 0 error、画面却满是拿稿露脸/0.00s 糊片/口播说四张图画面给工地/夸早茶画面给生肉血水/冷黑蓝科技 VS 卡贴鼻梁/`.mg-term` 黑框套黑框/字幕挂着『十万米高』」的结构性盲区。
+- **本轮落盘（仅规范与任务表，未动业务代码，严守 AGENTS.md）**：
+  - 新增 `references/editorial-packaging-principles.md`：固化影视剪辑反 NG 五原则（A1–A5）与广电包装五原则（B6–B10）；
+  - 更新 `SKILL.md` 与 `references/mg-library.md`：接入修辞同构 8 卡型选卡表、三种合法叠加态、重卡退同期声字幕、声画双评级与 B-roll 余量硬约束；
+  - 在 `docs/ai-collab/TASKS.md` 挂出 **T-015 ～ T-024** 共 10 张任务单（P0 三单 T-015/T-016/T-017、P1 首单 T-018、环境单 T-023、CI 基线单 T-024 彼此文件正交，支持多工位同时领单开工）。
+- **当前 CI 与环境实测读数（供下一工位对照基线）**：
+  - `audit_skill.py`：✅ **OK · 🔴 0 · 🟡 0 · 🟢 8**（退出码 0）；
+  - `golden.py`：❌ 退出码 1（`proj79` 🔴3、`qizao-ground-01` 🔴3、`qizao-protect-01` 🔴2——系上一提交 `cbcc3ef` 将 `字幕停留`/`助词孤行` 与 `strip_noise` 并入 `verify_film.py` 时未同步更新 11-08 旧样片 `subs.json` 或校准基线所致，已单列 `T-024`）；
+  - `selftest.py`：⛔ 退出码 2（`coli` 不在 PATH，已单列 `T-023`）；Python 现为 `3.15.2`（`~/.cutskills/py` 含 Pillow/numpy/pypinyin，`scripts/vendor/yaml` 已内置），`ffmpeg 9.0.2` 与 `hyperframes 0.9.39` 正常。

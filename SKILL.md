@@ -140,9 +140,12 @@ python3 scripts/golden.py
 [references/subtitle-rules.md](references/subtitle-rules.md)；版式五条硬规则（单行 ≤10 展示单位、
 每条 0.8–3.2s、助词不孤行、无底条）见 [references/typography.md](references/typography.md) 第五节。
 
-**MG（代码画的动效卡）**是包装的第三块：`keyword-big` / `stat` / `steps` / `versus` / `term`。
-选哪张由这一格**说什么**决定，不由风格决定；风格只决定它长什么样（走 `tokens`）。
-卡型、字段、选型顺序与硬规矩见 [references/mg-library.md](references/mg-library.md)。
+**MG（代码画的动效卡）**是包装的第三块：基础卡 `keyword-big` / `stat` / `steps` / `versus` / `term` 与修辞扩充卡（`proportion` 比例条 / `day-night` 时段接力 / `chips` 并列招牌）。
+选哪张由这一格的**话语修辞关系**决定（形状即语义：互补经营不许误用对抗 `VS`，常识菜名不许误用百科词条），不由风格决定；风格只决定它的**视觉语域（Visual Register）**与 `tokens`（餐饮茶楼用暖食烟火底，严禁套冷黑蓝科技弹窗把食物压灰）。
+叠加空间只允许三种合法态（轻量挂角、底片模糊退后/画中画、整屏纯底切出），**严禁在清晰露脸口播或美食特写正中糊全屏暗场大卡**；重型卡在场期间底部同期声字幕自动退场。
+卡型、字段、选型顺序与硬规矩见 [references/mg-library.md](references/mg-library.md)；影视剪辑反 NG 五原则与广电包装五原则的完整产线准绳见 [references/editorial-packaging-principles.md](references/editorial-packaging-principles.md)。
+
+**反 NG 与声画一致性硬闸**：单人口播在索引与选句层拆为「声/画双评级」（手持台本纸、看场外、切头切肩、闭眼帧一律标 `audio_only`，只许留声做旁白，禁止挂 `talking` 露脸）；实拍 B-roll 强制预留 ≥0.40s 起尾余量（Handles），禁止从 `0.00s` 按键糊片起切；台词含「四张图/效果图/睇呢度」等视觉指代词而库内无对应画面时，直接报缺口拦停，禁止拿工地/生肉等违和空镜硬顶造成「音画反讽」；字幕上屏前必须过整稿等长语义常识校对。
 
 **别人的话不许进片**：真实素材里夹着场记口令（「三二一」）、摄影师的指导语（「再来一次」
 「慢啲讲」）、主播自己的重说。ASR 照声音抄，按句边界切就会把它们带进片子——
