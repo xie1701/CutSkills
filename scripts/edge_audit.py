@@ -137,7 +137,12 @@ def motion(a: bytes, b: bytes) -> float:
 
 
 def audit(proj: Path, lib: Path) -> list[tuple[str, str]]:
-    tl = json.loads((proj / "timeline.json").read_text())
+    tlp = proj / "timeline.json"
+    if not tlp.exists():
+        # v2 老项目只有 edl.json，没有段级音频窗口——判不了就说判不了，
+        # 不许抛 FileNotFoundError 把整条自测链崩掉（T-025：selftest 的 D 段夹具就是这么死的）。
+        return [("黄", "该项目没有时间轴（v2），边界审计判不了")]
+    tl = json.loads(tlp.read_text())
     out: list[tuple[str, str]] = []
     for el in tl.get("elements") or []:
         if el.get("track") == "overlay":

@@ -795,7 +795,14 @@ def main() -> int:
             soft_c, hard_c = int(sub["chars_soft"]), int(sub["max_chars_per_line"])
         else:
             soft_c, hard_c = 6, 9
-        cues = build_cues(segs, by_id, chars_cache, lib, hard_c, soft_c)
+        # 字幕断句**只有一份实现**（`subs.py`）：不带标点、≤10 展示单位、按词界断、
+        # 停留超 3.2s 在真静音处补刀。以前这条旧链自己写了一套（带标点、按标点断），
+        # 于是 selftest 用旧链出的合成片被新判据判红——两套规则各说各话（T-025）。
+        # 样式包的 `chars_soft / max_chars_per_line` 仍照读，只是当**参考**报出来。
+        _ = (hard_c, soft_c)
+        import subs as _subs
+        cues = _subs.build(segs, by_id, chars_cache, lib, load_chars,
+                           colorize=False, fps=FPS)
         band_top = max(0, int(sub["center_y_px"]) - 260)
         band_bot = min(H, int(sub["center_y_px"]) + 260)
         col = str(sub.get("color") or "#FFFFFF").lstrip("#")
@@ -819,7 +826,10 @@ def main() -> int:
          "size": info.get("size"), "overflow": info.get("overflow") or [],
          "speech_chars": speech_chars,
          "avg_chars": round(speech_chars / len(cues), 2) if cues else 0,
-         "chars_per_s": round(speech_chars / speech_s, 2) if speech_s else 0},
+         "chars_per_s": round(speech_chars / speech_s, 2) if speech_s else 0,
+         # 强调色到底染没染，裁判得从产物里读，不能猜（`check_subs` 拿不到就默认 True，
+         # 于是「已经取消变色」的片子永远被判「强调色 0 条 ✗」）。
+         "colorize": bool(sub.get("colorize_emphasis", False))},
         ensure_ascii=False, indent=1), encoding="utf-8")
 
     # 字卡：跟着段的时间轴走，压在字幕带上方的固定高度
