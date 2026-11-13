@@ -119,6 +119,7 @@ python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_scene_determinism.py             # 代码场景可重复渲染：同输入两遍逐帧一致，非确定源（无种子随机/时钟）混进场景即红（T-055）
+python3 scripts/test_sfx_variety.py                    # 事件级音效与同音色轮换：props.events 映射到全片时间、连续同名自动换变体、manifest 按实际文件留痕（T-055）
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/test_overlay_judge.py                 # 叠加态判据负样本（T-019 压脸/口播整屏暗场/重卡撞字幕 + T-042 压主体与主体量不到两条 warning）
 python3 scripts/test_panel_light.py                   # 面板光感可读性（T-042：四个包 × 五档背景，笔画 vs 紧邻底板 ΔL ≥ 12）
@@ -207,9 +208,21 @@ MG 避脸，所以以前「字压在眼睛上」「字被杂乱背景吃掉」�
 
 `timeline.json` 的每一格带 `kind`（`clip` / `image` / `gen` / `silence`）和 `track`（`video` / `overlay`）。
 `gen` 是代码画的整屏：文字类 keyword / compare / number / steps / quote / chapter / chart，
-**动画类 flow（工序流程，节点逐个亮起）/ layers（剖面，从下往上叠）**，
-以及 **scene（场景生成器：一件事在变，见下节）**——后三个顶替库里没有的 B-roll。
+**动画类 flow（工序流程，节点逐个亮起）/ layers（剖面，从下往上叠）/ balance（天平：量的关系画成称东西，先左沉、口径换了右盘补砝码回平）**，
+以及 **scene（场景生成器：一件事在变，见下节）**——后四个顶替库里没有的 B-roll。
 参数化、字数有上限、时长有下限，子件按顺序逐条进场（不是一屏同时亮）。
+
+**先判该不该造（原则 B14）**：有叙事作用的真实画面 > 图片 > 代码画面 > 信息提示 > 不加。
+拿代码去替「本来就有实拍的东西」是降级——2026-11-14 那两套场景（排队打勾 / 双盘计数）
+就是因此被打回的，别重蹈。
+
+单个造出来的画面要带任务单时，写 `<项目>/scenes/<scene_id>.json`（六问 + `claim_source`
+追溯口播原句 + `audio.events` 动作锦点），时间轴的 gen 元素用 `props.scene_spec` 引用：
+
+```bash
+python3 scripts/scene_spec.py --project <项目> --check        # 六问缺格 / 事实无依据 / 事件 t 越界、音效查不到
+python3 scripts/scene_spec.py --project <项目> --init <scene_id> causal   # 生成空白任务单
+```
 
 `track: overlay` 是**盖在口播上**的造法：不占时间、不换画面、声音不断。
 为什么需要这一档：整屏滑屏要吃掉 4 秒旁白，而口播片里没有 4 秒是空的。

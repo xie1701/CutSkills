@@ -128,18 +128,32 @@ def pick_bgm(mood: str = "clear", need_s: float = 60.0, seed: str = "") -> dict 
             "category": r["category_zh"], "why": spec["why"], "licence": LICENCE}
 
 
-def pick_sfx(name: str) -> dict | None:
-    """按事件名取一条音效，带回它的同步点和人声下的增益。"""
+def pick_sfx(name: str, nth: int = 0) -> dict | None:
+    """按事件名取一条音效，带回它的同步点和人声下的增益。
+
+    nth 是**同音色疲劳轮换**用的：连续播同一事件名时传 1、2、…，在同 family
+    （id 第一段 `-` 前缀相同的所有 catalog 条目，按 catalog 顺序）里取
+    ``pool[nth % len(pool)]``——同 family 只有 1 条时 nth 循环回同一条，不算错。
+    **确定性**：同一份 catalog 下，同一 (name, nth) 永远返回同一条，不掷骰子。
+    nth <= 0 时行为与旧版完全一致（按 id 精确匹配，查不到才同 family 兜底）。
+    """
     if not sfx_available():
         return None
     want = SFX_MAP.get(name, name)
     rows = _rows(SFX_LIB / "catalog.csv")
-    hit = next((r for r in rows if r["id"] == want), None)
-    if hit is None:                    # 兜底：同类里挑第一条
+    if nth and nth > 0:
         fam = want.split("-")[0]
-        hit = next((r for r in rows if r["id"].startswith(fam + "-")), None)
-    if hit is None:
-        return None
+        pool = [r for r in rows if r["id"].startswith(fam + "-")]
+        if not pool:
+            return None
+        hit = pool[nth % len(pool)]
+    else:
+        hit = next((r for r in rows if r["id"] == want), None)
+        if hit is None:                # 兜底：同类里挑第一条
+            fam = want.split("-")[0]
+            hit = next((r for r in rows if r["id"].startswith(fam + "-")), None)
+        if hit is None:
+            return None
     return {"path": str(SFX_LIB / hit["file"]), "id": hit["id"],
             "dur": float(hit["duration_s"] or 0),
             "sync_at": float(hit["sync_at_s"] or 0),

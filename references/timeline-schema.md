@@ -162,6 +162,7 @@ MG 卡（`stat` / `steps` / `versus` / `term` / `proportion` / `day-night` / `ch
 |---|---|---|---|
 | `keyword` | 一个词砸在画面上 | 2.0 | `text` ≤6 字、`sub` ≤12 字、`color` |
 | `compare` | 两栏对比（口径、报价、做法） | 4.0 | `left`/`right` 各 `{title ≤6, value ≤10}`、`note ≤18` |
+| `balance` | **天平**：量的关系画成称东西（先左沉、口径换了右盘补砝码回平）。用于「口径变了，结论就变了」这类没有实拍的关系 | 3.5 | `left`/`right` 各 `{title ≤6, value ≤12}`、`note ≤18` |
 | `number` | 一个大数字 + 一句解释 | 3.0 | `value ≤6`、`label ≤14` |
 | `steps` | 三步做法 | 3.5 | `items` 3–4 条，每条 ≤10 字 |
 | `quote` | 一句引语/客户原话 | 3.0 | `text ≤24`、`who ≤8` |

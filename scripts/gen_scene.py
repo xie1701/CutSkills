@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import math
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -658,6 +659,35 @@ def scene_lime(t: float, W: int, H: int, dur: float) -> Image.Image:
 
 SCENES = {"phase": scene_phase, "pour": scene_pour,
           "measure": scene_measure, "lime": scene_lime}
+
+
+def _register_scene_package() -> None:
+    """把 `scripts/scenes/` 下的场景模块接进 SCENES（AI 视听方案 P0 起的新场景）。
+
+    每个模块导出 `SCENE_ID` / `scene(t, W, H, dur)` / `EVENTS` / `STORY_BEATS`；
+    模块画法必须纯 t 驱动（`test_scene_determinism.py` 的合同）。
+    包不在 / 模块写错就只跳过它——**一个新场景写坏不许拖死老链路**。
+    """
+    pkg = Path(__file__).resolve().parent / "scenes"
+    if not pkg.is_dir():
+        return
+    import importlib
+    import sys as _sys
+    if str(pkg.parent) not in _sys.path:
+        _sys.path.insert(0, str(pkg.parent))
+    for f in sorted(pkg.glob("*.py")):
+        if f.name.startswith("_"):
+            continue
+        try:
+            mod = importlib.import_module(f"scenes.{f.stem}")
+            sid, fn = getattr(mod, "SCENE_ID", None), getattr(mod, "scene", None)
+            if sid and callable(fn):
+                SCENES[sid] = fn
+        except Exception as e:                      # noqa: BLE001
+            print(f"⚠ 场景模块 {f.name} 没接上：{e}", file=sys.stderr)
+
+
+_register_scene_package()
 
 
 def render(scene: str, out: Path, dur: float, fps: int, W: int, H: int) -> Path:

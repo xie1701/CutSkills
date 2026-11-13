@@ -51,6 +51,13 @@ GEN_TEMPLATES = {
                           "right": {"title": 6, "value": 12},
                           "note": 18, "title": 10},
                 "required": ["left", "right"]},
+    # 天平：把「量的关系」画成称东西——先只比原料价（左边沉），口径换成成品总价
+    # （右盘补上矶码），横杆回平。用于「口径变了，结论就变了」这类没有实拍可用的关系。
+    "balance": {"min_dur": 3.5, "max_dur": 8.0,
+                "props": {"left": {"title": 6, "value": 12},
+                          "right": {"title": 6, "value": 12},
+                          "note": 18},
+                "required": ["left", "right"]},
     "number":  {"min_dur": 3.0, "max_dur": 6.0,
                 "props": {"value": 6, "label": 14, "unit": 4}, "required": ["value", "label"]},
     "steps":   {"min_dur": 3.5, "max_dur": 8.0,

@@ -301,6 +301,16 @@ GEN_CSS = """
 .gen-ov { inset:auto 56px auto 56px; top:50%; transform:translateY(-50%);
           background:var(--ground,#0e0c0a); opacity:.94; border-radius:var(--radius,26px); padding:64px 48px;
           box-shadow:0 24px 60px rgba(0,0,0,0.55); backdrop-filter:blur(2px); }
+/* 天平（balance）：一杆横杆 + 两只托盘 + 一组砝码。
+   「比的对象换了，结论就变了」这句话库里没有画面能拍——但它是**量的关系**，
+   所以用称东西来演：先只比原料价，左边沉下去（差 4–5 倍）；口径换成成品总价，
+   右边补上几块砝码，横杆回平。形状即语义：一边沉一边轻 = 不等价。 */
+.gen-balance { padding:0 40px; }
+.gen-balance .bal-wrap { width:100%; display:flex; flex-direction:column; align-items:center; gap:10px; }
+.gen-balance svg { width:100%; height:auto; overflow:visible; }
+.gen-balance .bal-note { font-family:"SC-Sub",sans-serif; font-weight:700;
+  font-size:34px; color:rgba(255,255,255,.92); letter-spacing:.02em;
+  text-shadow:0 2px 10px rgba(0,0,0,.55); }
 """
 
 
@@ -309,6 +319,8 @@ def gen_child_count(el: dict) -> int:
     p = el.get("props") or {}
     tpl = el.get("template")
     if tpl == "compare":
+        return 2
+    if tpl == "balance":
         return 2
     if tpl == "steps":
         return len(p.get("items") or [])
@@ -381,6 +393,65 @@ def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None
         body = (f'<div class="cols">{col("left", False)}{col("right", True)}</div>'
                 + (f'<div class="sm ct-last" style="font-size:{int(H * 0.024)}px;'
                    f'margin-top:44px">{esc(p.get("note"))}</div>' if p.get("note") else ""))
+    elif tpl == "balance":
+        # 天平：SVG 画实体（横杆渐变、托盘带投影、砝码有侧面），GSAP 只负责倾/平
+        # 与砝码落下。坐标全是 900×560 的 SVG 单位，随屏宽等比缩放。
+        L = p.get("left") or {}
+        R = p.get("right") or {}
+        acc = str((p or {}).get("accent") or "#F6EB34")
+
+        def pan_group(side: str, title: str, value: str, n_blocks: int, drop: int) -> str:
+            """一只托盘：吊线 + 盘体 + 盘内砝码堆 + 盘下标签。drop>0 的块后落。"""
+            cx = 170 if side == "l" else 730
+            blocks = ""
+            for k in range(n_blocks):
+                by = 96 - k * 17
+                cls = "blk late" if (drop and k >= n_blocks - drop) else "blk"
+                blocks += ('<rect class="%s" x="%d" y="%d" width="68" height="15" rx="3"'
+                           ' fill="url(#bbar)"/>'
+                           '<rect x="%d" y="%d" width="68" height="4" rx="2"'
+                           ' fill="rgba(255,255,255,.30)"/>') % (cls, cx - 34, by, cx - 34, by)
+            return f'''<g class="pan {side}">
+      <line x1="{cx}" y1="0" x2="{cx}" y2="66" stroke="rgba(226,206,160,.55)" stroke-width="3"/>
+      <path d="M {cx - 78} 62 L {cx + 78} 62 L {cx + 56} 100 Q {cx} 114 {cx - 56} 100 Z"
+            fill="url(#bpan)" stroke="rgba(255,235,190,.22)" stroke-width="2"/>
+      {blocks}
+      <text x="{cx}" y="158" text-anchor="middle" fill="rgba(255,255,255,.62)"
+            font-family="SC-Sub" font-size="24" letter-spacing="1">{esc(title)}</text>
+      <text x="{cx}" y="206" text-anchor="middle" fill="{acc}"
+            font-family="SC-Big" font-weight="900" font-size="34">{esc(value)}</text>
+    </g>'''
+
+        body = f'''<div class="bal-wrap">
+    <svg viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="bbar" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#E8C766"/><stop offset=".45" stop-color="#C9A227"/>
+          <stop offset="1" stop-color="#7A5E12"/>
+        </linearGradient>
+        <linearGradient id="bpan" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#4A4038"/><stop offset="1" stop-color="#17120E"/>
+        </linearGradient>
+        <radialGradient id="bglow" cx=".5" cy=".5" r=".5">
+          <stop offset="0" stop-color="{acc}" stop-opacity=".17"/>
+          <stop offset="1" stop-color="{acc}" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="bshadow" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".55"/>
+        </filter>
+      </defs>
+      <ellipse cx="450" cy="300" rx="420" ry="210" fill="url(#bglow)"/>
+      <g class="beam" style="transform-box:fill-box;transform-origin:50% 50%">
+        <rect x="110" y="238" width="680" height="26" rx="13" fill="url(#bbar)" filter="url(#bshadow)"/>
+        <rect x="110" y="238" width="680" height="6" rx="3" fill="rgba(255,255,255,.34)"/>
+      </g>
+      <g class="pan-wrap l" transform="translate(0,46)">{pan_group("l", str(L.get("title") or ""), str(L.get("value") or ""), 5, 0)}</g>
+      <g class="pan-wrap r" transform="translate(0,-46)">{pan_group("r", str(R.get("title") or ""), str(R.get("value") or ""), 5, 4)}</g>
+      <polygon points="450,246 418,300 482,300" fill="url(#bbar)"/>
+      <rect x="392" y="298" width="116" height="16" rx="8" fill="url(#bbar)"/>
+    </svg>
+    {'<div class="bal-note">' + esc(p.get('note')) + '</div>' if p.get('note') else ''}
+  </div>'''
     elif tpl == "number":
         body = (f'<div class="num" style="font-size:{int(H * 0.16)}px">{esc(p.get("value"))}'
                 f'<span style="font-size:{int(H * 0.05)}px">{esc(p.get("unit") or "")}</span></div>'
@@ -1543,6 +1614,35 @@ document.querySelectorAll(".gen").forEach((c) => {{
       {{ opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
          immediateRender: false }}, when);
   }});
+  // 天平：横杆先向下倾（只比原料价 → 左边沉），口径换成成品总价时，
+  // 右边补上后落的矶码，横杆回平。形状即语义：一边沉一边轻＝不等价。
+  const beam = c.querySelector(".beam");
+  if (beam) {{
+    const panL = c.querySelector(".pan-wrap.l");
+    const panR = c.querySelector(".pan-wrap.r");
+    const lateBlk = c.querySelectorAll(".blk.late");
+    // 回平时刻不能听凭音频峰点——实测过一次：ct[1] 落在 3.2s，横杆 68.2s 才回平，
+    // 卡 68.31s 就没了，等于没演完（像素量出来的，不是看出来的）。夹到卡的 45–60% 区间：
+    // 前一半让观众看清「左边沉」，后一半留出回平与读结论的时间。
+    const tipRaw = (ct.length > 1) ? ct[1] : d * 0.5;
+    const tip = t + Math.min(Math.max(tipRaw, 1.0), Math.max(1.2, d * 0.55));
+    tl.set(beam, {{ rotation: -9, transformOrigin: "50% 50%" }}, t);
+    if (panL) tl.set(panL, {{ attr: {{ transform: "translate(0,46)" }} }}, t);
+    if (panR) tl.set(panR, {{ attr: {{ transform: "translate(0,-46)" }} }}, t);
+    lateBlk.forEach((b) => tl.set(b, {{ opacity: 0, y: -34 }}, t));
+    tl.to(beam, {{ rotation: 0, duration: 0.85, ease: "power2.out" }}, tip);
+    if (panL) tl.to(panL, {{ attr: {{ transform: "translate(0,0)" }}, duration: 0.85, ease: "power2.out" }}, tip);
+    if (panR) tl.to(panR, {{ attr: {{ transform: "translate(0,0)" }}, duration: 0.85, ease: "power2.out" }}, tip);
+    lateBlk.forEach((b, i) => tl.to(b, {{ opacity: 1, y: 0, duration: 0.26, ease: "power2.out" }},
+                                     tip - 0.10 + i * 0.09));
+    // 结论行（比的对象换了，结论就变了）：横杆落定之后再出，留到卡片最后——
+    // 它挂通用 .ct-last 时被压到卡末 0.45s（实测帧里根本没出现），这行是这句话的落点，不能省。
+    const note = c.querySelector(".bal-note");
+    if (note) {{
+      tl.set(note, {{ opacity: 0, y: 10 }}, t);
+      tl.to(note, {{ opacity: 1, y: 0, duration: 0.34, ease: "power2.out" }}, tip + 0.55);
+    }}
+  }}
   if (carry) {{
     tl.set(c, {{ opacity: 1, y: 0 }}, t);
   }} else {{
@@ -2219,18 +2319,97 @@ DUCK_DB = 0.5
 DUCK_S = 0.09
 
 
-def sfx_spec(name: str) -> dict | None:
+def gen_props_sfx(el: dict) -> list[dict]:
+    """把 gen 元素的 ``props.events``（AI 视听方案 P2 音效编排）转成音效事件。
+
+    每条是 ``{"t", "name", "gain_db"?}``，t 是**场景内相对秒**；这里换算到全片
+    时间轴：overlay 轨用 ``el["at"]``，video 轨用 ``el["_start"]``（与卡片音效
+    入场同一套分支），``t_global = start + t``。
+    gain_db 缺省用该事件名在 CARD_SFX 里的档位，不在表里就 -6。
+    防呆：props.events 不是 list / t<0 / name 为空（或 t 不是数）→ 打印警告、
+    跳过那一条，**不炸渲**；返回值只含合法事件，保持确定性（按原顺序）。
+    """
+    evs = (el.get("props") or {}).get("events")
+    if evs is None:
+        return []
+    if not isinstance(evs, list):
+        print("  ⚠ props.events 不是 list，整段音效事件忽略", file=sys.stderr)
+        return []
+    if (el.get("track") or "video") == "overlay":
+        start = float(el.get("at") or 0)
+    elif el.get("_start") is not None:
+        start = float(el["_start"])
+    else:
+        print("  ⚠ gen 元素没有 at/_start，props.events 没法落到时间轴，忽略",
+              file=sys.stderr)
+        return []
+    out = []
+    for ev in evs:
+        if not isinstance(ev, dict):
+            print(f"  ⚠ props.events 里有一条不是对象，跳过：{ev!r}", file=sys.stderr)
+            continue
+        name = str(ev.get("name") or "").strip()
+        if not name:
+            print("  ⚠ props.events 里有一条没写 name，跳过", file=sys.stderr)
+            continue
+        try:
+            t = float(ev.get("t"))
+        except (TypeError, ValueError):
+            print(f"  ⚠ props.events[{name}] 的 t 不是数字，跳过", file=sys.stderr)
+            continue
+        if t < 0:
+            print(f"  ⚠ props.events[{name}] 的 t<0（{t}），跳过", file=sys.stderr)
+            continue
+        gain = ev.get("gain_db")
+        if gain is None:
+            gain = CARD_SFX.get(name, (None, -6.0))[1]
+        else:
+            try:
+                gain = float(gain)
+            except (TypeError, ValueError):
+                print(f"  ⚠ props.events[{name}] 的 gain_db 不是数字，用缺省档",
+                      file=sys.stderr)
+                gain = CARD_SFX.get(name, (None, -6.0))[1]
+        out.append({"t": start + t, "name": name, "gain_db": gain,
+                    "for": f"ev-{name}"})
+    return out
+
+
+def rotate_sfx(events: list[dict]) -> list[dict]:
+    """同音色疲劳轮换：给排序后的 sfx_events 就地标 ``nth``。
+
+    方案原则：同一场景限制重复相似音色。规则写死——只轮换**连续**同名：
+    按 t 排序后，同名连续出现的第 1 次 nth=0，第 2 次 nth=1，第 3 次 nth=2…；
+    中间隔了任何别的音效就重新从 nth=0 算。同名连续 ≤1 次时 nth=0，
+    sfx_spec 回到旧路径，行为与现状完全一致。事件顺序本身是确定性的
+    （构建顺序 + 稳定排序），所以同一时间轴永远同一轮换序列。
+    """
+    prev, run = None, 0
+    for e in events:
+        name = e.get("name")
+        if name is not None and name == prev:
+            run += 1
+        else:
+            run = 0
+        e["nth"] = run
+        prev = name
+    return events
+
+
+def sfx_spec(name: str, nth: int = 0) -> dict | None:
     """取一条音效的规格：文件、同步点、人声下的增益。
 
     优先 CC0 库（带 sync_at 与 under_voiceover_db，插进去就能对上画面）；
     库不在才退回本地合成的那三条，并且明确说一声。
+    nth>0 走 cc0_lib 的同 family 轮换（同音色疲劳轮换，见 cc0_lib.pick_sfx）；
+    本地合成回退只有三条固定文件，没有变体可轮，nth 被忽略。
     """
     try:
         import cc0_lib
     except ImportError:
         cc0_lib = None
     if cc0_lib and cc0_lib.sfx_available():
-        return cc0_lib.pick_sfx(name)
+        return cc0_lib.pick_sfx(name, nth)
     home = Path(os.environ.get("CUTSKILLS_HOME") or (Path.home() / ".cutskills"))
     d = home / "assets" / "sfx"
     alias = {"pop-medium-in": "pop", "impact-light-firm": "impact",
@@ -2252,7 +2431,7 @@ def mix_sfx(film: Path, events: list[dict], dst: Path) -> int:
         return 1
     have = []
     for e in events:
-        spec = sfx_spec(str(e.get("name") or "keyword"))
+        spec = sfx_spec(str(e.get("name") or "keyword"), int(e.get("nth") or 0))
         if not spec:
             continue
         p = Path(spec["path"])
@@ -2384,10 +2563,15 @@ def write_sfx_manifest(proj: Path, sfx_events: list[dict]) -> Path | None:
     sfx_rows, seen = [], set()
     for e in sfx_events or []:
         name = e.get("name") or ""
-        if not name or name in seen:
+        if not name:
             continue
-        seen.add(name)
-        spec = sfx_spec(name)
+        # 轮换后同一个 name 可能对应多个变体文件：按「实际用到的文件」去重留痕，
+        # name 写原始事件名，id 写实际变体 id。
+        spec = sfx_spec(name, int(e.get("nth") or 0))
+        key = (name, (spec or {}).get("path") if spec else None)
+        if key in seen:
+            continue
+        seen.add(key)
         if not spec:
             sfx_rows.append({"name": name, "source": "missing", "licence": None})
             continue
@@ -3386,7 +3570,14 @@ def main():
         sfx_events.append({"t": tt, "name": nm,
                            "gain_db": CARD_SFX["gen"][1],
                            "for": f"gen-{el.get('template') or 'overlay'}-{el.get('n')}"})
+        # gen 元素还能自带 props.events（场景内相对秒的音效事件，方案 P2），
+        # 防呆在 gen_props_sfx 里：坏数据警告后跳过，不炸渲。
+        sfx_events.extend(gen_props_sfx(el))
     sfx_events = [e for e in sfx_events if 0 <= e["t"] <= total]
+    # 同音色疲劳轮换要先按全片时间轴排好再算连续：稳定排序，同一构建顺序
+    # 永远同一轮换序列（规则见 rotate_sfx）。
+    sfx_events.sort(key=lambda e: float(e["t"]))
+    rotate_sfx(sfx_events)
     if sfx_events and not a.no_sfx:
         sxd = proj / "out" / "_hf_sfx.mp4"
         if mix_sfx(raw, sfx_events, sxd) == 0:

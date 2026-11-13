@@ -719,6 +719,15 @@
 | `--project` | **必填**　项目目录，只读时间轴与已渲产物 |
 | `--force` | 更新已有 review/sheet.html 与同名生成帧 |
 
+### `scene_spec.py`
+*scene_spec.json——单个补镜画面的生产任务单（AI 视听方案 2026-11-14 · P0）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--check` | 校验项目里全部 scene_spec 引用 |
+| `--init` | — |
+
 ### `schema_upgrade.py`
 *CutSkills · timeline.json v4 → v5 迁移。*
 
@@ -955,6 +964,11 @@
 
 ### `test_semantic_check.py`
 *T-017 合同测试：上屏前的语义常识校对闭环（准绳 A5）。*
+
+（无参数）
+
+### `test_sfx_variety.py`
+*离线自足测试：事件级音效（props.events）+ 同音色疲劳轮换（AI 视听方案 2026-11-14 P2）。*
 
 （无参数）
 
