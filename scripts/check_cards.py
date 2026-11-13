@@ -24,6 +24,12 @@ Jerry 2026-11-12 的原话：「srt-motion-cards 的卡还是用的不好，出�
    只是把听到的字看了一遍。判据：stat 的 label 必须携带窗口词表里没有的信息量
    （新实词 ≥ 2 个），否则判「复述」。
 
+4. **剧组的记事本不许上屏** → 记事本闸门。卡上每个字都该在讲这件事，不该在讲这段片子是
+   怎么拍出来的（谁说的、哪天拍的、哪个机位、什么设备）。Jerry 2026-11-13 的原话是
+   「牛哥口述 2026-10-22」「工地现场口述」这类标注不能出现在成片里。出处要写就写**观众能拿去
+   核对的东西**（菜单价 / 合同 / 店里实测），写不出来就删掉那一行——空 `source` 不生成 DOM，
+   不会留缺口。
+
 ## 用法
 
   check_cards.py --project <项目> [--json]
@@ -35,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -65,6 +72,19 @@ KW_EXEMPT = FUNC | set("就都系是有喺同而但所以如果不过仲还又�
 FORBIDDEN_CLAIM = ("明年", "下个月", "下一年", "今年底", "年底", "即将", "将会",
                    "将要", "计划开", "准备开", "打算开", "已经签", "签了", "分店",
                    "加盟", "连锁", "上市", "融资", "销量", "利润", "翻倍", "营业额")
+
+# 剧组自己的记事本，一律不许上屏。Jerry 2026-11-13：「MG 卡片有类似『牛哥口述 2026-10-22』、
+# 『工地现场口述』这些无意义的标注是不能出现在成片里的！」
+# 这类字的共同形状：它在告诉观众**这段片子是怎么拍出来的**（谁说的、哪天拍的、什么设备、
+# 哪个机位），而不是在说这件事本身。观众不看拍摄手记；看出来只说明制作方在自我标注。
+# 出处要写就写**观众能拿去核对的东西**（菜单价 / 合同 / 店里实测 / 他自己报的数），
+# 写不出来就不写——空 `source` 不生成那一行，不会留缺口。
+META_LEAK = (
+    ("口述/口播/原声类", r"口述|口播|原声|录音|自述|讲述|采访|访谈"),
+    ("拍摄/素材/机位类", r"拍摄|取材|素材|镜头|机位|空镜|B-?roll|现场口述|现场拍摄|现场记录|工地现场"),
+    ("日期", r"(?:19|20)\d{2}\s*[-./年]\s*\d{1,2}"),
+    ("文件名/设备", r"IMG_|DJI_|Flow_VID|\.mov|\.mp4|\.MOV|\.MP4|iPhone|索尼|佳能|大疆"),
+)
 
 
 def real_chars(txt: str) -> list[str]:
@@ -201,6 +221,15 @@ def seg_windows(tl: dict) -> dict[int, tuple[float, float]]:
     return out
 
 
+def meta_leak(txt: str) -> tuple[str, str] | None:
+    """这段字里有没有「剧组的记事本」。返回 (类别, 命中的字)，没有就是 None。"""
+    for label, pat in META_LEAK:
+        m = re.search(pat, txt or "")
+        if m:
+            return label, m.group(0)
+    return None
+
+
 def card_texts(c: dict) -> dict[str, list[str]]:
     """卡上要观众读的每一块文字，按类分。"""
     d = c.get("data") or {}
@@ -210,6 +239,8 @@ def card_texts(c: dict) -> dict[str, list[str]]:
         out["value"] = [str(d.get("value") or "")]
         out["label"] = [str(d.get("label") or "")]
         out["kicker"] = [str(d.get("kicker") or "")]
+        # 出处以前压根不在判据的视野里——于是「牛哥口述 · 2026-10-22」一路渲到屏幕上。
+        out["source"] = [str(d.get("source") or "")]
     elif kind == "versus":
         for side in ("left", "right"):
             s = d.get(side) or {}
@@ -322,6 +353,18 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
                 v.append(("error", f"{name} 和下一张卡重叠 {-gap:.2f}s——画面在打架"))
             elif gap < CARD_GAP - 0.01:
                 v.append(("warning", f"{name} 和下一张卡只隔 {gap:.2f}s，太挤"))
+
+    # 1.5 剧组记事本不许上屏。这一条不查「说得对不对」，只查「该不该给观众看」：
+    # 卡上每个字都该在讲这件事，不该在讲这段片子是怎么拍出来的。
+    for c in cards:
+        for field, texts in card_texts(c).items():
+            for t in texts:
+                hit = meta_leak(t)
+                if hit:
+                    label, got = hit
+                    v.append(("error", f"#{c.get('seg')} 的卡 {field} 把{label}写到屏幕上了："
+                                       f"「{got}」（「{t[:24]}」）——这是剧组的记事本，"
+                                       "不是给观众看的；出处要么写成观众能核对的东西，要么删掉这一行"))
 
     # 2. 不许早于锚词
     for c in cards:
