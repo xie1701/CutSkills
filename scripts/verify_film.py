@@ -20,6 +20,12 @@ from pathlib import Path
 
 import yaml
 
+# 参考片一条字幕多长（字）。来源是同一条 126.58 s 知识口播片的逐帧反解：
+# 113 条、每条均 8.9 / 中位 8 / 上限 12（talking-head-packaging/references/measured-spec.md）。
+# 判据用它当「切法基准」，而不是拿本片自己的均值反推——反推会把条数 N 约掉，
+# 那条判据就永远 0 偏差、什么都不判了（T-041）。
+REF_CHARS_PER_CUE = 8.0
+
 
 def dark_ratio(im) -> float:
     """深底占比：像素 < 46（L 模式）的比例。供「代码画面真的在画面上」用，
@@ -30,6 +36,41 @@ def dark_ratio(im) -> float:
 
 def median_of(vals: list[float]):
     return sorted(vals)[len(vals) // 2] if vals else None
+
+
+def subtitle_density(cues: list[dict], dur: float, lo, hi) -> tuple[str, str, str] | None:
+    """字幕密度：实测与期望**都按整片分钟**算，跟参考片的 45–58 条/分钟同口径。
+
+    为什么分母必须是「整片分钟」：参考片那个基准就是这么量的——113 条 ÷
+    (126.58/60) 分 = 53.6 条/分钟（talking-head-packaging 的 measured-spec）。
+    旧版期望值写的是 `cps/avg*60`，分母其实是**字幕覆盖**分钟；片子里有多少秒
+    没字幕，就被硬当成「密度变了」报出来（T-032 把字幕窗口收窄到只盖说话的秒，
+    ground-01 的覆盖率 79.2%，凭空多一条黄）。更糟的是 N 在两边约掉之后，
+    那条判据量到的只剩「字幕覆盖率 C/T」：把条数砍掉 1/3 依旧 0 偏差。
+
+    所以期望值不能拿本片自己的 avg 反推（那样 N 又会约掉），而要用**参考片的每条字数**
+    当切法基准：同样的字量、按参考的切法，整片分钟该有多少条。这条判据量的是
+    「你切得比参考碎还是粗」，两侧同一把尺。
+
+    返回 (级别, 读数, 说明)；没有字幕时返回 None。
+    """
+    cues = [c for c in (cues or []) if (c.get("text") or "").strip()]
+    if not cues or not dur:
+        return None
+    chars_n = sum(len(c["text"]) for c in cues)
+    n = len(cues)
+    per_min = n / (dur / 60)
+    avg = chars_n / n
+    # 语速只作读数：分母是字幕覆盖时长，跟片长无关，不参与判定
+    cover = sum(float(c["end"]) - float(c["start"]) for c in cues)
+    cps = chars_n / cover if cover > 0 else 0.0
+    expect = (chars_n / REF_CHARS_PER_CUE) / (dur / 60)
+    dev = abs(per_min - expect) / expect
+    level = "green" if dev <= 0.15 else ("yellow" if dev <= 0.3 else "red")
+    note = (f"整片分钟口径（参考片 {lo}–{hi} 同口径）；本片 {n} 条 ÷ {dur:.1f}s，"
+            f"{chars_n} 字、语速 {cps:.1f} 字/秒、单条 {avg:.1f} 字 → "
+            f"按参考每条 {REF_CHARS_PER_CUE:.0f} 字该是 {expect:.0f} 条/分钟")
+    return level, f"{per_min:.1f} 条/分钟", note
 
 
 def pip_applied(meta: dict) -> bool:
@@ -760,25 +801,13 @@ def main() -> int:
     subs = json.loads((proj / "out" / "subs.json").read_text()) if (proj / "out" / "subs.json").exists() else {}
     cues = subs.get("cues") or []
     if cues and _has_subs:
-        per_min = len(cues) / (dur / 60) if dur else 0
-        # 包装模板不声明密度（A 族 0–8.5 处/分这种跨度没有意义），所以这一项可以缺
+        # 分母一律「**整片**分钟」，实测侧和期望侧同一把尺——参考片的 45–58 条/分钟就是
+        # 这么标的（113 条 ÷ (126.58/60) 分 = 53.6 条/分钟）。口径与判据一起看
+        # subtitle_density() 的 docstring（T-041）。
         lo, hi = (style["subtitle"].get("density_per_min") or ["—", "—"])
-        # 密度这个指标本身依赖语速：参考片 8 字/秒，45–58 条/分钟；这条片子 3.8 字/秒，
-        # 同样拆成 8–9 字一条就只有 25 条/分钟。所以判的是**期望值对不对**，
-        # 绝对数字照样写在说明里，别让"内容慢"背成"剪辑懒"的锅。
-        avg = float(subs.get("avg_chars") or 0) or 9.0
-        cps = float(subs.get("chars_per_s") or 0)
-        if not cps:   # subs.json 被别的包装写过（例如无字幕层那套）→ 就地按 cue 重算
-            _cs = sum(len(c.get("text") or "") for c in cues)
-            _ss = sum(float(c["end"]) - float(c["start"]) for c in cues)
-            cps = round(_cs / _ss, 2) if _ss else 0.0
-            avg = round(_cs / len(cues), 2) if _cs else avg
-        derived = (cps / avg) * 60
-        dev = abs(per_min - derived) / derived if derived else 1.0
-        level = "green" if dev <= 0.15 else ("yellow" if dev <= 0.3 else "red")
-        add("字幕密度", f"{per_min:.1f} 条/分钟", level,
-            f"参考片 {lo}–{hi}（快语速）；本片语速 {cps:.1f} 字/秒、"
-            f"单条 {avg:.1f} 字 → 期望 {derived:.0f} 条/分钟")
+        _d = subtitle_density(cues, dur, lo, hi)
+        if _d:
+            add("字幕密度", _d[1], _d[0], _d[2])
         longest = max((c.get("units") or len(c["text"])) for c in cues)
         mx = int(style["subtitle"].get("max_chars_per_line") or 16)
         # 按「展示单位」判，不按字数：半角字（OK、2026）只占 0.34 个单位，

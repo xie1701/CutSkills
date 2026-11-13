@@ -345,6 +345,9 @@ def main() -> int:
     print("⑱ 口令查表口径回归（T-038：手写词优先 / 两套键 / 切片偏移 / 缺真值不静默）")
     r = sh([PY, str(ROOT / "scripts" / "test_cue_guard.py")])
     must("口令查表口径回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+    print("⑲ 字幕密度分母口径回归（T-041：两侧都按整片分钟，砍 1/3 条数仍判黄）")
+    r = sh([PY, str(ROOT / "scripts" / "test_sub_density.py")])
+    must("字幕密度分母口径回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
     secs = time.time() - t0
     print()

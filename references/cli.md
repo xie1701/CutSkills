@@ -978,6 +978,11 @@
 
 （无参数）
 
+### `test_sub_density.py`
+*T-041 回归：`verify_film` 的「字幕密度」两侧必须同分母（整片分钟），且真判密度。*
+
+（无参数）
+
 ### `test_timing_subs.py`
 *check_timing 字幕后置判据的合同测试（T-040）：同音放行能放、编造照抓。*
 
