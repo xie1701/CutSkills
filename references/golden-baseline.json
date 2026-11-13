@@ -1,19 +1,19 @@
 {
- "updated": "2026-11-11T12:50:25",
+ "updated": "2026-11-13T16:57:39",
  "samples": {
   "proj79": {
    "path": "/Users/jerry/Downloads/AIworks/CutSkills/references/packtest-2026-11-08/proj79",
-   "green": 26,
+   "green": 31,
    "red": 0
   },
   "qizao-ground-01": {
    "path": "/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-ground-01",
-   "green": 26,
+   "green": 31,
    "red": 0
   },
   "qizao-protect-01": {
    "path": "/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-protect-01",
-   "green": 26,
+   "green": 29,
    "red": 0
   }
  }
