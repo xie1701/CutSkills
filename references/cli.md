@@ -896,6 +896,11 @@
 
 （无参数）
 
+### `test_edge_audit.py`
+*edge_audit ① 孤立提示词的合同测试：假红要灭，真案要留。*
+
+（无参数）
+
 ### `test_evidence_guard.py`
 *evidence_guard 的合同测试：判据会不会在**该红的时候红、该绿的时候绿**。*
 

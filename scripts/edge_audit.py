@@ -32,12 +32,75 @@ def speech(ws):
 
 PITCH_GAP = 0.90     # 词后静默超过这个数，再看后面有没有把同一句重说一遍
 PITCH_LOOK = 4.0     # 「重说」要在这么多年内出现
+PITCH_TOL = 2        # 「贴着重说」两次出现之间最多夹几个字（沿用 ①b 的紧邻口径）
+FRAG_BREAK = 0.40    # 一个字跟上一个字隔这么久，就算另起一口气（回溯「一小截」时到此为止）
+FRAG_MIN = 2         # 被重说的那一截至少 2 字——单字不判（「的」「了」这种一抓一大把）
+# 虚词/语气词：一截里全是这些字就不算「念题」（「大定制的…立面的」重复的是「的」）
+FILLER = set("的了吗哦噢呢吧啊嘛呀着得地是就都也还又很太再在么那这咋嗯呃唉喔咯啦哈呗个")
 EDGE_TAIL = 0.55     # 结尾静默（和 speech_hygiene 同口径）
 EDGE_HEAD = 0.40
 TAIL_MOTION = 8.0    # 末段帧差（绝对）
 TAIL_RATIO = 2.0     # 末段帧差 / 整格帧差中位（相对）——说话时人本来就在动，
                      # 单看绝对值全片都会报；要看的是「末段突然比平常动得厉害」
 _FF = None
+
+
+def _frag(ws, k: int) -> tuple[int, str]:
+    """停住之前「一口气念完的那一小截」（返回 起始下标 + 文本）。
+
+    从 k 往前回溯，碰到 ≥ FRAG_BREAK 的空隙或这一格的窗口开头就停。判据要看的是
+    「他先念了什么就停了」——如果念的是整句才停，那就不是念题。
+    """
+    j = k
+    while j > 0 and ws[j][1] - ws[j - 1][1] < FRAG_BREAK:
+        j -= 1
+    return j, "".join(w for w, _ in ws[j:k + 1])
+
+
+def _solid(unit: str) -> bool:
+    """这一截里有实词才算「念了词」，全是虚词（的/了/是/就…）不算。"""
+    return any(c not in FILLER for c in unit)
+
+
+def prompt_restart(ws, k: int) -> str:
+    """停在 ws[k] 之后 ≥ PITCH_GAP，他是不是把刚才那半截**又念了一遍**。
+
+    只认两条，都要「≥2 字且含实词」：
+      (i) 又把**开头**念了一遍：先念半句的起头，停一下，再从头念——
+          「其实是（停 1.1s）… 其实是边缘一定要用专业的」（先岔一句再回来也算）；
+      (ii) 又**贴着重说**收尾词：两次出现之间只隔 ≤PITCH_TOL 字——
+          「我们每个包（停）每个包房」。
+
+    两条不判的（都是 2026-11-13 实测的假红）：
+      · 并列列举——重复的是**收尾词**且隔得远：「白云石断烧，或者说石灰石断烧」隔 7 字；
+        「差到 4 倍，四到 5 倍」隔 3 字；
+      · 排比循环——重复的那一截在**停之前就已经说过**（「它该有它该去的地方（停）该有它该有的位置」），
+        那是句内的两段并列，不是他从头念题。
+
+    返回被重说的那一截（str）或 ""。
+    """
+    t = ws[k][1]
+    after = "".join(w for w, tt in ws[k + 1:] if tt <= t + PITCH_LOOK)
+    start, frag = _frag(ws, k)
+    if len(frag) < FRAG_MIN or not after:
+        return ""
+    before = "".join(w for w, _ in ws[:start])
+    # (i) 开头重说：位置不限（先岔一句再回来也算），但必须是这一截的前缀
+    for L in range(min(len(frag), len(after)), FRAG_MIN - 1, -1):
+        unit = frag[:L]
+        pos = after.find(unit)
+        if pos < 0 or not _solid(unit):
+            continue
+        if pos <= PITCH_TOL and unit in before:
+            return ""            # 紧跟着重复一句他刚刚说过的话＝排比，不是念题
+        return unit
+    # (ii) 贴着重说：收尾词在停之后 0–PITCH_TOL 字内又出现（①b 的紧邻口径）
+    for L in range(len(frag), FRAG_MIN - 1, -1):
+        unit = frag[-L:]
+        pos = after.find(unit)
+        if 0 <= pos <= PITCH_TOL and _solid(unit) and unit not in before:
+            return unit
+    return ""
 
 
 def ffmpeg() -> str:
@@ -94,17 +157,22 @@ def audit(proj: Path, lib: Path) -> list[tuple[str, str]]:
             if note:
                 out.append(("黄", note + "（这一格的提示词/头尾静默没查）"))
             continue
-        # ① 孤立提示词：说完一个词停 ≥0.70s，之后 4 秒内又把同一个词重说一遍。
+        # ① 孤立提示词：说完一小截停 ≥0.90s，然后又把这一截念一遍。
         # 「每 个 包 [空 1.2s] 每 个 包 房 …」——前面那个「包」是主播在看提词卡自己念半截，
-        # 正式那句从第二个「包」起。判据就看「静默前的词在静默后又出现」。
-        for k, (w, t) in enumerate(ws[:-1]):
-            gap = ws[k + 1][1] - t
+        # 正式那句从第二个「包」起。
+        #
+        # 2026-11-13：T-030 接通词级真值后这条第一次真跑，四支片 6 条红里 5 条是假红——
+        # 它当时只问「停之前那个词后面还出现过吗」，于是「的」这种虚词、
+        # 「断烧」这种并列句的收尾词全被打成缺陷。算法收紧到 prompt_restart()：
+        # 被重说的必须是**这一小截的开头**（或贴着 0–2 字重说的收尾），≥2 字且含实词。
+        for k in range(len(ws) - 1):
+            gap = ws[k + 1][1] - ws[k][1]
             if gap < PITCH_GAP:
                 continue
-            after = [x for x, tt in ws[k + 1:] if tt <= t + PITCH_LOOK]
-            if w in after:
-                out.append(("红", f"#{n} 孤立提示词：「{w}」@{t:.2f} 之后空 {gap:.2f}s，"
-                                  f"然后又把「{w}」重说了一遍——前面那半截是自己念题，不该进片"))
+            unit = prompt_restart(ws, k)
+            if unit:
+                out.append(("红", f"#{n} 孤立提示词：念到「{_frag(ws, k)[1]}」停了 {gap:.2f}s，"
+                                    f"又把「{unit}」重说一遍——前面那半截是自己念题，不该进片"))
                 break
         # ①b 尾巴挂着下一句的重复：窗口最后 1.4 秒里出现**紧邻**的短语重说
         # （「叉烧包 仲有 你仲有 好多人」——「仲有你仲有」是下一句的开头，被尾巴带进来了）
