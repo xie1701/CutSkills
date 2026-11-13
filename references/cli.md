@@ -505,6 +505,11 @@
 | `--fix` | 用真值覆盖 evidence |
 | `--json` | 开关 |
 
+### `fetch_coli.py`
+*把 Cola.app 里打包的 `@marswave/coli` 抽成能跑的 CLI（T-023）。*
+
+（无参数）
+
 ### `font_sheet.py`
 *font_sheet.py — 把同一句字幕排成 N 种字体的一张对照卡，让人眼当场判。*
 

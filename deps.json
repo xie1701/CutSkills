@@ -15,11 +15,11 @@
   "ffprobe": ">=6（规格探测）",
   "node": ">=22（hyperframes 要求）",
   "python3": ">=3.9（CI 实跑 3.14/3.15 均可，依赖走 scripts/vendor）",
-  "coli": "本地 ASR：coli asr --model sensevoice，离线",
+  "coli": "@marswave/coli 0.0.20 · 本地 ASR（`coli asr -j --model sensevoice --language zh`，离线、字级时间戳）。**何在**：不在 npm/PATH 上，从 /Applications/Cola.app/Contents/Resources/app.asar 的 node_modules/@marswave/coli 抽出到 $CUTSKILLS_HOME/opt/coli-app（连带 commander/ky/native-say/sherpa-onnx-node + sherpa-onnx-darwin-arm64 闭包），软链 $CUTSKILLS_HOME/opt/bin/coli，`runtime.sh env` 把 opt/bin 排 PATH 最前。**为何会断**：2026-11-13 Cola 升级后不再把 coli 暴露成系统命令（`which coli` 为空），selftest ②–⑤ / test_hygiene_fixtures / 新素材首轮 ASR 一起哑；asar 里是压包的 ESM，普通 node 读不了，App 每次升级换 asar 就得重抽一次（重抽：`python3 scripts/fetch_coli.py`）；模型首次跑自己下 155.5 MB 到 ~/.coli/models（2026-11-13 实测下到 130/155.5 MB 被代理断流，退回 curl 续传才成）",
   "chrome": "hyperframes 截图渲染要一个 chrome-headless-shell（$CUTSKILLS_HOME/../.cache/hyperframes/chrome）。下载失败时可临时 export HYPERFRAMES_BROWSER_PATH=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\""
  },
  "models": {
-  "asr": "sensevoice 随 coli 自带，不下载",
+  "asr": "sensevoice **不在包里**：首次 `coli asr` 自动下 155.5 MB 到 ~/.coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17（files.colaos.ai，下载后用 sha256 校验 model.int8.onnx / tokens.txt，不符会重下）。断流重试：`curl -C - --retry 20 --retry-all-errors -o <tar> https://files.colaos.ai/coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`，sha256 对得上（7d1efa21…dfd347e）再 `tar xf` 进 ~/.coli/models，coli 会认账不再下",
   "whisper": "只有降级到 hyperframes transcribe 时才需要，权重落在 $CUTSKILLS_HOME/models/hf"
  }
 }

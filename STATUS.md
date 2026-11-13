@@ -51,7 +51,7 @@
 | 相机元数据 / EXIF / GPS | ✅ | 150 个有拍摄信息、149 个带 GPS；iPhone 16 Pro 87 / 15 Pro Max 62；照片主摄 45 / 长焦 1 |
 | 人看得懂的索引 | ✅ | 库根 `素材索引.md` + `.csv`（28 列） |
 | 增量重索引 | ✅ | **暖缓存重索引全库 3.8 秒**，两遍结果除时间戳完全一致 |
-| 依赖只装一次 | ✅ | 全部落 `~/.cutskills`（5.5 G），`source scripts/runtime.sh env` |
+| 依赖只装一次 | ✅ | 全部落 `~/.cutskills`（5.5 G），`source scripts/runtime.sh env`；`runtime.sh check` 会真跑一次 `ffmpeg -version` 与 `coli --help`，再报 coli 的路径/版本/模型在不在（清单写着有 ≠ 跑得起来） |
 
 ### B 段 · 决定（8 个脚本，约 1,900 行）
 
