@@ -17,6 +17,8 @@
 用法：
   pick_take.py --library <素材库> --about 纯手工
   pick_take.py --library <素材库> --about 空间 --top 3 --json
+  pick_take.py --library <素材库> --about 纯手工 --for talking   # 要露脸：画面穿帮的 take 直接排除
+  pick_take.py --library <素材库> --about 纯手工 --for vo        # 只要声音：画面评级不管，声音 ng 仍排除
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import evidence_guard as EG  # noqa: E402
+import visual_grade as VG    # noqa: E402  声/画双评级（T-015 · A2）
 
 FILLER_PAT = re.compile(r"(?:\bo\s*k\b|\bok\b|okay|[诶嗯呃]|(?:因为|所以|就)咧|我觉得咧)", re.I)
 CUE_PAT = re.compile(r"三[，,、.]*二|再来一次|慢啲|望住镜头|一二三")
@@ -74,11 +77,17 @@ def score(ws: list[tuple[str, float]], i: float, o: float) -> tuple[float, dict]
                          "you": max(0, you), "dangling": dangling}
 
 
-def takes(lib: Path, about: str) -> list[dict]:
+def takes(lib: Path, about: str, purpose: str | None = None) -> list[dict]:
     """用 ASR 的 phrase（句级，自带标点）当候选单位——词级流没有标点，按标点切会碎。
 
     一个 take 可以是 1 个或 2 个连着说的 phrase：有时候论点本身就是一句，
     有时候要带上下一句才完整（「纯手工系我哋嘅根本」+「所以我哋嘅厨房就够大」）。
+
+    `purpose`（T-015 · A2）：同一句话选两遍的标准不一样。
+      - `talking`：露脸用。画面被判 `audio_only`（拿稿、瞟场记、切头切肩）或 `ng`
+        的 take 直接排除——分数再高也是穿帮；
+      - `vo`：旁白用。画面换成 B-roll 或生成画面，画面评级不参与，但声音 `ng` 仍排除。
+      - `None`：老行为，不看评级（旧呼叫方/脚本不受影响）。
     """
     idx = json.loads((lib / "_cutskills" / "index.json").read_text())
     out = []
@@ -112,8 +121,18 @@ def takes(lib: Path, about: str) -> list[dict]:
                 if len(ws) < 4:
                     continue
                 sc, d = score(ws, i, o)
-                out.append({"asset": a["id"], "in": round(i, 2), "out": round(o, 2),
-                            "score": sc, "text": txt[:44], **d})
+                rec = {"asset": a["id"], "in": round(i, 2), "out": round(o, 2),
+                       "score": sc, "text": txt[:44], **d}
+                if purpose:
+                    # 评级要按这个 take 自己的窗口算：同一支素材前 10 秒拿稿、后 10 秒干净，
+                    # 按整支判会把好转的窗口一起废掉。
+                    g = VG.grade_of(lib, a["id"], i, o)
+                    rec["video_grade"], rec["audio_grade"] = g["video_grade"], g["audio_grade"]
+                    if g["audio_grade"] == "ng":
+                        continue
+                    if purpose == "talking" and g["video_grade"] in VG.BAD_VIDEO:
+                        continue
+                out.append(rec)
     best: dict[tuple[str, float], dict] = {}
     for t in out:
         key = (t["asset"], round(t["in"]))
@@ -127,22 +146,29 @@ def main() -> int:
     ap.add_argument("--library", required=True)
     ap.add_argument("--about", required=True, help="要找的论点关键词")
     ap.add_argument("--top", type=int, default=5)
+    ap.add_argument("--for", dest="purpose", choices=("talking", "vo"), default=None,
+                    help="talking=挑露脸镜头（排除画面 audio_only/ng）；vo=只取旁白声音（不管画面评级）")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     lib = Path(a.library).expanduser().resolve()
-    got = takes(lib, a.about)[:a.top]
+    got = takes(lib, a.about, a.purpose)[:a.top]
     if a.json:
         print(json.dumps(got, ensure_ascii=False, indent=1))
         return 0
     if not got:
-        print(f"没有找到含「{a.about}」的 take")
+        if a.purpose == "talking":
+            print(f"「{a.about}」没有能露脸的 take（画面都判了 audio_only/ng）——"
+                  f"要么换 --for vo 只取声音、画面铺 B-roll，要么重拍")
+        else:
+            print(f"没有找到含「{a.about}」的 take")
         return 1
     print(f"「{a.about}」的候选 take（{len(got)} 条，按分排序）")
     for k, t in enumerate(got):
         mark = "★" if k == 0 else " "
+        grade = f"  画面 {t.get('video_grade') or '未知'}" if a.purpose and not a.json else ""
         print(f" {mark} {t['score']:5.1f}  {t['asset'].split('/')[-1]} {t['in']:.2f}–{t['out']:.2f}"
               f"（{t['dur']:.1f}s） 口水{t['filler']} 口令{t['cue']} 空档{t['gaps']}"
-              f" 重复{t['self_repeat']} 有声{t['coverage']:.0%}")
+              f" 重复{t['self_repeat']} 有声{t['coverage']:.0%}{grade}")
         print(f"        「{t['text']}」")
     return 0
 

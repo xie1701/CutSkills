@@ -166,9 +166,11 @@ L0 只回答"能不能看"。三档：`must-use`（有语音且清晰）/ `backu
   "tag": "店门口外景",
   "summary": "店门口介绍位置与营业时间",
   "grade": "must-use",
-  "why": "唯一同时拍到招牌和人脸的一条",
+  "audio_grade": "usable",
+  "video_grade": "audio_only",
+  "why": "唯一同时拍到招牌和人脸的一条；但全程低头看手里的 A4 台本",
   "confidence": 0.82,
-  "flags": ["轻微抖动"],
+  "flags": ["轻微抖动", "手持台本", "视线飘画外"],
   "taboo_tags": []
 }
 ```
@@ -199,6 +201,20 @@ L0 只回答"能不能看"。三档：`must-use`（有语音且清晰）/ `backu
   宁缺勿滥：标签一多，正样本会被迫找借口，最后没人再信这道闸。可以写成列表
   `["raw_meat"]`，也可以写成 `"raw_meat, kitchen_trash"`；写错的标签（`raw-meat`）
   认不出来，`content_guard` 会把它当 warning 报出来。
+- `audio_grade` / `video_grade`（可选，T-015 · 原则 A2）：口播段还要把「声音」和「画面」**分开评**。
+  - `audio_grade`：`usable` / `ng`——声音能不能用。
+  - `video_grade`：`usable` / `audio_only` / `ng`——画面能不能**露脸**。
+    `audio_only` 的意思不是废片，是「声音留下当旁白，画面必须换 B-roll 或代码画面盖住」。
+  - 命中以下任一条就必须标 `video_grade: audio_only`：手持 A4 台本纸 / 文件夹、
+    视线频繁看场外（瞟场记、看地面、翻白眼背稿）、构图从脖子或下巴处切头切肩、
+    起落幅闭眼发呆、严重片场杂物穿帮（天花板洞口露腿之类）。
+  - 不写这两格＝**没评过**。`check_timeline.py` 对「未知」不报任何红黄，旧库不写也一样跑；
+    一旦写了，`medium: talking` 的格子引用到 `audio_only` / `ng` 的窗口就判 error（见
+    [timeline-schema.md](timeline-schema.md) 的 `props.video_grade`，纸面剪辑可在时间轴上覆盖）。
+  - 同一支素材不同窗口的评级可以不同（前 10 秒拿稿、后 10 秒干净很常见），所以记录按
+    `in`/`out` 分开写；`index_assets.py --merge-l2` 会把这两格原样带进 `segments[]`。
+  - **`_cutskills/l2/` 才是记录目录**，`_cutskills/l2s/` 里放的是抽帧接触表 JPG。
+    门禁两个目录都扫 `*.json`，换了落盘目录也不会静默放行。
 
 **抽帧密度**：队列每条给 3 帧，取在这一段自己时长的 25% / 55% / 85% 处（按整支视频取会让同一素材的每段拿到同样三帧）。看 3 帧够判"是什么、能不能用"；判不了就在 `flags` 里写 `需逐帧看`，不要硬猜。
 

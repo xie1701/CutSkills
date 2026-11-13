@@ -668,6 +668,7 @@
 | `--library` | **必填** |
 | `--about` | **必填**　要找的论点关键词 |
 | `--top` | （默认 5） |
+| `--for` | talking=挑露脸镜头（排除画面 audio_only/ng）；vo=只取旁白声音（不管画面评级） |
 | `--json` | 开关 |
 
 ### `plan_card.py`
@@ -903,6 +904,11 @@
 
 （无参数）
 
+### `test_visual_grade.py`
+*CutSkills · T-015 口播「声 / 画双评级」与露脸门禁 · 合同测试。*
+
+（无参数）
+
 ### `thesis.py`
 *CutSkills · 观点先行：先定「一句话讲完什么」，再回头挑素材。*
 
@@ -930,6 +936,11 @@
 | `--from-edl` | 把 v2 edl.json 升成 v4 |
 | `--dry-run` | 只打印，不落盘 |
 | `--show` | 开关 |
+
+### `visual_grade.py`
+*CutSkills · 口播段「声 / 画」双评级与露脸门禁（T-015 · 原则 A2）。*
+
+（无参数）
 
 ### `yield_card.py`
 *CutSkills · 良率卡：一条片出片时打一张卡，累积成趋势。*

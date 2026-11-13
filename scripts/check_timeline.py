@@ -448,6 +448,9 @@ def main() -> int:
     # 内容守卫（T-016）：起尾余量 / 视觉指代词 / 品类禁忌——判「画面证不证明这句话」。
     import content_guard
     probs.extend(content_guard.guard(tl, index, proj=proj))
+    # 声/画双评级（T-015 · 原则 A2）：露脸格引用了「画不能露」的窗口＝穿帮；B-roll 留声是正解，不拦。
+    import visual_grade
+    probs.extend(visual_grade.gate(tl.get("elements") or [], lib))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)

@@ -57,6 +57,7 @@ v2 的 `edl.json` 是一条**镜头列表**——它默认片子是「从库里�
 | `template` | gen 必填 | 生成模板名，见下表 |
 | `props` | gen 必填 | 模板参数，字数上限由模板定，超了 `check_timeline` 直接判 error |
 | `medium` | clip 必填 | `talking` / `broll` / `photo` / `screen` |
+| `props.video_grade` / `props.audio_grade` | 否 | 纸面剪辑时手写的「露脸 / 声音」评级：`video_grade` 取 `usable` / `audio_only` / `ng`，`audio_grade` 取 `usable` / `ng`。见下方「声/画双评级」 |
 | `source` | ✓ | `library` / `cc0` / `generated`。**生成物必须如实标**，验收算占比 |
 | `why` | ✓ | 这一格推进了什么。套话判 error |
 | `beat` / `role` | 强烈建议 | 同 v2：`setup/claim/evidence/warrant/turn/payoff` |
@@ -101,6 +102,29 @@ MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `
 
 为什么不把这些搬到顶层字段：它们是**因人而异、大多数格子没有**的现场标注。放顶层会让每个元素
 都多一行 `null`，人写的时候反而容易漏掉 `evidence` 这些真正必填的东西。
+### 声/画双评级（`medium: talking` 的露脸门禁）
+
+原则 A2：**台词说得好、但画面穿帮的素材不扔掉，降级成「只留声」**。所以口播段有两个正交评级：
+
+| 字段 | 取值 | 意思 |
+|---|---|---|
+| `video_grade` | `usable` / `audio_only` / `ng` | 画面能不能露脸。`audio_only` = 声音可用、画面只能被 B-roll / 代码画面盖住 |
+| `audio_grade` | `usable` / `ng` | 声音能不能用（噪声压过台词、爆音、半句起头太多） |
+
+评级从哪来（前面的覆盖后面的）：
+
+1. 元素 `props.video_grade` / `props.audio_grade`——**纸面剪辑时手写**，同一支素材不同窗口的最终裁定在这一层；
+2. L2 审片记录 `_cutskills/l2/*.json` 的 `audio_grade` / `video_grade`（见 [index-schema.md](index-schema.md)），窗口重叠时取最差的一档。
+
+`medium: talking` 的元素引用了 `video_grade` 为 `audio_only` / `ng` 的窗口 → `check_timeline.py` 判 **error**（真穿帮）或 warning（只擦到边界 < 0.3s，L2 框选误差量级），报错会写明原因：
+
+```
+#3 该口播段画面穿帮（手持 A4 台本纸露脸，视线一直看场外），改铺 B-roll 留声或换 take
+```
+
+正解只有两条：**改铺 B-roll 留声**（`medium: broll` + `audio` 指向原口播窗口），或换一个 take。
+同一段声音换成 `medium: broll` 不会被拦——那正是 A2 要求做的事。
+两格都没写＝没评过，门禁一条都不报（旧项目不会因为升级突然红黄暴涨）。
 
 ## gen 模板表（代码生成，全部参数化）
 
@@ -163,6 +187,8 @@ MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `
 | error | `kind`/`track` 缺失或非法；clip 缺 `in`/`out` 或 `asset` 不在索引；gen 缺 `template`/`props`；`dur` 低于模板 `minDur`；props 字数超限；`why` 是套话；总时长与 `brief.length_s` 差 >10% |
 | error | 元素首尾相接有空隙或重叠（时间轴必须连续） |
 | error | 内容守卫（`content_guard.py`）：实拍 B-roll `in < 0.40s` 或距素材尾 < 0.40s（除 `props.handles_exempt` 带理由）；台词命中视觉指代词而这一格没有视觉佐证；正向夸赞台词撞 `taboo_tags` 负向画面 |
+| error | `medium: talking` 引用了 `video_grade` 为 `audio_only` / `ng` 的窗口（声/画双评级，原则 A2）——改铺 B-roll 留声或换 take |
+| warning | 穿帮窗口只擦到该格边界不足 0.3s（L2 框选误差量级）、`audio_grade: ng`、或评级值打错字 |
 | warning | 单镜超 12s；`generated` 占比 >25%；40s 内没有介质变化；`warrant` 段缺失；B-roll 没有 `audio` 字段；画面出现未处置的第三方品牌字样（提示向用户确认是否需要避开，若无需避开留痕核销） |
 | info | 各 kind 占比、各 beat 时长分布 |
 
