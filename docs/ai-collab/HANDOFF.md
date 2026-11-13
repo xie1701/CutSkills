@@ -351,7 +351,7 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 
   ground-01 多出来的 1 黄是「字幕密度 27.5 条/分钟 vs 期望 36」——**不是片子变差**，是语速估计 4.1→4.3 字/秒（字幕窗口不再盖住尾部静音）把期望值抬上去了，判据本身把两个不同分母硬比，已挂 **T-035**。大字烧进画面那 3/5 条与字幕无关（内容侧）。
 - **`proj79` 没动**：它只有 `edl.json`（v2），重算被 T-028 挡着（`lock.py` 只认 `timeline.json`），本单不替它开路。
-- **负样本**：`python3 scripts/test_breath_split.py`（4 条）——合成为「说话—静音—说话」纯音，字级时间戳按 ASR 的坏习惯把停顿算进前一个字的时长：**0.35s 停顿必拆**（`我们的厨房`｜`占了三分`）、**0.10s 停顿不许拆**（一条 3.5s）、素材缺失时说话（stderr + `LAST_PROBE`）且不崩、同一窗口第二次走缓存。证据与真素材四处对照见 `references/negative-samples/breath-split.md`。
+- **负样本**：`python3 scripts/test_breath_split.py`（5 条）——合成为「说话—静音—说话」纯音，字级时间戳按 ASR 的坏习惯把停顿算进前一个字的时长：**0.35s 停顿必拆**（`我们的厨房`｜`占了三分`）、**0.10s 停顿不许拆**（一条 3.5s）、素材缺失时说话（stderr + `LAST_PROBE`）且不崩、同一窗口第二次走缓存、短尾巴不许丢（master 版会丢掉 2 字尾巴上的实词）。证据与真素材四处对照见 `references/negative-samples/breath-split.md`。
 - **复现命令**：
   ```bash
   cd /Users/jerry/Downloads/AIworks/CutSkills-wsT032

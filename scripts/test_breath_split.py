@@ -169,12 +169,31 @@ def test_cache_reused() -> None:
         print(f"  ✅ 同一个窗口第二次走缓存：{len(r1)} 段静音，没重抽音轨")
 
 
+def test_short_tail_not_dropped() -> None:
+    """2–3 字的尾巴「并不进邻居」时，宁可并进前一条，也不许从屏幕上抹掉。
+
+    T-032 实测过：真实停顿一显形，短组落在两段之间，原来那一支直接 `continue` 丢掉，
+    「绝对品质 ok 嘅」后面的实词就这样没了（dianzan-a 264 字变 263 字）。
+    丢填充词（「那么」「其实就」）是排版选择，丢实词是事故——装得下就必须并。
+    """
+    chars = list("我们的厨房占了三分")
+    items = [(ch, round(i * 0.2, 3), round((i + 1) * 0.2, 3)) for i, ch in enumerate(chars)]
+    t0 = round(len(chars) * 0.2 + 0.9, 3)          # 中间 0.8s 空档，超不过「并邻居」的 0.55s 限制
+    items.append(("食", t0, round(t0 + 0.2, 3)))
+    out = subs.regroup(items)
+    txt = "".join(t for g, _ in out for t, _, _ in g)
+    assert "食" in txt, f"尾巴上的「食」被丢了：{[''.join(t for t, _, _ in g) for g, _ in out]}"
+    assert len(out) == 1, f"装得下就该并成一条，实际 {len(out)} 条"
+    print(f"  ✅ 短尾巴并进前一条（没被丢掉）：{txt}")
+
+
 def main() -> int:
     print("▶ 拆条按实测静音的合同测试…")
     test_light_pause_not_split()
     test_real_breath_splits()
     test_probe_unavailable_is_loud()
     test_cache_reused()
+    test_short_tail_not_dropped()
     print("✅ 全部通过")
     return 0
 
