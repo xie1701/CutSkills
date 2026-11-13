@@ -361,8 +361,10 @@ def scan(root: Path) -> int:
         ws, src = words_and_source(a, root)
         if src != EG.WORD or not ws:
             # 没有词级真值不等于「这段干净」：句级真值没有逐字时间，拿它猜口令
-            # 会把「三二一组」整句判成口令，也会把真口令放过。数目要报出来。
-            blind += 1
+            # 会把「三二一组」整句判成口令，也会把真口令放过。有声音的素材才计数——
+            # 照片/文档本来就没有台词，把它们算进「判不了」只会把真缺口淹掉。
+            if a.get("audio"):
+                blind += 1
             continue
         cues = find_cues(ws)
         if not cues:
