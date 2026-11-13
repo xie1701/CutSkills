@@ -869,7 +869,10 @@ def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
          # 硬边反而干净——底图是同一帧，边界往里收 2px 看不出来，光晕却没了。
          f"[1:v]format=gray,scale={1080}:{1920},lutyuv=y='if(gt(val,150),255,0)',"
          "erosion,erosion[tmp];[tmp]erosion,erosion[mk];"
-         "[0:v][mk]alphamerge,format=yuva420p[o]",
+         # 视频那一路也要缩到 1080×1920：alphamerge 要求两路同尺寸，遮罩是按
+         # 1080×1920 缩的，而裁出来的片段可能保留原始分辨率（proj79 的熊工口播
+         # 是 1296×2304）——尺寸不一致 vp9 直接 Invalid argument，整条渲染断掉。
+         "[0:v]scale=1080:1920[bv];[bv][mk]alphamerge,format=yuva420p[o]",
          "-map", "[o]", "-frames:v", str(n),
          "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "18",
          "-auto-alt-ref", "0", "-an", str(dst)],
@@ -907,9 +910,27 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
     cards = []
     idc = (style.get("_id_card") or None)
     if idc:
-        cards.append({"kind": "idcard", "text": "", "lines": [str(x) for x in idc["lines"]],
-                      "start": float(idc.get("at") or 0.35),
-                      "end": round(float(idc.get("at") or 0.35) + float(idc.get("dur") or 9.0), 3)})
+        _idc = {"kind": "idcard", "text": "", "lines": [str(x) for x in idc["lines"]],
+                "start": float(idc.get("at") or 0.35),
+                "end": round(float(idc.get("at") or 0.35) + float(idc.get("dur") or 9.0), 3)}
+        # 身份卡也要有声音依据（规范第 3 条对卡一视同仁）：plan 的 id_card.on 在
+        # 片头第一段的口播里找词定锚——身份卡本来就是伴着开场白亮出来的。
+        _on = str(idc.get("on") or "").strip()
+        if _on and segs:
+            _s0 = segs[0]
+            _aid = (_s0.get("audio") or {}).get("asset") or _s0["asset"]
+            _a_in = float((_s0.get("audio") or {}).get("in", _s0["in"]))
+            _ch = chars_cache.get(_aid) or chars_cache.setdefault(_aid, load_chars(lib, _aid))
+            _ch = lexicon.fix_items(_ch, lexicon.load(lib / "_cutskills"))
+            _win = [(ch, st, en) for ch, st, en in _ch
+                    if _a_in - 0.05 <= st < _a_in + _s0["_dur_q"] + 0.05]
+            _j = "".join(ch for ch, _, _ in _win).find(_on)
+            if _j >= 0:
+                _idc["anchor_word"] = _on
+                _idc["anchor_t"] = round(_win[_j][1] - _a_in + _s0["_start"], 3)
+            else:
+                print(f"  ！身份卡锚词「{_on}」不在片头口播里，沿用默认时机", file=sys.stderr)
+        cards.append(_idc)
     for s in segs:
         c = s.get("card")
         if not c:

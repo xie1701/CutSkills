@@ -9,3 +9,6 @@ proj/out/*.mp4
 proj2/out/*.mp4
 proj/out-C/
 proj79/hf/work/
+proj79/bgm.wav
+proj79/bgm.json
+proj79/out/sfx.json

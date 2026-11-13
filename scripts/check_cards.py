@@ -252,6 +252,11 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     stale: set[int] = set()
     orphan: set[int] = set()
     for c in cards:
+        # 身份卡豁免：它的内容真值在 plan.json 的 id_card，不在 timeline.json——
+        # 渲器给它 seg=0（时间轴没有 n=0 的元素），按段号对账永远是孤儿。
+        # 其余判据（时长/重叠/锚词）照跑。
+        if c.get("kind") == "idcard":
+            continue
         seg = int(c.get("seg") or 0)
         tc = (by_seg.get(seg) or {}).get("card") or {}
         if not tc:
@@ -323,7 +328,8 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
         v.append(("warning", f"全片有 {len(film_notes)} 段没有词级真值，释义比对只能跟着句级走"
                                f"（{film_notes[0]}）"))
     for c in cards:
-        if int(c.get("seg") or 0) in skip:
+        if c.get("kind") == "idcard" or int(c.get("seg") or 0) in skip:
+            # 身份卡豁免（同规则 0）：真值在 plan.json，词证对不上段。
             continue
         seg = by_seg.get(int(c.get("seg") or 0))
         if not seg:
