@@ -12,6 +12,15 @@
 找最大的停顿（≥0.12s）拆开——**只在有停顿的地方拆，所以永远不会切在词中间**。
 断字这件事没有词典也能做对，因为人说话不会在词中间停顿。
 
+2026-11-13（T-032）：停顿**不许再信 ASR 的词起点间隔**。ASR 会把一处停顿记进前一个字的
+时长里（`qizao-ground-01` 的「有」占 1.689s、里面 1.06s 是没声音的），于是词起点之间
+gap=0，「≥0.30s 才断」这条规则永远看不见它——三支老片各留了几条「窗口里明明静了
+0.5–1.2s，字幕还撑着 3.5–4.4s」。所以拆条前先用 `silence.py` 量真静音，把字的起止从
+静音里拉出来（`retime_off_silence()`），停顿于是变成真的 gap；停留超 3.2s 而窗口里
+又有 ≥0.30s 真静音的条，再在静音处补一刀（`split_breath_groups()`）。
+量不出音频（素材不在本机 / ffmpeg 解不出）时**不静默放行**：退回旧口径并在 stderr 报
+「静音探针不可用，按词界拆分」。
+
 （`render_film.build_cues` 是保留路径的老实现，仍按字数软断，主链路不用它。）
 """
 from __future__ import annotations
@@ -25,8 +34,13 @@ import lexicon  # noqa: E402  转写词表（品牌名/术语）纠错
 PUNCT = "，。！？、；：…—～,.!?;:"
 SENTINEL = "\x00"        # 句边界标记，不进字幕
 MIN_HOLD = 0.8            # 一条字幕最短停留（低于这个眼睛抓不住；对齐 srt-motion-cards 规范）
+MAX_HOLD = 3.2            # 一条字幕最长停留（对齐 check_subs.HOLD_MAX；超了就在真静音处断）
 GAP_BREAK = 0.30          # 呼吸组之间的停顿
 GAP_SPLIT = 0.12          # 组内允许拆开的最小停顿
+# 一口气断开的门槛（秒）：与 `check_subs.BREATH_MIN` 同口径。
+# 它的另一半在 check_subs：窗口里量不到 ≥0.30s 停顿的「单呼吸组」上限放到 4.5s。
+# 两边必须同一个数，否则产线把 0.28s 的停顿当呼吸断开、裁判却当没停过，互相打脸。
+BREATH_MIN = 0.30
 # 上限不是拍出来的，是**算**出来的：字号 80px、1080 宽，14 字就是 1120px，
 # 比画幅还宽——2026-11-09 逐帧量成片才发现字幕两头都被切掉了（左上和右下都缺字），
 # 而所有 JSON 和判据全是绿的（判据按「字数 ≤14」放行，没人算过像素）。
@@ -151,6 +165,82 @@ def is_word_bound(txt: str) -> bool:
     return len(txt) in word_bounds(txt)
 
 
+# ── 真静音探针（2026-11-13 T-032）────────────────────────────────────────
+# 「他是不是在这儿换了一口气」只能量声音，不能看 ASR 的词起点：ASR 把停顿记进前一个字
+# 的时长里（ground-01 的「有」占 1.689s，里面 1.06s 没声音），词起点之间 gap=0。
+# 量声音走 `silence.py`：它按窗口自己的说话电平算相对阈值，并且有 _MEM + 磁盘两层缓存，
+# 一条片子几十条字幕只按「一格」抽一次音轨。
+_SIL_MEM: dict[str, list | None] = {}
+# 上一次 `build()` 的探针状态。量不出音频时调用方要能说出「没量成」，不许静默当「没停顿」。
+LAST_PROBE: dict = {"segments": 0, "measured": 0, "missing": [], "silent_segments": 0}
+
+
+def speech_silences(src, a: float, b: float) -> list[tuple[float, float]] | None:
+    """[a,b] 里**真有**的静音段（秒，素材绝对时间）。量不出返回 None。
+
+    `silence.runs_strict()` 分得清两件事：「窗口里一点静音都没有」（返回 []）与
+    「根本量不到」（None）。前者是慢语速的一口气，后者是素材不在本机 / ffmpeg 解不出音频——
+    后者必须退回旧口径并且**说出来**，不许当成「没有停顿」放行。
+    """
+    if not src:
+        return None
+    try:
+        src = Path(str(src))
+    except (TypeError, ValueError):
+        return None
+    if not src.exists():
+        return None
+    key = f"{src}|{src.stat().st_mtime_ns}|{a:.3f}|{b:.3f}|{BREATH_MIN}"
+    if key in _SIL_MEM:
+        return _SIL_MEM[key]
+    try:
+        import silence as SI          # 同目录：量静音的判据只有一份
+        runs = SI.runs_strict(src, a, b, min_d=BREATH_MIN)
+    except Exception:                 # pragma: no cover  探针坏掉不许拖垮出字幕
+        runs = None
+    _SIL_MEM[key] = runs
+    return runs
+
+
+def retime_off_silence(items: list[tuple], runs) -> list[tuple]:
+    """把字的起止从静音里拉出来——ASR 把停顿算进了某个字的时长。
+
+    「有」占 1689.60–1691.22，其中 1690.03–1691.23 是静音：拉完之后「有」收到 1690.03，
+    下一个字从 1691.23 起，gap 变成 0.83s，旧的「gap ≥ 0.30 就断」终于看得见这口气。
+    三种关系都要处理：
+      · 静音在字的后半段（`部` 332.10–333.54 里 332.71–333.03 是静音）→ 字收在静音起点；
+      · 字整体泡在静音里（ASR 把停顿记在了下一个字的头上）→ 推到静音结束；
+      · 静音盖过整字 → 退化成零长度，不许出现负时长。
+    """
+    if not items or not runs:
+        return items
+    out: list[tuple] = []
+    for ch, a, b in items:
+        na, nb = float(a), float(b)
+        for r0, r1 in runs:
+            if nb <= r0 or na >= r1:
+                continue
+            if na < r0:
+                nb = r0
+            else:
+                na, nb = r1, max(nb, r1)
+        # 拉完如果只剩零长度（整个字泡在静音里），保留原样：ASR 把这个位置给了它，
+        # 抹成 0 秒会让后面的书面稿对齐跟着错位（dianzan-a 实测：抹掉一个零长度字，
+        # 稿子尾上的「食」就被挤出成片窗口，屏幕上少一个字）。
+        out.append((ch, na, nb) if nb - na > 1e-6 else (ch, float(a), float(b)))
+    return out
+
+
+def breath_cuts(items: list[tuple]) -> set[int]:
+    """相邻两字之间**真有** ≥BREATH_MIN 静音的切点（第几个字之前）。
+
+    只该在 `retime_off_silence()` 拉过的时间戳上算——那时 gap 才是声音，
+    不是 ASR 的记账。
+    """
+    return {i for i in range(1, len(items))
+            if items[i][1] - items[i - 1][2] >= BREATH_MIN - 1e-9}
+
+
 def choose_cut(buf: list[tuple[str, float, float]], target: int | None = None) -> int | None:
     """一条太长的字幕该从第几个字处断开。**只用词边界**，优先两侧都不太短。"""
     txt = "".join(t for t, _, _ in buf)
@@ -221,6 +311,22 @@ def _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
             items.append((SENTINEL, ph["end"], ph["end"]))
         items = [it for it in items if s_in - 0.02 <= it[1] < s_out - 0.02]
         if items:
+            # 真静音重记时（T-032）：先把字的起止从静音里拉出来，
+            # 后面的「gap ≥ 0.30 就断」才量的是声音而不是 ASR 的记账。
+            # 一整格只量一次（silence.py 按窗口缓存，_MEM 命中就不再请 ffmpeg）。
+            runs = speech_silences(Path(lib) / str(aid) if aid else None, s_in, s_out)
+            LAST_PROBE["segments"] += 1
+            if runs is None:
+                LAST_PROBE["missing"].append(str(aid))
+            else:
+                LAST_PROBE["measured"] += 1
+                if runs:
+                    LAST_PROBE["silent_segments"] += 1
+                    items = retime_off_silence(items, runs)
+                    # 拉完可能有个别字被推到窗口外（整字泡在尾部静音里）：
+                    # 收字窗口与 evidence 同口径是硬规矩，出了窗口就不再算这一格的字。
+                    items = [it for it in items
+                             if s_in - 0.02 <= it[1] < s_out - 0.02]
             # evidence 也要过词表。 b#5 卡上写「四大天王」、同屏字幕写「四大轩王」——
             # 真因就在这里：卡走的是 words_of_window（过词表），字幕直接拿 evidence，
             # 而 evidence 是 ASR 原字。两边读的不是同一份真值，屏幕上就自己打自己。
@@ -318,6 +424,9 @@ def split_point(g: list[tuple[str, float, float]]) -> int | None:
     cands = sorted(wb | set(range(4, n - 3)))
     if not cands:
         return None
+    # 真静音优先（T-032）：同样是词边界，落在「他真停了一下」的地方比落在
+    # 宽度算出来的中点好读得多——这是两条优秀字幕与一条别扭字幕的差别。
+    breaths = breath_cuts(g)
 
     def cost(p: int) -> float:
         left, right = txt[:p], txt[p:]
@@ -339,6 +448,8 @@ def split_point(g: list[tuple[str, float, float]]) -> int | None:
             c += 12
         if p in wb:                     # 落在词边界上更好
             c -= 4
+        if p in breaths:                # 落在真静音上最好（量出来的，不是猜的）
+            c -= 3
         return c
 
     return min(cands, key=cost)
@@ -358,6 +469,9 @@ def split_long(g: list[tuple[str, float, float]]) -> list[int]:
     wb = sorted({p for p in word_bounds(txt) if 1 <= p <= n - 1} | {n})
     if not wb or n < 6:
         return []
+    # 真静音切点（T-032）：宽到必须拆的时候，拆在「他真停了一下」的地方
+    # 比拆在宽度算出来的等分点上好读。只减一点分，不足以多拆出一段来。
+    breaths = breath_cuts(g)
     INF = float("inf")
     best = [INF] * (n + 1)
     back: list[int | None] = [None] * (n + 1)
@@ -381,6 +495,8 @@ def split_long(g: list[tuple[str, float, float]]) -> list[int]:
                 c += 18
             if j < n and txt[j] in NO_HEAD:
                 c += 18
+            if j in breaths:
+                c -= 8
             if c < best[j]:
                 best[j], back[j] = c, i
     if best[n] == INF:
@@ -456,6 +572,78 @@ def regroup_script(items: list[tuple[str, float, float]]
                 continue
             stack.insert(0, cur_g[:k])
             stack.insert(1, cur_g[k:])
+    return out
+
+
+def _pick_breath_cut(piece: list[tuple[str, float, float]],
+                     cuts: set[int]) -> int | None:
+    """在「真静音 ≥BREATH_MIN」的切点里挑最好的一刀。没有可用的返回 None。
+
+    词界是硬约束：真静音落在词中间（口语里真会这样）时，宁可不拆，也不把词切两半。
+    两半都要能看清（≥MIN_HOLD），平衡的两刀最舒服，虚字收/起要额外扣分。
+    """
+    txt = "".join(t for t, _, _ in piece)
+    n = len(txt)
+    wb = set(word_bounds(txt)) if HAVE_JIEBA else None
+    best, best_c = None, 1e9
+    for p in sorted(cuts):
+        if p <= 0 or p >= n:
+            continue
+        if wb is not None and p not in wb:
+            continue
+        dur_l = piece[p - 1][2] - piece[0][1]
+        dur_r = piece[-1][2] - piece[p][1]
+        c = abs(dur_l - dur_r)
+        if dur_l < MIN_HOLD:
+            c += (MIN_HOLD - dur_l) * 6
+        if dur_r < MIN_HOLD:
+            c += (MIN_HOLD - dur_r) * 6
+        if txt[p - 1] in NO_END:
+            c += 1.2
+        if txt[p] in NO_HEAD:
+            c += 1.2
+        if c < best_c:
+            best, best_c = p, c
+    return best
+
+
+def split_breath_groups(groups: list[tuple[list[tuple[str, float, float]], str]]
+                        ) -> list[tuple[list[tuple[str, float, float]], str]]:
+    """停留超过 MAX_HOLD、窗口里又有真静音的条，添在静音处补一刀（递归到每段都合格）。
+
+    为什么只盯「超时长 + 有停顿」两条同时成立：
+      · 有停顿还撑过 3.2s 是「话停了字还赖着」——check_subs 判红，必须拆；
+      · 没停顿的 3.3–4.5s 是慢语速的一口气，拆开就违背规则②（一条 = 一个完整呼吸组）；
+        T-029 已把它放行到 4.5s，这里不许替它做主。
+    左边的 break_after 记成 pause（不是 clause）：它没收在句读上，
+    check_subs 的「助词孤行」与「断词」两条都必须真审它，不许被 clause 豁免。
+    """
+    out: list[tuple[list[tuple[str, float, float]], str]] = []
+    stack = list(groups)
+    while stack:
+        g, why = stack.pop(0)
+        dur = (g[-1][2] - g[0][1]) if g else 0.0
+        if dur <= MAX_HOLD + 0.02 or len(g) < 2:
+            out.append((g, why))
+            continue
+        p = _pick_breath_cut(g, breath_cuts(g))
+        if not p:
+            out.append((g, why))
+            continue
+        left, right = g[:p], g[p:]
+        wl = display_units("".join(t for t, _, _ in left))
+        if wl < MIN_UNITS and out:
+            # 左半边只剩 2–3 字（「简单的」|「去非黑即白」）：跟「太短的并进邻居」
+            # 同一条规矩——装得下、又是同一口气（空档 <0.55s）就并回去，别让它自己闪一下。
+            pw = display_units("".join(t for t, _, _ in out[-1][0]))
+            if pw + wl <= MAX_UNITS and left[0][1] - out[-1][0][-1][2] < 0.55:
+                out[-1] = (out[-1][0] + left, out[-1][1])
+                left = []
+        if not left:
+            stack.insert(0, (right, why))
+            continue
+        out.append((left, "pause"))
+        stack.insert(0, (right, why))
     return out
 
 
@@ -582,6 +770,13 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
         elif merged and w <= 3:
             # 夹在两句话之间、又并不进邻居的 2–3 字（「那么」「其实就」）：一闪就没了，
             # 观众反而以为字幕出错。丢掉它，那个停顿就空着——口播片里空半秒不算断。
+            # 但**不许丢真话**：真实停顿一显形，这一支会把「食」这种实词当填充词吞掉
+            # （2026-11-13 T-032 实测：dianzan-a 264 字变 263 字）。所以先试并进前一条
+            # （不看空档多宽——宁可在停顿上多停半秒，也不许把一个字从屏幕上抹掉），
+            # 装不下才丢。
+            if display_units("".join(t for t, _, _ in merged[-1][0])) + w <= MAX_UNITS:
+                merged[-1] = (merged[-1][0] + g, merged[-1][1])
+                continue
             continue
         else:
             merged.append((g, why))
@@ -595,6 +790,22 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
     return final
 
 
+def _report_probe() -> None:
+    """把「静音探针到底量没量到」说出口。量不到不许静默装作「没停顿」。
+
+    素材不在本机（拷到别的工位、素材盘拔了）是最常见的：那时 `silence.runs_strict()`
+    返回 None，拆条退回旧的「ASR 词起点间隔」口径——结果是那几条长字幕又会撑过 3.2s。
+    这不是错误，但必须让人在屏幕上看到原因，而不是等 check_subs 报红再反查。
+    """
+    miss = sorted({m for m in LAST_PROBE.get("missing") or [] if m})
+    if not miss:
+        return
+    print(f"  ！静音探针不可用（{len(miss)} 格量不到音频：{', '.join(miss[:3])}"
+          f"{' …' if len(miss) > 3 else ''}），按词界拆分——"
+          f"这些格里的停顿只能靠 ASR 的词起点间隔判，长条可能又撑过 {MAX_HOLD}s",
+          file=sys.stderr)
+
+
 def build(segments, index_by_id, chars_cache, lib, load_chars,
           colorize: bool = True, fps: int = 30) -> list[dict]:
     """`colorize=False` 时一个字都不变色（Jerry 2026-11-09：重点词变色取消）。
@@ -604,11 +815,16 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
     """
     cues: list[dict] = []
     lex = lexicon.load(Path(lib) / "_cutskills")
+    # 探针账要每跑一次重算：上一次的「量不成」不能污到这一片。
+    LAST_PROBE.update({"segments": 0, "measured": 0, "missing": [], "silent_segments": 0})
     for blk in _items(segments, index_by_id, chars_cache, lib, load_chars, lex):
         items = blk["items"]
         if blk.get("ev"):
             items = retime_to_script(items, blk["ev"])
         _groups = (regroup_script(items) if blk.get("ev") else regroup(items))
+        # 停留超 3.2s 而窗口里又有真静音的，在静音处补一刀（T-032）。
+        # 放在 regroup 之后：太短的句合并完可能又跨过一处停顿，那时才看得出它撑得太久。
+        _groups = split_breath_groups(_groups)
         for g, why in _groups:
             raw = "".join(t for t, _, _ in g)
             text = "".join(ch for ch in raw if ch not in PUNCT and ch != SENTINEL).strip()
@@ -625,6 +841,7 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
                          "sf": int(round(a * fps)), "ef": int(round(b * fps)),
                          "el": blk["el"], "break_after": why})
     cues.sort(key=lambda c: c["start"])
+    _report_probe()
     # 相邻重叠：后一条推到前一条收口之后（硬切不留缝）
     out: list[dict] = []
     for c in cues:

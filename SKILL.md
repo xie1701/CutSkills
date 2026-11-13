@@ -119,6 +119,7 @@ python3 scripts/test_hooks_policy.py                      # 前 3 秒策略真�
 python3 scripts/test_brand_safety.py                      # 品牌安全与第三方字样处置回归（T-007：FESTOOL/PPG 拦截与核销）
 python3 scripts/test_semantic_check.py                     # 语义校对闭环回归（T-017：欧阳三片真错字检出/清零/否定字硬拦/零误杀）
 python3 scripts/test_hold_breath.py                        # 字幕停留的单呼吸组豁免回归（T-029：3.3/3.6s 连续话音判过，2s 说完赖到 3.4s 仍判红）
+python3 scripts/test_breath_split.py                        # 拆条按实测静音的回归（T-032：0.35s 停顿必拆、0.10s 停顿不拆、缺素材不静默、同一窗口走缓存）
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
 
 # 阈值校准（改判据之前先量参考片自己的读数，别拍脑袋定标准）
