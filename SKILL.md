@@ -59,6 +59,7 @@ python3 scripts/test_visual_grade.py                    # 声/画双评级：aud
 python3 scripts/edge_audit.py --project <项目>          # 提词半截词 / 尾巴挂下一句 / 话停了画面还在演（并列列举、单字虚词、句内排比不判）
 python3 scripts/test_edge_audit.py                      # 孤立提示词正负样本：并列列举不红 / 重起句必红（T-037）
 python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）
+python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
 python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
 python3 scripts/test_content_guard.py                   # 内容守卫负样本（0.00s 糊片 / 四张图配工地 / 夸赞撞生肉血水）
@@ -110,6 +111,7 @@ python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
+python3 scripts/test_overlay_judge.py                 # 叠加态判据三条负样本（T-019：压脸/口播整屏暗场/重卡撞字幕）
 python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
 python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s（单呼吸组 4.5s）/助词孤行/重叠/硬切 + 残词/口吃重尾/荒谬量级门禁（T-017）
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
@@ -155,7 +157,7 @@ python3 scripts/golden.py
 
 **MG（代码画的动效卡）**是包装的第三块：基础卡 `keyword-big` / `stat` / `steps` / `versus` / `term` 与修辞扩充卡（`proportion` 比例条 / `day-night` 时段接力 / `chips` 并列招牌）。
 选哪张由这一格的**话语修辞关系**决定（形状即语义：互补经营不许误用对抗 `VS`，常识菜名不许误用百科词条），不由风格决定；风格只决定它的**视觉语域（Visual Register）**与 `tokens`（餐饮茶楼用暖食烟火底，严禁套冷黑蓝科技弹窗把食物压灰）。
-叠加空间只允许三种合法态（轻量挂角、底片模糊退后/画中画、整屏纯底切出），**严禁在清晰露脸口播或美食特写正中糊全屏暗场大卡**；重型卡在场期间底部同期声字幕自动退场。
+叠加空间只允许三种合法态（轻量挂角 `corner` / 底片模糊退后 `focus_blur` / 整屏纯底切出 `cutaway`），**严禁在清晰露脸口播或美食特写正中糊全屏暗场大卡**；位置不再由固定百分比带决定，由 `scripts/card_layout.py` 逐卡读人脸框（`scripts/native/person_mask --faces`，Vision）算出来，判据落在 `scripts/check_overlay.py`（渲前拦停，error 退出码 7）；重型卡在场期间底部同期声字幕自动退场，每条挂起都记进 `out/subs.json` 的 `suppressed`（卡 id + 理由）。人工要压位置就写时间轴的 `card.layout`。
 卡型、字段、选型顺序与硬规矩见 [references/mg-library.md](references/mg-library.md)；影视剪辑反 NG 五原则与广电包装五原则的完整产线准绳见 [references/editorial-packaging-principles.md](references/editorial-packaging-principles.md)。
 
 **现成四套包装包**：`P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（深色科技，大字即字幕）、`P4-canton-warm`（暖食烟火·广式茶楼：琥珀深茶棕卡面 + 局部暖棕柔化 + 暖金 `#E5A93C`/朱砂 `#B8332A`，严禁冷黑蓝弹窗底与冷荧光黄）；卡面底板/遮罩/描边/字色全写在包的 `tokens.surface` 里，渲器不再自带语域。

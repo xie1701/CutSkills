@@ -402,6 +402,11 @@
 | `--lib` | 素材根目录，默认 --root 的上两级 |
 | `--write` | 把采纳的新 marks 写回 timeline.json |
 
+### `card_layout.py`
+*CutSkills · 卡的叠加态布局器（原则 B7 图底主权 / B10 局部底衬）*
+
+（无参数）
+
 ### `cc0_lib.py`
 *从 CC0 库里挑 BGM 和音效——不再自己合成。*
 
@@ -419,6 +424,14 @@
 |---|---|
 | `--project` | **必填** |
 | `--library` | — |
+| `--json` | 开关 |
+
+### `check_overlay.py`
+*CutSkills · 叠加态裁判：卡压脸 / 口播整屏暗场 / 重卡撞字幕（原则 B7 + B9）*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
 | `--json` | 开关 |
 
 ### `check_packs.py`
@@ -923,6 +936,11 @@
 
 ### `test_hygiene_fixtures.py`
 *负样本夹具的**真音频**验证：判据在真声音上还能不能抓住。*
+
+（无参数）
+
+### `test_overlay_judge.py`
+*T-019 回归：check_overlay 的三条判据必须判红，且**不许误杀合法卡**。*
 
 （无参数）
 
