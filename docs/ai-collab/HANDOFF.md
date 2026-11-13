@@ -444,3 +444,17 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   python3 scripts/test_evidence_guard.py && python3 scripts/audit_skill.py
   ```
 - **已知边界（如实记）**：① 「什/为」shén/wéi **不是同音**，这条假红是靠双向对账抵平的（字幕多「什么漆」、音频多「为我没有」），不是同音字放行；代价是「音频也恰好多出同数实词」时字幕凭空加的字会被抵账放过（七支片实测 0 例）。② 人称错位这条是**改后才有**，不是「仍报」。③ `selftest` 结尾仍 3 条历史红（验收无红 / `check_subs` / `edge_audit`，T-025 欠账），与 master 逐条一致；④ `audit_skill` 🟡1 = worktree 目录名。
+
+### 2026-11-13 · Cola · T-033 + T-039 待复核（五张卡改回他自己的话，两片重渲）
+
+- **分支 / 提交**：`ai/cola/T-033`（本单与 T-039 同一分支：同一次内容修正、同一次重渲，拆两分支只会撞同一个 `timeline.json`）。
+- **动的是素材库里的项目数据，不是仓库代码**：`scripts/` 零改动，`check_*.py` / `render_hf.py` / `card_layout.py` / `packs/*` / `verify_film.py` 一个字节没碰（T-041 / T-042 正在跑）。
+- **改了五张卡的 `card.text`**（`on` 锚词全部未换，锚点、时长、其余字段未动）：
+  - `qizao-ground-01` #14：「报价只贵 2–3 倍」→「原料成本差 4–5 倍」。他这格原话是「虽然实事求是的讲原料成本可能差到4倍四到5倍」；2–3 倍来自 `thesis.json` 的编辑推断「但成品报价只差两到三倍」，全片没有对应口播。
+  - `qizao-protect-01` #8：「边缘要贴直」→「边角细节贴得更直」；#9「不是靠粘条」→「不是依赖粘条」；#12「做涂料的人来做」→「做涂料的来做」；#2「先保哪里」→「局部地面 · 地柜」（T-033 里挂的「另定夺」项，不修它渲不过卡准入门）。
+- **读数（改前 → 改后）**：`check_cards` ground 1e→**0e**、protect 4e→**0e**；`check_timing` 两片 0e 未变；`check_subs` 两片「过」未变（37/28 条 cue 逐条比对，文字一条没变）；`verify_film` ground 🟢27🟡1🔴3 → 🟢29🟡1**🔴1**、protect 🟢23🟡2🔴5 → 🟢28🟡2**🔴0**；`check_timeline` 3e24w / 1e20w 未变；`check_packs` 过。
+- **重渲**（卡面文字必须真的上屏）：ground 4m17s −14.20 LUFS/−3.34 dBTP；protect 2m48s+3m57s −14.29 LUFS/−3.64 dBTP。旧片在这几个时间点**根本就没有大字上屏**（`verify_film` 三条「花字色占比 0.00%」正是这个），重渲后大字才真烧进画面，视觉模型逐帧读过四张新卡。
+- **方案锁**：两片都没有 `lock.json`，按 T-024 先例用 `lock.py --lock --note` 临时钉住本次修正版再渲、渲完即删；**没有用 `--force`**，五道渲前闸门全跑。
+- **并发（重要）**：12:31–12:38 有另一个工位在 `qizao-protect-01` 目录上跑 `render_hf.py --style P3-dark --no-render --force`，把 `hf/meta.json` 与 `out/*.json` 写成 P3-dark 口径，`verify_film` 因此假报一条「双语第二行：没有 subs-en.json」（验收按 `hf/meta.json` 的 `style` 挑包读参数）。已按 `P1-warm` 重渲复原，meta 回 `"style": "P1-warm"`，复跑 🔴0。**提醒**：在共享项目的 `out/` `hf/` 上试包，会把别人的验收读数变成假红，试完请复原。
+- **证据 / 备份**：`references/fixes-t033-cards.md`（逐卡窗口词级真值 + 时间戳 + 五张卡的视觉复核表）；改动前的整份项目在 `/tmp/t033-backup/qizao-ground-01`、`/tmp/t033-backup/qizao-protect-01`。
+- **留下没动的三件事**：① `ground-01` 剩 1 条红是 `behind` 卡「售楼部 · 酒店」的「大字烧进画面（可见部分）」，卡型性质，要改得动卡型或判据；② `thesis.json` 的「成品报价只差两到三倍」仍无口播出处，将来重做这支片会被再抄一次；③ ASR 把 `protect-01` 那格的「工人」听成「功能」，字幕跟着打成「功能，进行保护」——库词表加 `功能→工人` 会把 4 处真「功能」一起改坏，需人拍板或给词表加位置限定。
