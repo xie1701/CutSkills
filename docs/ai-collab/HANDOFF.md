@@ -327,3 +327,27 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   - `audit_skill.py`：✅ **OK · 🔴 0 · 🟡 0 · 🟢 8**（退出码 0）；
   - `golden.py`：❌ 退出码 1（`proj79` 🔴3、`qizao-ground-01` 🔴3、`qizao-protect-01` 🔴2——系上一提交 `cbcc3ef` 将 `字幕停留`/`助词孤行` 与 `strip_noise` 并入 `verify_film.py` 时未同步更新 11-08 旧样片 `subs.json` 或校准基线所致，已单列 `T-024`）；
   - `selftest.py`：⛔ 退出码 2（`coli` 不在 PATH，已单列 `T-023`）；Python 现为 `3.15.2`（`~/.cutskills/py` 含 Pillow/numpy/pypinyin，`scripts/vendor/yaml` 已内置），`ffmpeg 9.0.2` 与 `hyperframes 0.9.39` 正常。
+
+### 2026-11-13 · Cola · T-030 词级真值查表接通（待复核）
+
+- **分支 / 工作树**：`ai/cola/T-030` @ `017379b`，worktree `/Users/jerry/Downloads/AIworks/CutSkills-wsT030`（主树 master 未动，只落 TASKS/HANDOFF 状态行）。
+- **一句话**：`evidence_guard` 查 ASR 缓存只认 `h12(asset_id)`，这批素材的缓存全在 `legacy_key` 下 → 查不到 → **静默退句级**，于是 `protect-01` #8 的「分色纸」被判「音频没说」。改成**两套键都查**（先新后旧、不跨键拼），并把「退到哪一级」用 `source` 带回来，五个判据统一走 `evidence_guard.chars_of_asset` 这一个入口。
+- **查到的根因比这条假红大**：柒造库 153 个素材里 **102 个缓存只在 `legacy_key` 下、0 个只在新键下**。也就是说 `check_cards` / `check_timing`（字幕） / `edge_audit` / `speech_hygiene` 在这批片上**从来没真跑过**（master 上四支片各 0 条读数），T-024 归因里那句「4 条无词级真值黄」也是这条引起的。
+- **读数（改前 → 改后，复核人请重跑核对）**：
+
+| 命令 | 改前（master） | 改后（本分支） |
+|---|---|---|
+| `evidence_guard --project protect-01` | 2 黄（含假红 #8「分色」） | 1 黄（#2 没写 audio 的 in/out） |
+| `check_cards --project protect-01` | 0e / 5w（全「没有词级真值」） | 3e / 1w（3 条真红 → **T-037**） |
+| `check_timing --project protect-01` | 0e / 0w（词表为空，等于没校） | 0e / 0w |
+| `check_timeline --project protect-01` | 0e / 15w | 2e / 20w（2 红 = **T-035** 假红） |
+| `check_timeline --project ground-01` | 2e / 20w | 4e / 24w（#14 两条真缺陷，同 **T-033**） |
+| `check_timeline --project naming-01` | 5e / 23w | 10e / 22w（**T-035** ×2 假红、`check_timing` 那条属 **T-038**） |
+| `check_timeline --project lime-baxis` | 0e / 2w | 1e / 3w（**T-035** 假红：并列列举「白云石断烧/石灰石断烧」） |
+
+- **必须如实说的两件事**：
+  1. **红黄变多了，而且不是判据放宽能解决的**：新增红里 5 条来自 `edge_audit`「孤立提示词」的一个既有假红（单字虚词/并列结构），1 条来自 `check_timing` 字幕比对没有同音放行（ASR 把「什」写成「为」）。按铁律④这些判据**一个都没动**，单独立了 **T-035 / T-038**，负样本要求写在任务行里。
+  2. **selftest / golden 的失败是 master 既有**：`selftest` master 与本分支逐条一致（同样 4 条红：验收 🔴1「的不只是价格」、`check_subs`、`edge_audit`、品牌安全 9<10，见 T-025）；`golden` 两边都 FAIL 且逐条一致（proj79 3 红、ground-01 3 红、protect-01 5 红「大字烧进画面」）。本单未碰 `verify_film.py` / `render_hf.py` / `subs.py` / `check_subs.py`。
+- **负样本**：`test_evidence_guard.py` 新增「查表口径」4 条合同，第③条把 `keys_of` 改成只认一个不存在的键 → `source=sentence` + 报「#8 该段没有词级真值，已退句级比对，可能漏判」、0 条 error（不假绿不假红），改回后恢复 `word`。CLI 级同款：`keys_of` 打桩后跑 `evidence_guard` / `check_cards` / `check_timing`，全部只报「缺词级真值」。
+- **文档**：`SKILL.md` 增「词级真值只有一个入口」；`references/index-schema.md` 新增「缓存命名（`cache/asr` 的两套键）」一节。`references/cli.md` 重生成零差异（参数没变）。
+- **状态**：T-030 待复核。附带新挂 T-035（edge_audit 假红）、T-036（`cue_guard.words_of` 是同一套查表的第二份实现，导致口令检查在整库静默 0 命中）、T-037（protect-01 三张卡大字不是原话）、T-038（字幕比对缺同音放行）。
