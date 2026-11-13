@@ -395,3 +395,29 @@ contrast 1.10 + gamma 0.85 把亮度压下去之后，**相对彩度被顶到削
    `[0.51,0.60,0.45,0.19]` → 卡面主体 12.5%。1080 原像素左右对照的视觉判词：
    **左 3/10 → 右 8.5/10**（判词：左边「像一块生硬底板把腿压掉」、右边「信息悬浮窗，避开了主体」）。
 
+
+## 2026-11-13 · T-045 大字（keyword/behind）第一次被量
+
+`check_overlay` 里那句「大字走 .kw 层，另有 top_h 规则，不在本判据内」，把大字变成了
+**整条链路唯一没有人量过位置**的一层。后果：`dianzan-c` 10.74s 的黄字正压在一张脸上
+（1080 原像素：字框 `y 585–679`，脸 `x 0.314–0.526 / y 0.279–0.398`，视觉判词 2/10），
+而 `verify_film` 判绿——它只数「花字色占比」，字在哪、读不读得出它不知道。
+
+1. **新判据 `scripts/check_keyword_text.py`**（渲前闸门，error 退出码 8，挂在 `render_hf`
+   的声音在前/卡准入/叠加态三道之后）：① 字框 × 人脸框，卡窗内每一采样帧的每一张脸
+   重叠面积 > 0 → error（B-roll 格照量，这次的洞就在 b-roll）；② 墨迹 vs **紧邻背景**的
+   实量 ΔL p10 ≥ 12（`measure_panel` 同一套 L*/邻域/p10 口径，字形掩码来自真字体栅格化，
+   背景取 `hf/clips/*.mp4` 那几帧）；③ 单排墨迹宽 ∈ 0.62–0.78 W。
+2. **几何只有一份**：`card_layout.kw_font_px / kw_ink_box / kw_top_of / kw_isolate /
+   kw_pod_alpha`，渲染器画字与判据量字都调它们——两边各写一套公式，判的量到的和画上去的
+   早晚跑。实测预测框 vs 成片墨迹 bbox：横向 +4..+8px、纵向 −1px（三个字面宽差是 advance
+   与墨迹的差）。
+3. **大字隔离层归包管**：`packs/*.yaml` 新增 `emphasis.isolate`（fill / feather_px /
+   pad_x / pad_y / radius_px，四个包各按自己的语域给色），**画不画由 timeline 的
+   `card.isolate` 决定**——包一改不该让全片的大字都平白多一块板。实测 `dianzan-c` mg-01
+   开隔离后 ΔL 25.8 → 46.4（判据能量的那种改动）。
+4. **大字位置可以人工指定**：timeline `card.top_h`（画幅比例）。优先级写在
+   `card_layout.kw_top_of`：头顶大字（抠像失败时的自动路子，带顶部渐变）> `card.top_h` >
+   包的 `emphasis.top_h` / `behind_top_h`。
+5. **回归** `scripts/test_keyword_text.py`（挂 `selftest` ㉑）：压脸红 / 抬到头顶绿 /
+   空字红 / 亮底红 / 同帧加隔离转绿 / 95%W 红 / 真项目对齐（预测 vs 成片 bbox ≤ 12px）。

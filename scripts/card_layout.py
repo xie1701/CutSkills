@@ -46,6 +46,25 @@ SUBJ_COVER_MAX = 0.35
 BLUR_PX = 22               # focus_blur 的高斯半径（B7 给的 20–28 区间中位）
 FACE_PAD = 0.02            # 布局时的安全余量：跳切推近会让画面最多挪 ~1.5%W
 
+# ------------------------------------------------- 大字（keyword / behind）的框与隔离
+# T-045：上面那套避脸只服务 MG 卡（stat/versus/term 走 layout_cards），大字从来没量过
+# 「字框压没压脸」，也从来没量过「字读不读得出」——`verify_film` 只数花字色占比，
+# 字压在眼睛上、字被杂乱背景吃掉，读数全是绿的。这一段的几何与阈值是**渲染器与判据
+# 同一份**：`render_hf.build_html` 用 kw_font_px / kw_isolate 画，
+# `scripts/check_keyword_text.py` 用同一对函数量，两边许看不许各写一套。
+KW_KINDS = ("keyword", "keyword-big", "behind", "cutout")
+KW_WIDTH_MIN = 0.62        # 墨迹单排宽度下限（×W）：比这还窄就是「一个字顶一屏」或字号漏了
+KW_WIDTH_MAX = 0.78        # 上限：包的 fit_width 硬规则是 ≤0.72，留一点字面（advance≠墨迹）余量
+KW_DL_MIN = 12.0           # 墨迹 vs 紧邻背景的 ΔL 下限（与 test_panel_light / T-042 同一个数）
+KW_LINE_H = 1.06           # CSS `.kw span` 的 line-height
+KW_SIZE_MAX_H = 0.34       # 渲染器的字号上限：H × 这个数
+KW_TOUCH_EPS = 0.0         # 字框与人脸框的重叠面积上限：> 0 就是压上了（硬线，禁止调大）
+# 隔离层缺省（包没写 emphasis.isolate 时用这一份；只有 card.isolate 打开的那张才画）。
+# 为什么是「字后局部压暗」而不是「整屏暗场」：整屏暗场在口播格是 B7 红线，
+# 而且它改的是整个画面的曝光；一块跟着字框走的柔化板只改「字底下的那几行像素」。
+KW_ISOLATE = {"fill": "rgba(18,15,12,.42)", "feather_px": 56,
+              "pad_x": 0.05, "pad_y": 0.42, "radius_px": 26}
+
 # 一张卡「自然占多大」。宽高都是画幅比例；缩放只缩这两个数，字号跟着等比缩。
 WANT = {
     "stat": (0.80, 0.34),
@@ -306,6 +325,170 @@ def plate_tint(proj: Path, clip: Path, t: float, alpha: float = 0.26) -> dict | 
     return {"tint": f"rgba({cr},{cg},{cb},{alpha:g})", "hue": hue,
             "mean_rgb": [pr, pg, pb]}
 
+
+
+# ---------------------------------------------------------------- 大字几何（T-045）
+
+def kw_font_px(text: str, style: dict, W: int, H: int) -> int:
+    """渲染器给一张大字卡定的字号（**同一份公式**，判据不许自己再估一个）。
+
+    渲染器那行的原话：先按「fit_width × 画幅宽 ÷ 字数」给字号，再用 H×0.34 兜住
+    1–2 个字的极端情况。字数算的是卡面文本的长度（带标点，标点也是字）。
+    """
+    emph = style.get("emphasis") or {}
+    fit_w = float(emph.get("fit_width") or 0.70)
+    n = max(1, len(str(text or "")))
+    return min(int(round(W * fit_w / n)), int(H * KW_SIZE_MAX_H))
+
+
+def kw_top_of(card: dict, style: dict, W: int, H: int, override=None):
+    """这张大字卡的上沿（画幅比例）→ (top_h, 要不要顶部渐变, 要不要自己写 inline top)。
+
+    优先级（渲染器与判据同一份）：
+      ① `kw_top_override`（抠像放不到脑后时的「头顶大字」：位置由素材里的人头反算，
+         并挂一层顶部渐变压住梁柱管道——T-019 留下的路子）；
+      ② 卡自己写的 `top_h`（timeline `card.top_h`，人工指定）：**不带**顶部渐变，
+         指定位置的人自己负责；
+      ③ behind 的 `emphasis.behind_top_h` / keyword 的 `emphasis.top_h`：走 CSS，不写 inline。
+    """
+    emph = style.get("emphasis") or {}
+    if override is not None:
+        try:
+            return round(float(override), 4), True, True
+        except (TypeError, ValueError):
+            pass
+    owned = card.get("top_h")
+    if owned is not None:
+        try:
+            return round(float(owned), 4), False, True
+        except (TypeError, ValueError):
+            pass
+    if str(card.get("kind") or "") == "behind":
+        return round(float(emph.get("behind_top_h") or 0.285), 4), False, False
+    return round(float(emph.get("top_h") or 0.44), 4), False, False
+
+
+def _font_file(name: str | None):
+    """字体名 → 盘上的真文件（仅判据侧用：渲染器自己已经有 find_font）。"""
+    from render_hf import find_font          # 延迟 import：render_hf 顶层 import 本模块
+    return find_font(name) if name else None
+
+
+def kw_ink_box(text: str, style: dict, W: int, H: int, top_h: float | None = None):
+    """大字**实际会落到画面上的墨迹框** [x, y, w, h]（像素，原点左上）。
+
+    不是「70% 宽」的估算：字体的 advance 与墨迹不是一回事（三个字的「门」就比
+    三个汉字窄），所以拿真字体文件量。排版模型与 CSS 对齐：
+      · `.kw` 是 `left:0; right:0` 的 flex 容器、`justify-content:center` → 行盒水平居中；
+      · `line-height:1.06` → 半行距 = (1.06×字号 − (ascent+descent)) / 2；
+      · 墨迹 = 行盒顶 + 半行距 + 字体自己的墨迹偏移。
+    实测校准（dianzan-c 三张 keyword 卡，1080 原像素量出来）：预测框与渲出帧的墨迹
+    横向差 ≤ 8px、纵向差 ≤ 1px（宽 756 预测 / 742 实测——差的 14px 是 advance 与墨迹的差）。
+
+    返回 None = 字体文件找不到（判不了，调用方必须报出来，不许当合格）。
+    """
+    from PIL import ImageFont
+    emph = style.get("emphasis") or {}
+    fp = _font_file(emph.get("font"))
+    if fp is None:
+        return None
+    px = kw_font_px(text, style, W, H)
+    try:
+        font = ImageFont.truetype(str(fp), px)
+    except OSError:
+        return None
+    asc, desc = font.getmetrics()
+    bb = font.getbbox(str(text or ""))            # 墨迹框（相对 ascent-left 原点）
+    adv = font.getlength(str(text or ""))
+    if top_h is None:
+        top_h = float(emph.get("top_h") or 0.44)
+    half = (KW_LINE_H * px - (asc + desc)) / 2.0
+    x = (W - adv) / 2.0 + bb[0]
+    y = top_h * H + half + bb[1]
+    w, h = bb[2] - bb[0], bb[3] - bb[1]
+    return {"px": [int(round(x)), int(round(y)), int(round(w)), int(round(h))],
+            "box": [round(x / W, 4), round(y / H, 4), round(w / W, 4), round(h / H, 4)],
+            "font_px": px, "font": str(fp), "top_h": round(float(top_h), 4),
+            "adv_px": int(round(adv))}
+
+
+def ink_mask(text: str, style: dict, W: int, H: int, top_h: float | None = None):
+    """字形掩码（同字号、同位置、同字体），判据拿它当「墨迹落在哪几个像素」。
+
+    `measure_panel` 那一套「笔画 vs 紧邻底板」必须先知道哪几个像素是笔画；
+    判据在**渲之前**就要知道这件事，所以用同一份字体文件把字栅格化。
+    返回 (mask[H×W bool], box_px) 或 (None, None)。
+    """
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+    box = kw_ink_box(text, style, W, H, top_h)
+    if box is None:
+        return None, None
+    px = box["font_px"]
+    font = ImageFont.truetype(box["font"], px)
+    asc, _desc = font.getmetrics()
+    half = (KW_LINE_H * px - sum(font.getmetrics())) / 2.0
+    x = (W - font.getlength(str(text))) / 2.0
+    y = float(box["top_h"]) * H + half
+    im = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(im).text((x, y), str(text), fill=255, font=font, anchor="la")
+    m = np.asarray(im) > 128
+    if not m.any():
+        return None, None
+    return m, box
+
+
+def parse_rgba(s: str):
+    """'rgba(18,15,12,.42)' / '#RRGGBB' → ((r,g,b), alpha 0–1)。判据合成背景用。"""
+    import re
+    t = str(s or "").strip()
+    m = re.match(r"^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)"
+                 r"(?:\s*,\s*([\d.]+)\s*)?\)$", t)
+    if m:
+        a = float(m.group(4)) if m.group(4) is not None else 1.0
+        return (int(float(m.group(1))), int(float(m.group(2))), int(float(m.group(3)))), a
+    h = t.lstrip("#")
+    if len(h) == 6 and all(c in "0123456789abcdefABCDEF" for c in h):
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)), 1.0
+    return (0, 0, 0), 0.0
+
+
+def kw_isolate(style: dict, box_px, W: int, H: int) -> dict:
+    """大字隔离层（字后那块柔化压暗）的几何与底色。渲染器与判据同一份。
+
+    包 `emphasis.isolate` 决定它长什么样（色、浓度、柔化半径、外扩），缺字段逐项回退到
+    KW_ISOLATE；**画不画**由卡自己决定（timeline `card.isolate`），不是包一改全片的字
+    都跟着变——同一包里有的字本来就压在干净背景上，不该平白多一块板。
+    """
+    emph = style.get("emphasis") or {}
+    tok = dict(KW_ISOLATE)
+    got = emph.get("isolate")
+    if isinstance(got, dict):
+        tok.update({k: v for k, v in got.items() if v is not None})
+    x, y, w, h = [float(v) for v in box_px]
+    px = max(0.0, float(tok["pad_x"]) * W)
+    py = max(0.0, float(tok["pad_y"]) * h)
+    rect = [round(x - px), round(y - py), round(w + 2 * px), round(h + 2 * py)]
+    (r, g, b), a = parse_rgba(tok["fill"])
+    return {"px": rect, "feather_px": int(round(float(tok["feather_px"]))),
+            "radius_px": int(round(float(tok["radius_px"]))),
+            "rgba": f"rgba({r},{g},{b},{a:g})", "rgb": [r, g, b], "alpha": a}
+
+
+def kw_pod_alpha(geo: dict, W: int, H: int):
+    """隔离层在画面上的 alpha 场（0–1，H×W）。判据合成背景用：
+    `frame × (1−α) + fill × α`，与渲染器那条 CSS 的 `filter:blur(radius)` 同半径。
+    """
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+    im = Image.new("L", (W, H), 0)
+    x, y, w, h = geo["px"]
+    ImageDraw.Draw(im).rounded_rectangle([x, y, x + w, y + h],
+                                         radius=max(0, geo["radius_px"]), fill=255)
+    f = geo["feather_px"]
+    if f > 0:
+        im = im.filter(ImageFilter.GaussianBlur(f))
+    return np.asarray(im, dtype=np.float32) / 255.0 * float(geo["alpha"])
 
 
 # ---------------------------------------------------------------- 布局搜索

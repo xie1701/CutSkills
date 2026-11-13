@@ -426,6 +426,16 @@
 | `--library` | — |
 | `--json` | 开关 |
 
+### `check_keyword_text.py`
+*CutSkills · 大字（keyword / behind）裁判：压脸 / 可读性 / 单排宽度*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--film` | 顺手对一遍渲出的成片（字框改成从帧里量墨迹 bbox） |
+| `--pack-file` | 直接指定包装包 yaml（夹具用；缺省按 timeline.pack 找） |
+| `--json` | 开关 |
+
 ### `check_overlay.py`
 *CutSkills · 叠加态裁判：卡压脸 / 口播整屏暗场 / 重卡撞字幕（原则 B7 + B9）*
 
@@ -955,6 +965,11 @@
 
 ### `test_hygiene_fixtures.py`
 *负样本夹具的**真音频**验证：判据在真声音上还能不能抓住。*
+
+（无参数）
+
+### `test_keyword_text.py`
+*T-045 回归：`check_keyword_text` 的三条大字判据必须判红，且不许误杀合格卡。*
 
 （无参数）
 

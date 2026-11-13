@@ -84,6 +84,22 @@ def kw_ink_level(in_share: float, base_share, kind: str) -> tuple[str, float]:
     return ("green" if ink > floor else "red"), ink
 
 
+def kw_box_px(card: dict, W: int, H: int, margin: int = 24):
+    """大字卡**自己**在画面上的框（渲器落盘的 `cards.json.kw_box_px`），四边留 margin。
+
+    为什么不去现场算：`verify_film` 手里的 `style` 是 `pack_style.to_style()` 转过一道的
+    渲染 schema（`emphasis.top_h` / `fit_width` 到这一步已经变成 `center_y_px` 之类的
+    另一套字段），拿它算字框会算出第二次错误的几何。画字的和记框的是渲染器同一次调用
+    （`render_hf` 写 `kw_box_px` 用的是 `build_html` 同一个函数），判据只管读。
+    老项目没有这个字段 → 返回 None，退回按卡型的固定带子（旧行为，不退步）。
+    """
+    b = card.get("kw_box_px")
+    if not b or len(b) != 4:
+        return None
+    return (max(0, int(b[0]) - margin), max(0, int(b[1]) - margin),
+            min(W, int(b[0]) + int(b[2]) + margin), min(H, int(b[1]) + int(b[3]) + margin))
+
+
 def text_band(kind: str, box, W: int, H: int) -> tuple[int, int, int, int]:
     """大字/花字该在画面的哪一带取样——**按卡型分开**。
 
@@ -91,10 +107,15 @@ def text_band(kind: str, box, W: int, H: int) -> tuple[int, int, int, int]:
     的排版天然更高：`emphasis.top_h: 0.30` 只是上限，字撑到 70% 屏宽之后整块上移，
     实测 `qizao-ground-01` 那张 behind 的「售楼部 · 酒店」黄字在 **y 115–204**
     （画面 6%–11%H），而中段带从 28%H 才开始——必然量空，报「字没上屏」（假红）。
-    有 `layout.box_px` 时以卡自己的框为准（外面各留 24px 余量，由调用方给）。
+    有卡自己的框时（`layout.box_px` / `kw_box_px`，外面各留 24px 余量，由调用方给）
+    **一律以它为准**——T-045 的 `dianzan-c` mg-02 从 0.30H 抬到 0.165H 之后，
+    keyword 的中段带（28%H 起）同样量空，报「花字色 0.00%」（和 behind 那条假红
+    一个病根：带子写死在判据里，卡挪了判据没挪）。
     """
+    if box:
+        return box
     if kind in ("behind", "cutout"):
-        return box or (0, 0, W, int(H * 0.45))
+        return (0, 0, W, int(H * 0.45))
     return (0, int(H * 0.28), W, int(H * 0.76))
 
 
@@ -626,6 +647,14 @@ def main() -> int:
                 _m = 24
                 _box = (max(0, _bx - _m), max(0, _by - _m),
                         min(W, _bx + _bw + _m), min(H, _by + _bh + _m))
+            elif kind in ("keyword", "behind", "cutout"):
+                # 大字以前没有自己的框，于是按「卡型固定在中段带」量。卡一旦按作者的
+                # `card.top_h` 挪到头顶（T-045 的 dianzan-c mg-02：0.30H → 0.165H），
+                # 固定带里就量不到字，报「大字烧进画面 0.00%」——假红，和 T-041 那条
+                # behind 假红同一个病根。现在读渲器落盘的 `kw_box_px`（画字与记框是同一个
+                # 函数），取样带从「三分之一屏」收成「这块字+24px」：这不是放宽，
+                # 是把带子对齐到字真正在的地方。老项目没这个字段 → 仍是固定带（不退步）。
+                _box = kw_box_px(c, W, H)
             if kind in ("keyword", "behind", "cutout"):
                 # 只在窗口中点取一帧会撞上入场动画的半路（擦显才到一半、字刚出来三分一），
                 # 实测同一块字中点 0.02%、往后 0.1s 就 0.13%——一帧定生死会寃红。
@@ -744,6 +773,8 @@ def main() -> int:
             if im is not None:
                 kind = str(card.get("kind") or "card")
                 if kind in ("keyword", "behind", "cutout"):
+                    # 这条兜底只在「没有 out/cards.json」的老项目上跑（渲器没机会落盘
+                    # kw_box_px），按卡型的固定带子量——旧行为，不假装知道新位置。
                     _band = text_band(kind, None, W, H)
                     share = kw_share(im, _band)
                     _bases = []

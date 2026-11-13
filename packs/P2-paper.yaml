@@ -40,6 +40,14 @@ emphasis:
   - 304
   fit_width: 0.7
   top_h: 0.3
+  # 大字隔离层（T-045）：只有 timeline 里 `card.isolate: true` 的那张才画。
+  # 纸感包用暖褐不用黑：纸上一块纯黑会读成「补丁」，同族色才是「压暗」。
+  isolate:
+    fill: 'rgba(52,40,30,.32)'
+    feather_px: 80
+    pad_x: 0.05
+    pad_y: 0.42
+    radius_px: 26
   max_one_action_per_caption: true
 shots:
   talking_median_s: 2.4
