@@ -900,7 +900,7 @@
 （无参数）
 
 ### `test_brand_safety.py`
-*CutSkills · T-007 品牌安全与第三方字样处置回归测试*
+*CutSkills · T-007 / T-036 品牌安全与第三方字样处置回归测试*
 
 （无参数）
 
