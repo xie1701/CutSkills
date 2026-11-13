@@ -123,6 +123,24 @@ def runs(src: Path, i: float, o: float,
     return out
 
 
+def runs_strict(src: Path, i: float, o: float,
+                **kw) -> list[tuple[float, float]] | None:
+    """同 `runs()`，但把「量不出」和「真没有静音」分开。
+
+    `runs()` 两种情况都返回 `[]`：素材不在这台机器上、ffmpeg 解不出音频、以及
+    窗口里干干净净全是说话。前两种是**没量成**，拿它当「没有停顿」就会把长条一律放行。
+    2026-11-13（T-029）：「字幕停留」的单呼吸组豁免要先证明窗口里没有停顿，
+    所以这里必须能说出「没量成」——返回 None 就是没量成。
+    """
+    src = Path(src)
+    if not src.exists() or o <= i:
+        return None
+    rs = runs(src, i, o, **kw)
+    if rs:
+        return rs
+    return [] if _envelope(src, i, o) is not None else None
+
+
 def silent_between(src: Path, a: float, b: float, **kw) -> float:
     """[a,b] 之间**真有**多长的静音。"""
     if b <= a:

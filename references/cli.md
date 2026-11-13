@@ -259,6 +259,7 @@
 | 参数 | 说明 |
 |---|---|
 | `--project` | **必填** |
+| `--library` | 素材库根（字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json |
 | `--style` | — |
 | `--film` | 成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4） |
 
@@ -443,6 +444,7 @@
 | 参数 | 说明 |
 |---|---|
 | `--project` | **必填** |
+| `--library` | 素材库根（量字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json |
 | `--json` | 开关 |
 
 ### `check_timeline.py`
@@ -896,6 +898,11 @@
 
 ### `test_evidence_guard.py`
 *evidence_guard 的合同测试：判据会不会在**该红的时候红、该绿的时候绿**。*
+
+（无参数）
+
+### `test_hold_breath.py`
+*T-029 合同测试：「字幕停留」的单呼吸组豁免，放行该放行的、别放过该抓的。*
 
 （无参数）
 

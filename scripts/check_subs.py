@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -40,23 +41,151 @@ def load(p: Path, default=None):
 
 
 HOLD_MIN, HOLD_MAX = 0.8, 3.2
+# ── 字幕停留的「单呼吸组」豁免（2026-11-13 T-029）────────────────────
+# 3.2s 是「一句话赖在屏幕上」的上限，但它量不出**语速**：慢语速的人真连着讲
+# 3.3–4.1 秒才把 8–9 个字说完（ASR 会把一处停顿记进某个字的时长里），
+# 而 `subs.py` 的规则是「没有停顿就不许拆」（GAP_BREAK = 0.30）。
+# 两条规则在慢语速上互锁，永远拆不出来。
+# 实测（2026-11-13，现行 subs.py 产出的 ground-01）：4 条 3.30–4.38s 的长条里，
+# 1 条窗口静音 0.00s（真一口气讲完，旧判据在这里是**误报**）；
+# 另外 3 条有 0.46–1.22s 真静音（ASR 把停顿算进了某个字的时长里）——那三条该判红。
+# 样本与实测读数：references/negative-samples/hold-breath-groups.md。
+#
+# 所以：窗口内**实量**不到 ≥BREATH_MIN 的停顿 → 这是一口气没断，上限放到 4.5s；
+#       窗口内量到停顿却仍撑过 3.2s → 那才是「话停了字还赖着」，照旧判红。
+# 停顿一律用 `silence.runs()` 量真静音，**不许**拿 ASR 词起点间隔猜（ASR 会漏词）。
+HOLD_MAX_SINGLE = 4.5     # 单呼吸组（窗口内最长停顿 < BREATH_MIN）的上限
+BREATH_MIN = 0.30         # 与 subs.GAP_BREAK 同口径：≥这个才算「换了一口气」
 
 
-def hold_judge(cues: list[dict]) -> tuple[list[dict], list[dict]]:
+def _library_of(proj: Path, given: str | Path | None = None) -> Path | None:
+    """素材库根目录：显式给 > CUTSKILLS_LIB > 祖先目录里有 `_cutskills/index.json` 的那一层。
+
+    和 `check_edl` 同一口径。找不到就是 None——量不出静音，按严格上限判，不静默放行。
+    """
+    if given:
+        return Path(given).expanduser().resolve()
+    env = os.environ.get("CUTSKILLS_LIB")
+    if env and (Path(env).expanduser() / "_cutskills" / "index.json").exists():
+        return Path(env).expanduser().resolve()
+    for p in proj.parents:
+        if (p / "_cutskills" / "index.json").exists():
+            return p
+    return None
+
+
+def longest_pause(src: Path, i: float, o: float) -> float | None:
+    """窗口 [i,o] 里最长的一段**没声音**（秒）。量不出返回 None。
+
+    贴着窗口两头的也算：字幕先亮后撤（或先撤后亮），那半秒同样没人说话——
+    「话 2 秒就说完、字幕赖到 3.3 秒」的尾巴就是这种。
+    所以不做「内部才算」的过滤：安静 0.30s 以上，就是换了一口气。
+    """
+    import silence as SI
+    rs = SI.runs_strict(Path(src), i, o, min_d=BREATH_MIN)
+    if rs is None:
+        return None
+    return round(max((e - s for s, e in rs), default=0.0), 3)
+
+
+def make_hold_probe(proj: Path, library: str | Path | None = None):
+    """造一个 `probe(cue) -> 窗口内最长停顿 | None`。
+
+    把一个字幕窗口从**成片时间**映回**素材时间**，再拿 `silence` 实量里面最长的一处停顿。
+    映射要三样东西：`out/shots.json`（每格在成片里的时长，累加就是格子起点）、
+    `timeline.json` / `edl.json`（每格的素材与素材内入点）、素材库根目录。
+
+    为什么不能只看词起点间隔：ASR 会漏词，也会把停顿记进某个字的时长
+    （ground-01 那句「其中有」的「有」占了 1.62s）——间隔大不等于没声音。
+    这里差一个东西就返回 None（调用方按 3.2s 严格判），不拿「没量成」当「没停顿」。
+    """
+    shots = load(proj / "out" / "shots.json")
+    if not shots:
+        return None
+    segs: dict = {}
+    for f in ("timeline.json", "edl.json"):
+        d = load(proj / f) or {}
+        for el in (d.get("elements") or d.get("segments") or []):
+            au = el.get("audio") or {}
+            segs[el.get("n")] = (au.get("asset") or el.get("asset"),
+                                  float(au.get("in", el.get("in") or 0.0)))
+        if segs:
+            break
+    if not segs:
+        return None
+    lib = _library_of(proj, library)
+    if lib is None:
+        return None
+    # 每格在成片里的区间：shots 按时长累加，同一格的多镜并成一个区间
+    spans: list[tuple] = []
+    t = 0.0
+    for s in shots:
+        d = float(s.get("dur") or 0.0)
+        n = s.get("seg")
+        if spans and spans[-1][0] == n:
+            spans[-1] = (n, spans[-1][1], t + d)
+        else:
+            spans.append((n, t, t + d))
+        t += d
+
+    def probe(cue: dict) -> float | None:
+        st = float(cue["start"])
+        hit = None
+        # 先按 el 找（现行 subs.json 都有），再退回纯时间定位（老文件没有 el）
+        for sn, a_, b_ in spans:
+            if sn == cue.get("el") and a_ - 1e-6 <= st < b_ + 1e-6:
+                hit = (sn, a_)
+                break
+        if hit is None:
+            for sn, a_, b_ in spans:
+                if a_ - 1e-6 <= st < b_ - 1e-6:
+                    hit = (sn, a_)
+                    break
+        if hit is None:
+            return None
+        sn, a_ = hit
+        seg = segs.get(sn)
+        if not seg or not seg[0]:
+            return None
+        src = lib / str(seg[0])
+        i = seg[1] + (st - a_)
+        o = i + (float(cue["end"]) - st)
+        return longest_pause(src, i, o)
+
+    return probe
+
+
+def hold_judge(cues: list[dict], probe=None) -> tuple[list[dict], list[dict]]:
     """每条字幕的停留时间。返回 (判红, 提示)。
 
     有稿子的片子里句读是写字的人定的：快语速下一句话只有 0.6 秒是**事实**，
     硬拉长只能破坏句子。所以「收在句读上、0.6–0.8 秒」只记提示；判红的是
-    低于 0.6 秒、超过 3.2 秒、或者被宽度硬拆出来的短条。
+    低于 0.6 秒、超过上限、或者被宽度硬拆出来的短条。
+
+    上限分两档（2026-11-13 T-029）：
+      · 窗口内实量到 ≥BREATH_MIN 停顿（或量不出）→ HOLD_MAX = 3.2s；
+      · 窗口内最长停顿 < BREATH_MIN → 单呼吸组，HOLD_MAX_SINGLE = 4.5s。
+    第二档不是放宽，是承认「他一口气真的讲了这么久」：拆开反而违背
+    「一段字幕必须是一个完整呼吸组」（subs.py 规则 ②）。
+    没给 probe 就当量不出，一律按 3.2s 判。
     """
     bad, note = [], []
     for c in cues:
         dur = round(float(c["end"]) - float(c["start"]), 3)
         clause = str(c.get("break_after") or "") == "clause"
-        if dur < 0.6 or dur > HOLD_MAX + 0.02 or (dur < HOLD_MIN - 0.02 and not clause):
-            bad.append({"text": str(c.get("text"))[:10], "s": dur})
+        limit, pause = HOLD_MAX, None
+        if dur > HOLD_MAX + 0.02 and probe is not None:
+            pause = probe(c)
+            if pause is not None and pause < BREATH_MIN:
+                limit = HOLD_MAX_SINGLE
+        if dur < 0.6 or dur > limit + 0.02 or (dur < HOLD_MIN - 0.02 and not clause):
+            bad.append({"text": str(c.get("text"))[:10], "s": dur,
+                        "limit": limit, "pause": pause})
         elif dur < HOLD_MIN - 0.02:
-            note.append({"text": str(c.get("text"))[:10], "s": dur})
+            note.append({"text": str(c.get("text"))[:10], "s": dur, "why": "clause"})
+        elif limit > HOLD_MAX:
+            note.append({"text": str(c.get("text"))[:10], "s": dur,
+                        "why": "single", "pause": pause})
     return bad, note
 
 
@@ -159,6 +288,8 @@ def semantic_judge(cues: list[dict], suspects: list[dict] | None = None,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
+    ap.add_argument("--library", default=None,
+                    help="素材库根（量字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -189,7 +320,14 @@ def main() -> int:
     # 有稿子的片子里，句读是写的人定的：快语速下一句话只有 0.6 秒是**事实**，
     # 硬把它拉长只能破坏句子。所以「收在句读上、并且 0.6–0.8 秒」记为提示，
     # 真正判红的是：低于 0.6 秒，或者被宽度硬拆出来的短条（那种本来可以避免）。
-    hold_bad, hold_note = hold_judge(cues)
+    #
+    # 3.2s 是「赖在屏幕上」的上限，不是语速的上限：慢语速的人一口气真能连着说 3.3–4.1 秒，
+    # 而拆条规则（subs.GAP_BREAK）在不许切的地方不切。所以超过 3.2s 的条要先**量**窗口里
+    # 有没有真停顿（silence.runs，不看词起点间隔）：量不到 ≥0.30s 停顿 = 单呼吸组，
+    # 上限放到 4.5s；量得到停顿却仍超过 3.2s = 话停了字还赖着，照旧判红。
+    hold_probe = make_hold_probe(proj, a.library)
+    hold_bad, hold_note = hold_judge(cues, probe=hold_probe)
+    hold_single = [x for x in hold_note if x.get("why") == "single"]
 
     # 助词孤行：判据抽到 dangling_judge()，验收层也要跑同一条，别两边各写一遍。
     tail = dangling_judge(cues)
@@ -273,8 +411,11 @@ def main() -> int:
         "emphasis_cues": ({"value": em, "pass": em > 0, "need": ">0"} if colorize
                           else {"value": em, "pass": em == 0, "need": "=0（已取消变色）"}),
         "fade_s": {"value": fade, "pass": fade <= FADE_MAX, "need": f"<={FADE_MAX}"},
-        "hold": {"value": len(hold_bad), "pass": not hold_bad, "need": f"每条 {HOLD_MIN}–{HOLD_MAX}s",
-                 "note": [f"{x['text']} {x['s']}s" for x in hold_note[:3]]},
+        "hold": {"value": len(hold_bad), "pass": not hold_bad,
+                 "need": f"每条 {HOLD_MIN}–{HOLD_MAX}s（单呼吸组 {HOLD_MAX_SINGLE}s）",
+                 "note": [f"{x['text']} {x['s']}s" for x in hold_note[:3]],
+                 "single_breath": [f"{x['text']} {x['s']}s" for x in hold_single[:5]],
+                 "probed": hold_probe is not None},
         "dangling": {"value": len(tail), "pass": not tail, "need": "助词不孤行"},
         # 未修正的嫌疑残词：命中就是「声音里说的是 A，字幕印的是 B」
         "suspect_words": {"value": len(sem["suspect"]), "pass": not sem["suspect"],
@@ -294,6 +435,7 @@ def main() -> int:
            "overlap": overlap[:5],
            "frames": "✅ 半开帧窗" if has_frames else "老文件没有 sf/ef，重渲后生效",
            "hold": hold_bad[:5], "dangling": tail[:5],
+           "hold_single_breath": hold_single[:5], "hold_probed": hold_probe is not None,
            "semantic": {"suspect": sem["suspect"][:8], "stutter": sem["stutter"][:8],
                         "magnitude_bad": sem["magnitude_bad"][:8],
                         "magnitude_note": sem["magnitude_note"][:8]},
@@ -313,7 +455,13 @@ def main() -> int:
           f" · 帧窗 {'✅' if has_frames and not bad_frames else ('✗' if bad_frames else '老文件')}")
     _ok = (em > 0) if colorize else (em == 0)
     print(f"  停留 {'✅' if not hold_bad else '✗ ' + str(len(hold_bad))}"
-          f"（每条 {HOLD_MIN}–{HOLD_MAX}s）")
+          f"（每条 {HOLD_MIN}–{HOLD_MAX}s；单呼吸组可到 {HOLD_MAX_SINGLE}s）")
+    if hold_single:
+        print(f"    · 单呼吸组放行 {len(hold_single)} 条（窗口内静音 <{BREATH_MIN}s）："
+              + "、".join(f"{x['text']} {x['s']}s" for x in hold_single[:3]))
+    elif hold_probe is None and any(
+            float(c["end"]) - float(c["start"]) > HOLD_MAX + 0.02 for c in cues):
+        print(f"    · 静音量不了（没 shots.json / 素材库不在本机），超 {HOLD_MAX}s 的条按严格上限判")
     print(f"  助词孤行 {'✅' if not tail else '✗ ' + str(len(tail))}"
           + ("" if not tail else f"  例：{tail[0]['text']}（{tail[0]['why']}）"))
     print(f"  残词 {'✅' if not sem['suspect'] else '✗ ' + str(len(sem['suspect']))}"

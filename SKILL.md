@@ -108,13 +108,14 @@ python3 scripts/render_hf.py --project <项目> --extractor own --quality looks 
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
-python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s/助词孤行/重叠/硬切 + 残词/口吃重尾/荒谬量级门禁（T-017）
+python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s（单呼吸组 4.5s）/助词孤行/重叠/硬切 + 残词/口吃重尾/荒谬量级门禁（T-017）
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/hooks.py --project <项目> --check          # 校验前 3 秒策略合规性与通过性（0: OK/WARN, 1: FAIL）
 python3 scripts/test_hooks_policy.py                      # 前 3 秒策略真判定回归（正负样本与持久化）
 python3 scripts/test_brand_safety.py                      # 品牌安全与第三方字样处置回归（T-007：FESTOOL/PPG 拦截与核销）
 python3 scripts/test_semantic_check.py                     # 语义校对闭环回归（T-017：欧阳三片真错字检出/清零/否定字硬拦/零误杀）
+python3 scripts/test_hold_breath.py                        # 字幕停留的单呼吸组豁免回归（T-029：3.3/3.6s 连续话音判过，2s 说完赖到 3.4s 仍判红）
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
 
 # 阈值校准（改判据之前先量参考片自己的读数，别拍脑袋定标准）
@@ -144,7 +145,7 @@ python3 scripts/golden.py
 卡片为什么「只许晚不许早」、大字怎么压到人物脑后关、每张卡配什么音效，见
 [references/audio-first.md](references/audio-first.md)；字幕五条规矩与实现见
 [references/subtitle-rules.md](references/subtitle-rules.md)；版式五条硬规则（单行 ≤10 展示单位、
-每条 0.8–3.2s、助词不孤行、无底条）见 [references/typography.md](references/typography.md) 第五节。
+每条 0.8–3.2s、单呼吸组可到 4.5s、助词不孤行、无底条）见 [references/typography.md](references/typography.md) 第五节。
 
 **MG（代码画的动效卡）**是包装的第三块：基础卡 `keyword-big` / `stat` / `steps` / `versus` / `term` 与修辞扩充卡（`proportion` 比例条 / `day-night` 时段接力 / `chips` 并列招牌）。
 选哪张由这一格的**话语修辞关系**决定（形状即语义：互补经营不许误用对抗 `VS`，常识菜名不许误用百科词条），不由风格决定；风格只决定它的**视觉语域（Visual Register）**与 `tokens`（餐饮茶楼用暖食烟火底，严禁套冷黑蓝科技弹窗把食物压灰）。

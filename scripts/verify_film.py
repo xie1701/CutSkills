@@ -157,6 +157,8 @@ def load_timeline_or_edl(proj: Path) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
+    ap.add_argument("--library", default=None,
+                    help="素材库根（字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json")
     ap.add_argument("--style", default=None)
     ap.add_argument("--film", default=None,
                     help="成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4）")
@@ -1087,16 +1089,26 @@ def main() -> int:
         if not _cues:
             add("字幕停留", "没有 out/subs.json", "yellow", "这套包装没上字幕层，或还没渲")
         else:
-            _hb, _hn = _cs.hold_judge(_cues)
-            _short = [x for x in _hb if x["s"] < 0.6]
-            _long = [x for x in _hb if x["s"] > _cs.HOLD_MAX + 0.02]
+            # 3.2s 是「赖在屏幕上」的上限，不是语速的上限：慢语速的
+            # 一口气真能连着说 3.3–4.1 秒。超 3.2s 的条先**量**窗口里的真停顿，
+            # 量不到 ≥0.30s 停顿（单呼吸组）才放到 4.5s（T-029，2026-11-13）。
+            _probe = _cs.make_hold_probe(proj, a.library)
+            _hb, _hn = _cs.hold_judge(_cues, probe=_probe)
+            _single = [x for x in _hn if x.get("why") == "single"]
             if _hb:
                 add("字幕停留", f"{len(_hb)}/{len(_cues)} 条越界"
                                 f"（最短 {min(x['s'] for x in _hb):.2f}s）", "red",
                     "闪一下或赖在屏幕上：" + "、".join(x["text"] for x in _hb[:3]))
             else:
-                add("字幕停留", f"{len(_cues)} 条全在 {_cs.HOLD_MIN}–{_cs.HOLD_MAX}s 内", "green",
-                    f"另有 {len(_hn)} 条收在句读上的短句（可接受）" if _hn else "")
+                _head = (f"另有 {len(_single)} 条单呼吸组到 {_cs.HOLD_MAX_SINGLE}s（窗口内无 "
+                         f"≥{_cs.BREATH_MIN}s 停顿）" if _single else
+                         f"另有 {len(_hn)} 条收在句读上的短句（可接受）" if _hn else "")
+                add("字幕停留", f"{len(_cues)} 条全在 {_cs.HOLD_MIN}–{_cs.HOLD_MAX}s 内", "green", _head)
+            # 量不出静音时不停默：超 3.2s 的条全部按严格上限判，但要让人知道是「没量成」
+            if _probe is None and any(
+                    float(c["end"]) - float(c["start"]) > _cs.HOLD_MAX + 0.02 for c in _cues):
+                add("字幕停留静音探针", "没跑起来", "yellow",
+                    "没 shots.json 或素材库不在本机——超 3.2s 的条按严格上限判，没有豁免")
             _dg = _cs.dangling_judge(_cues)
             if _dg:
                 add("助词孤行", f"{len(_dg)} 条", "red",
