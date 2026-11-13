@@ -335,6 +335,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_visual_grade.py")])
     must("声/画双评级门禁回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑯ 孤立提示词判据回归（T-037：并列列举 / 单字虚词 / 排比不红，重起句必红）")
+    r = sh([PY, str(ROOT / "scripts" / "test_edge_audit.py")])
+    must("孤立提示词判据回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:
