@@ -808,6 +808,32 @@ def pip_overlay(raw: Path, dst: Path, pips: list[dict], crf: int = 17) -> int:
 MASK_BIN = Path(__file__).resolve().parent / "native" / "person_mask"
 
 
+def GSAP_CANDIDATES() -> list[Path]:
+    """gsap.min.js 的候选位置，按「离仓库近」排序。
+
+    以前这里写死 `/Users/jerry/.agents/skills/talking-head-recut/...`——那台机器换了工具链之后
+    路径就没了，新建项目一走到这一步直接 `SystemExit("缺 gsap")`，而已有项目因为 hf/assets/ 里
+    早拷过一份所以完全看不出问题（2026-11-13 T-018 复核时撞上）。所以改成候选表：
+    仓库自带的优先，其次几个 skill 目录里的副本。
+    """
+    home = Path.home()
+    return [
+        SKILL / "assets" / "gsap.min.js",
+        SKILL / "demo" / "pack-micro" / "hf" / "assets" / "gsap.min.js",
+        home / ".cola" / "skills" / "srt-motion-cards" / "assets" / "gsap.min.js",
+        home / ".claude" / "skills" / "talking-head-recut" / "assets" / "vendor" / "gsap.min.js",
+        home / ".agents" / "skills" / "talking-head-recut" / "assets" / "vendor" / "gsap.min.js",
+    ]
+
+
+def _gsap_src() -> Path | None:
+    for p in GSAP_CANDIDATES():
+        if p.is_file() and p.stat().st_size > 4096:
+            return p
+    return None
+
+
+
 def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
     """做一层"只有人、背景透明"的视频，用来把大字压到人后面。
 
@@ -2522,11 +2548,13 @@ def main():
         if not dst.exists() or dst.stat().st_size != f.stat().st_size:
             shutil.copy2(f, dst)
         fonts[k] = f.name
-    gsap_src = Path("/Users/jerry/.agents/skills/talking-head-recut/assets/vendor/gsap.min.js")
     gsap_dst = hf / "assets" / "gsap.min.js"
     if not gsap_dst.exists():
-        if not gsap_src.exists():
-            raise SystemExit(f"缺 gsap：{gsap_src}")
+        gsap_src = _gsap_src()
+        if gsap_src is None:
+            raise SystemExit("缺 gsap：找遍下面这些地方都没有 gsap.min.js——\n  "
+                             + "\n  ".join(str(p) for p in GSAP_CANDIDATES())
+                             + "\n装法：把任意一份 gsap.min.js 放到本仓 assets/gsap.min.js 即可。")
         shutil.copy2(gsap_src, gsap_dst)
 
     # 3) 写 HTML

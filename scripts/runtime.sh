@@ -136,6 +136,23 @@ cmd_check() {
       echo "    修法见 references/ffmpeg-zimg.md。没有它，HDR 素材压出来偏亮偏灰。"
     fi
   fi
+  # 前端运行时 gsap：2026-11-13 复核撞上——render_hf 里写死的 vendor 路径
+  # (/Users/jerry/.agents/skills/talking-head-recut/...) 本机已不存在，新建项目走到这一步
+  # 直接 SystemExit("缺 gsap")，而有 hf/assets/ 缓存的老项目完全看不出问题。
+  echo "前端运行时（gsap）："
+  REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  gsap_hit=""
+  for g in "$REPO/assets/gsap.min.js" "$REPO/demo/pack-micro/hf/assets/gsap.min.js" \
+           "$HOME/.cola/skills/srt-motion-cards/assets/gsap.min.js" \
+           "$HOME/.claude/skills/talking-head-recut/assets/vendor/gsap.min.js"; do
+    [ -s "$g" ] && { gsap_hit="$g"; break; }
+  done
+  if [ -n "$gsap_hit" ]; then
+    printf '  ok   %s\n' "$gsap_hit"
+  else
+    echo "  ！找不到 gsap.min.js——新建项目渲染会在拷资产这一步直接退出"
+    echo "    修法：把任意一份 gsap.min.js 放到 $REPO/assets/gsap.min.js"
+  fi
   # 转写引擎 coli：2026-11-13 T-023 实测过一次「整个 PATH 上都没有它」——
   # Cola 升级后不再把 @marswave/coli 暴露成系统命令，而报错只说「coli 不在 PATH」，
   # 没人知道受害面有多大。所以 check 里单独一段，明说在哪、能不能跑、模型在不在。
