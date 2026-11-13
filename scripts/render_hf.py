@@ -890,6 +890,32 @@ def make_fg(proj: Path, clip: Path, dur: float, fps: int) -> Path | None:
 CARD_LAG = 0.15
 
 
+# 本轮渲卡片时「写了的锚词在词级真值里找不到」的清单（T-034）。
+# 以前这种卡只往 stderr 打一句「沿用默认时机」就照画：卡出得早/晚，声音在哪没人管，
+# `check_timing` 又只看 lag 数不数得到——负样本 B 里 lag 3880ms 都能判 0 error。
+ANCHOR_MISS: list[str] = []
+
+
+def window_chars(chars, a_in: float, dur_q: float):
+    """这一格音频窗口内的字级真值 `[(字, 起, 止)]`。"""
+    return [(ch, st, en) for ch, st, en in chars
+            if a_in - 0.05 <= st < a_in + dur_q + 0.05]
+
+
+def find_anchor(chars, a_in: float, dur_q: float, on: str) -> int | None:
+    """锚词落在**这一格音频窗口**里的第几个字；找不到返回 `None`。
+
+    找不到就是找不到：不许回落到「重音点 / 段首 + 0.6s」——那是猜的时机，而锚词存在
+    的唯一意义就是「卡跟着这句话出来」。调用方拿到 `None` 必须停渲并说清楚（T-034），
+    以前只往 stderr 打一句「沿用默认时机」，于是卡随便落、声音在哪没人管。
+    """
+    if not on:
+        return None
+    txt = "".join(ch for ch, _, _ in window_chars(chars, a_in, dur_q))
+    j = txt.find(on)
+    return j if j >= 0 else None
+
+
 def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
     """EDL 的 card → (text, start, end, kind)。
 
@@ -907,6 +933,7 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         peaks_of.setdefault(int(b["el"]), []).append(
             round(float(b["t"]) + (float(b["peak_at"]) - float(b["src_start"])), 3))
     h0, h1 = float(hold[0]), float(hold[1])
+    ANCHOR_MISS.clear()
     cards = []
     idc = (style.get("_id_card") or None)
     if idc:
@@ -922,14 +949,13 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             _a_in = float((_s0.get("audio") or {}).get("in", _s0["in"]))
             _ch = chars_cache.get(_aid) or chars_cache.setdefault(_aid, load_chars(lib, _aid))
             _ch = lexicon.fix_items(_ch, lexicon.load(lib / "_cutskills"))
-            _win = [(ch, st, en) for ch, st, en in _ch
-                    if _a_in - 0.05 <= st < _a_in + _s0["_dur_q"] + 0.05]
-            _j = "".join(ch for ch, _, _ in _win).find(_on)
-            if _j >= 0:
+            _j = find_anchor(_ch, _a_in, _s0["_dur_q"], _on)
+            if _j is not None:
+                _win = window_chars(_ch, _a_in, _s0["_dur_q"])
                 _idc["anchor_word"] = _on
                 _idc["anchor_t"] = round(_win[_j][1] - _a_in + _s0["_start"], 3)
             else:
-                print(f"  ！身份卡锚词「{_on}」不在片头口播里，沿用默认时机", file=sys.stderr)
+                ANCHOR_MISS.append(f"身份卡：锚词「{_on}」不在片头口播（plan 的 id_card.on）里")
         cards.append(_idc)
     for s in segs:
         c = s.get("card")
@@ -965,14 +991,11 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         a_in = float((s.get("audio") or {}).get("in", s["in"]))
         if on:
             chars = chars_cache.get(aid) or chars_cache.setdefault(aid, load_chars(lib, aid))
-            # 锚词比对必须先过词表：卡上写「柒造」、ASR 写「7灶」，不纠就永远对不上，
-            # 于是「沿用默认时机」——卡出得比声音早，正是 Jerry 说的「抢拍」。
+            # 锚词比对必须先过词表：卡上写「柒造」、ASR 写「7灶」，不纠就永远对不上。
             chars = lexicon.fix_items(chars, lexicon.load(lib / "_cutskills"))
-            win = [(ch, st, en) for ch, st, en in chars
-                   if a_in - 0.05 <= st < a_in + s["_dur_q"] + 0.05]
-            txt = "".join(ch for ch, _, _ in win)
-            j = txt.find(on)
-            if j >= 0:
+            j = find_anchor(chars, a_in, s["_dur_q"], on)
+            if j is not None:
+                win = window_chars(chars, a_in, s["_dur_q"])
                 st0 = win[j][1] - a_in + s["_start"] + CARD_LAG
                 st1 = win[min(j + len(on) - 1, len(win) - 1)][2] - a_in + s["_start"]
                 start = round(max(s["_start"] + 0.15, st0), 3)
@@ -991,8 +1014,9 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
                 else:
                     d = round(min(h1, max(h0, st1 - start + 0.25)), 3)
             else:
-                print(f"  ！大字对不上原话「{on}」（段 {s['n']}），沿用默认时机",
-                      file=sys.stderr)
+                ANCHOR_MISS.append(
+                    f"段 {s['n']} 卡「{str(c.get('text') or '')[:10]}」的锚词「{on}」"
+                    f"不在该格词级真值里")
         # 一屏只讲一件事：跟 overlay 生成物撞了，大字让开、挪到卡片之后说。
         # 直接删掉会让整片一块大字都没有（实测「卡 0 块」），所以先挪、挪不下才删。
         deferred = None
@@ -2621,6 +2645,14 @@ def main():
               for el in segs if el.get("kind") == "gen"
               and (el.get("track") or "video") == "overlay"]
     cards = card_windows(active, lib, chars_cache, style, amap=amap, ov_win=ov_win)
+    # 锚词对不上就停（T-034）。以前这里只往 stderr 打一句「沿用默认时机」，
+    # 卡落在一个和这句话无关的时刻，卡准入 / 声音在前都看不出来（负样本 B：lag 3880ms 仍 0 error）。
+    # 退出码 9：和 5（声音在前）、6（卡准入）、7（叠加态）、8（大字）分开。
+    if ANCHOR_MISS and not getattr(a, "force", False):
+        print("！卡的锚词在词级真值里找不到，拒绝渲染（用 --force 可越过）：", file=sys.stderr)
+        for _m in ANCHOR_MISS[:8]:
+            print(f"   · {_m}", file=sys.stderr)
+        return 9
     # 卡能跨格活着，但不能和 overlay 生成物同屏抢位（同屏只讲一件事）。
     cards = [c for c in cards
              if not any(c["start"] < b0 - 0.05 and c["end"] > a0 + 0.05 for a0, b0 in ov_win)]
@@ -2760,7 +2792,7 @@ def main():
     if not getattr(a, "force", False):
         try:
             import check_timing
-            _tv = [m for lv, m in check_timing.check(proj) if lv == "error"]
+            _tv = [m for lv, m in check_timing.check(proj, lib) if lv == "error"]
             if _tv:
                 print("！声音在前没过，拒绝渲染（用 --force 可越过）：", file=sys.stderr)
                 for m in _tv[:6]:

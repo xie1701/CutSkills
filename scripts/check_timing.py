@@ -33,6 +33,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import evidence_guard as EG  # noqa: E402
+import lexicon as LX  # noqa: E402
 
 CARD_LAG_MIN = 0.15       # 卡起点至少晚锚词这么多
 ELEM_LAG_MIN = 0.12       # 卡内元素至少晚自己台词这么多
@@ -55,9 +56,90 @@ def subs_of(proj: Path) -> list[dict]:
     return d.get("items") or d.get("cues") or []
 
 
+def resolve_lib(project: Path) -> Path:
+    """项目 → 素材库根（**往上找** `_cutskills/index.json`）。
+
+    仓里放的项目（`references/packtest-*/proj79`）按 `parents[2]` 算出来是 `references/`，
+    于是真值全判 `none`、每张卡都报「判不了」——库根靠目录深度猜是错的，要按库的标记找。
+    """
+    for up in [project, *project.parents]:
+        if (up / "_cutskills" / "index.json").exists():
+            return up
+    return project.parents[2] if len(project.parents) > 2 else project
+
+
+_TRUTH: dict[str, "EG.Truth"] = {}
+_LEX: dict[str, dict] = {}
+
+
+def _truth(lib: Path, aid: str) -> "EG.Truth":
+    if aid not in _TRUTH:
+        _TRUTH[aid] = EG.chars_of_asset(lib, aid)
+    return _TRUTH[aid]
+
+
+def _window_text(lib: Path, tr: "EG.Truth", a_in: float, a_out: float) -> str:
+    """窗口内真值文本（过一遍词表：卡上写「柒造」、ASR 写「7灶」时不纠就永远对不上）。"""
+    key = str(lib)
+    if key not in _LEX:
+        _LEX[key] = LX.load(lib / "_cutskills")
+    return LX.fix_text("".join(ch for ch, _ in tr.chars_in(a_in, a_out)),
+                       _LEX[key])
+
+
+def film_bounds(els: dict) -> dict[int, tuple[float, float]]:
+    """元素号 → 它在**成片时间轴**上的 `[起, 止)`（口径与字幕那条一致：跳 overlay）。"""
+    out: dict[int, tuple[float, float]] = {}
+    acc = 0.0
+    for n, el in els.items():
+        if (el.get("track") or "video") == "overlay":
+            continue
+        au = el.get("audio") or {}
+        dur = float(au.get("out") or 0) - float(au.get("in") or 0)
+        if dur <= 0:
+            dur = float(el.get("out") or 0) - float(el.get("in") or 0)
+        out[int(n)] = (round(acc, 3), round(acc + (dur or 0.0), 3))
+        acc += dur or 0.0
+    return out
+
+
+def card_window(card: dict, els: dict,
+                bounds: dict[int, tuple[float, float]] | None = None
+                ) -> tuple[str | None, float, float]:
+    """卡属于哪一格、那一格的音频窗口 `(素材 id, in, out)`。
+
+    渲器给每张卡写 `seg`（格号）。老渲器（T-027 之前）写的卡没有 `seg`，那就按卡的
+    **成片时间**落到格上——`anchor_t` 是这个字该被说出来的时刻，别拿 `start` 顶。
+    以前这里对 `seg is None` 一律退回「时间轴第一个口播格」，于是老卡的锚词永远在
+    别人的话里找，naming-01 三张旧卡全报假红。身份卡（`seg=0`）本来就是开场白那一格，
+    没有自己的格，走同一条兜底。
+    """
+    seg = card.get("seg")
+    el = els.get(seg) if seg is not None else None
+    if el is None and bounds:
+        t = card.get("anchor_t")
+        if t is None:
+            t = card.get("start")
+        if t is not None:
+            for n, (a0, b0) in bounds.items():
+                if a0 - 0.01 <= float(t) < b0 + 0.01:
+                    el = els.get(n)
+                    break
+    if el is None:
+        el = next((e for e in els.values() if (e.get("track") or "video") == "video"), None)
+    if el is None:
+        return None, 0.0, 0.0
+    au = el.get("audio") or {}
+    aid = au.get("asset") or el.get("asset")
+    wi = float(au.get("in", el.get("in") or 0.0))
+    wo = float(au.get("out", el.get("out") or 0.0))
+    return (str(aid) if aid else None), wi, wo
+
+
 def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
-    lib = lib or project.parents[2]
+    lib = lib or resolve_lib(project)
+    have_lib = (lib / "_cutskills" / "index.json").exists()
     tlp = project / "timeline.json"
     # v2 项目只有 edl.json，没有时间轴。字幕那两条判据要把字幕「送回」它自己那段素材的
     # 时间去取词，全靠时间轴里的段号 / 段起点 / 每段音频窗口——读不到就判不了。
@@ -70,6 +152,11 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     else:
         out.append(("warning", "该项目没有时间轴（v2），声音在前判据跳过"))
     els = {e.get("n"): e for e in ((tl or {}).get("elements") or [])}
+    _bounds = film_bounds(els)
+
+    if not have_lib:
+        out.append(("warning", f"找不到素材库（{lib} 下没有 _cutskills/index.json）——"
+                               "锚词对不对得上、字幕说的是不是原文，这两类判不了"))
 
     # ---- 卡片
     cards = cards_of(project)
@@ -96,6 +183,28 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
         if end and float(at) > end:
             out.append(("error", f"卡{k + 1}（{kind}）锚词在 {float(at):.2f}s，卡却在 {end:.2f}s 收——"
                                  "字还没说完就没了"))
+        # 规范第 3 条的后半句（T-034）：锚词**必须真在这一格的词级真值里**。
+        # 只看 lag 数得数没有用：渲器找不到词时会「沿用默认时机」（重音点 / 段首+0.6s），
+        # 照样写下 anchor_word 和一个 lag 3880ms 的 anchor_t，于是这道判据一路绿灯，
+        # 而卡其实落在一句和它无关的话上（负样本 B）。
+        if aw and have_lib:
+            aid, wi, wo = card_window(c, els, _bounds)
+            if aid is None:
+                out.append(("warning", f"卡{k + 1}（{kind}「{aw}」）找不到它所属的那一格，"
+                                       "锚词对不对得上判不了"))
+            else:
+                tr = _truth(lib, aid)
+                if tr.source != EG.WORD:
+                    out.append(("warning", f"卡{k + 1}（{kind}「{aw}」）该格只有"
+                                           f"{'句级' if tr.source == EG.SENTENCE else '没有'}真值，"
+                                           "锚词对不对得上判不了"))
+                else:
+                    txt = _window_text(lib, tr, wi, wo)
+                    if aw not in txt:
+                        out.append(("error",
+                                    f"卡{k + 1}（{kind}「{str(c.get('text') or '')[:8]}」）的锚词"
+                                    f"「{aw}」不在该格词级真值里（这一段说的是「{txt[:24]}」）——"
+                                    "卡落在一句和它无关的话上，先改 on"))
 
     # ---- 字幕：不许早于语音
     subs = subs_of(project)

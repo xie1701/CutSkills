@@ -66,6 +66,7 @@ python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词�
 python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
 python3 scripts/check_keyword_text.py --project <项目>  # 大字：压脸 / 墨迹 vs 背景 ΔL ≥ 12 / 单排 0.62–0.78W（渲前闸门，error 退出码 8；`--film` 改成从成片帧量墨迹 bbox）
 python3 scripts/test_keyword_text.py                     # 大字判据正负样本：压脸红 / 抬到头顶绿 / 空字红 / 亮底红 / 加隔离转绿 / 95%W 红（T-045）
+python3 scripts/test_anchor_miss.py                      # 锚词对不上：find_anchor 找不到 / 渲器记账 / check_timing 判红（T-034）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
 python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
 python3 scripts/test_content_guard.py                   # 内容守卫负样本（0.00s 糊片 / 四张图配工地 / 夸赞撞生肉血水）

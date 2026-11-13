@@ -355,6 +355,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_keyword_text.py")])
     must("keyword 大字回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("㉒ 锚词对不上不许静默回落（T-034：find_anchor 找不到 / 渲器记账 / check_timing 判红）")
+    r = sh([PY, str(ROOT / "scripts" / "test_anchor_miss.py")])
+    must("锚词对不上判据", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:
