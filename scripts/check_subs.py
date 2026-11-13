@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lexicon          # noqa: E402  残词 / 口吃重尾的判据只有一份，就写在 lexicon 里
+import lint_transcript  # noqa: E402  量级判据表与待审工单同源，不另写一份
 
 PUNCT = "，。！？、；：…—～,.!?;:"
 MAX_CHARS = 10
@@ -81,6 +83,77 @@ def dangling_judge(cues: list[dict]) -> list[dict]:
         elif len(t) >= 2 and t[-1] in NO_END and not style_end:
             tail.append({"text": t[:10], "why": f"收尾是「{t[-1]}」"})
     return tail
+
+
+def width_runs(cues: list[dict]) -> list[list[int]]:
+    """把「被宽度硬拆开」的相邻 cue 归成一串，其余各成串。
+
+    为什么要有这个：subs.py 按展示宽度断行，一个词会被劈到两条 cue 里（c 片的
+    「我哋嘅生」+「万鱼池」）。残词/量级判据要看到「生万鱼池」才认得出错，
+    而**只拼 `break_after == "width"` 的条**：那是同一句话被排版切开的证据。
+    句读处硬拼会造出原文没有的邻接关系（「…好」+「生…」），冤枉好句子。
+    """
+    runs: list[list[int]] = []
+    for i, c in enumerate(cues):
+        if runs and c.get("el") == cues[runs[-1][-1]].get("el") \
+                and str(cues[runs[-1][-1]].get("break_after")) == "width":
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    return runs
+
+
+def semantic_judge(cues: list[dict], suspects: list[dict] | None = None,
+                   rules: list[dict] | None = None) -> dict:
+    """上屏前的语义常识门禁：同音残词 / 口吃重尾 / 反常量级。
+
+    为什么放在 check_subs：这三类都是「字幕上已经印出来、声音却对不上」的硬伤，
+    跟标点、超宽是同一层——观众一眼看见；而且都不存在「风格选择」：
+    「十万米高」「讲下下」只能是错的，留着的唯一后果就是观众看见。
+
+    判据不在这里再写一份：残词/口吃重尾在 `lexicon.load_suspects()` 与
+    `lexicon.stutter_tail()`，量级在 `data/abnormal-magnitudes.json`（由
+    `lint_transcript.scan_magnitudes` 读同一张表）。工单与门禁同源，才不会出现
+    「工单报了、门禁不放」「门禁拦了、工单没提」这种两张嘴。
+    """
+    table = suspects if suspects is not None else lexicon.load_suspects()
+    sus: list[dict] = []
+    stut: list[dict] = []
+
+    for i, c in enumerate(cues):
+        t = str(c.get("text") or "")
+        for h in lexicon.suspect_hits(t, table):
+            sus.append({"cue": i, "text": t, "hit": h["bad"], "suggest": h["good"],
+                        "same_len": h["same_len"], "needs_human": h["needs_human"]})
+        tail = lexicon.stutter_tail(t)
+        if tail:
+            stut.append({"cue": i, "text": t, "tail": tail})
+
+    # 跨条扫：字幕被宽度硬拆开时，一个词会落在两条 cue 里——
+    # dianzan-c 的「我哋嘅生」+「万鱼池」就是「生万鱼池」，逐条扫永远扫不到。
+    for run in width_runs(cues):
+        if len(run) < 2:
+            continue
+        spans, off, joined = [], 0, ""
+        for j in run:
+            t = str(cues[j].get("text") or "")
+            spans.append((off, off + len(t), j))
+            joined += t
+            off += len(t)
+        for h in lexicon.suspect_hits(joined, table):
+            end = h["at"] + len(h["bad"])
+            if any(h["at"] >= a and end <= b for a, b, _ in spans):
+                continue                      # 单条里看得见，上面已经报过
+            sus.append({"cue": run[0], "cue_to": run[-1], "text": joined,
+                        "hit": h["bad"], "suggest": h["good"],
+                        "same_len": h["same_len"], "needs_human": h["needs_human"]})
+
+    # 量级：荒谬档判红，可疑档只提——「三十米高的中庭」是真话，判红等于逼人改真台词。
+    mags = lint_transcript.scan_magnitudes(
+        [(str(i), str(c.get("text") or "")) for i, c in enumerate(cues)], rules)
+    return {"suspect": sus, "stutter": stut,
+            "magnitude_bad": [m for m in mags if m["tier"] == "absurd"],
+            "magnitude_note": [m for m in mags if m["tier"] == "suspicious"]}
 
 
 def main() -> int:
@@ -182,6 +255,11 @@ def main() -> int:
     sub = (style or {}).get("subtitle") or {}
     fade = float(sub.get("fade_s") or 0.10)
 
+    # 语义常识门禁（T-017）：残词 / 口吃重尾 / 荒谬量级。
+    # 这三类都是「字幕上已经印出来」的硬伤，与标点超宽同一层；
+    # 荒谬量级判红、可疑量级只提（真话也会落在可疑档）。
+    sem = semantic_judge(cues)
+
     checks = {
         "punct": {"value": len(punct), "pass": not punct, "need": 0},
         "over_wide": {"value": len(wide), "pass": not wide, "need": f"<={MAX_UNITS} 单位"},
@@ -198,6 +276,15 @@ def main() -> int:
         "hold": {"value": len(hold_bad), "pass": not hold_bad, "need": f"每条 {HOLD_MIN}–{HOLD_MAX}s",
                  "note": [f"{x['text']} {x['s']}s" for x in hold_note[:3]]},
         "dangling": {"value": len(tail), "pass": not tail, "need": "助词不孤行"},
+        # 未修正的嫌疑残词：命中就是「声音里说的是 A，字幕印的是 B」
+        "suspect_words": {"value": len(sem["suspect"]), "pass": not sem["suspect"],
+                          "need": "0（命中即改，或改嫌疑表）"},
+        "stutter_tail": {"value": len(sem["stutter"]), "pass": not sem["stutter"],
+                         "need": "0（句尾不许叠字）"},
+        "magnitude": {"value": len(sem["magnitude_bad"]), "pass": not sem["magnitude_bad"],
+                      "need": "0 处荒谬量级",
+                      "note": [f"{x['hit']} {x['value']:g}{x['unit']}"
+                               for x in sem["magnitude_note"][:3]]},
     }
     ok = all(v["pass"] for v in checks.values())
     rep = {"cues": len(cues), "checks": checks, "ok": ok,
@@ -207,6 +294,9 @@ def main() -> int:
            "overlap": overlap[:5],
            "frames": "✅ 半开帧窗" if has_frames else "老文件没有 sf/ef，重渲后生效",
            "hold": hold_bad[:5], "dangling": tail[:5],
+           "semantic": {"suspect": sem["suspect"][:8], "stutter": sem["stutter"][:8],
+                        "magnitude_bad": sem["magnitude_bad"][:8],
+                        "magnitude_note": sem["magnitude_note"][:8]},
            "widths": {"min": widths[0] if widths else 0, "max": widths[-1] if widths else 0,
                       "median": round(med, 2), "unit": "汉字宽"}}
 
@@ -226,6 +316,22 @@ def main() -> int:
           f"（每条 {HOLD_MIN}–{HOLD_MAX}s）")
     print(f"  助词孤行 {'✅' if not tail else '✗ ' + str(len(tail))}"
           + ("" if not tail else f"  例：{tail[0]['text']}（{tail[0]['why']}）"))
+    print(f"  残词 {'✅' if not sem['suspect'] else '✗ ' + str(len(sem['suspect']))}"
+          f"（同音残词未修正）")
+    for h in sem["suspect"][:4]:
+        where = f"#{h['cue']}" if "cue_to" not in h else f"#{h['cue']}–#{h['cue_to']}"
+        tail_note = ("（待人工拍板）" if h["needs_human"]
+                     else "" if h["same_len"] else "（不等长，需人工）")
+        print(f"  · {where}「{h['hit']}」→「{h['suggest']}」{tail_note}")
+    print(f"  口吃重尾 {'✅' if not sem['stutter'] else '✗ ' + str(len(sem['stutter']))}"
+          + ("" if not sem["stutter"] else
+             "  例：" + "、".join(f"#{x['cue']}「{x['tail']}」" for x in sem["stutter"][:3])))
+    print(f"  量级 {'✅' if not sem['magnitude_bad'] else '✗ ' + str(len(sem['magnitude_bad']))}"
+          f"（荒谬判红 / 可疑只提 {len(sem['magnitude_note'])}）")
+    for m in sem["magnitude_bad"][:3]:
+        print(f"  · #{m['aid']}「{m['hit']}」= {m['value']:g}{m['unit']}（{m['rule']}）")
+    for m in sem["magnitude_note"][:3]:
+        print(f"  · 可疑 #{m['aid']}「{m['hit']}」= {m['value']:g}{m['unit']}——看一眼再定")
     print(f"  强调色 {em} 条{'✅' if _ok else '✗'}{'' if colorize else '（已取消）'}"
           f" · 淡入 {fade:.2f}s{'✅' if fade <= FADE_MAX else '✗'}")
     for t in [c.get("text") for c in punct[:3]]:

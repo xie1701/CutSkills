@@ -105,12 +105,13 @@ python3 scripts/render_hf.py --project <项目> --extractor own --quality looks 
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
-python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s/助词不孤行/重叠/硬切
+python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s/助词孤行/重叠/硬切 + 残词/口吃重尾/荒谬量级门禁（T-017）
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/hooks.py --project <项目> --check          # 校验前 3 秒策略合规性与通过性（0: OK/WARN, 1: FAIL）
 python3 scripts/test_hooks_policy.py                      # 前 3 秒策略真判定回归（正负样本与持久化）
 python3 scripts/test_brand_safety.py                      # 品牌安全与第三方字样处置回归（T-007：FESTOOL/PPG 拦截与核销）
+python3 scripts/test_semantic_check.py                     # 语义校对闭环回归（T-017：欧阳三片真错字检出/清零/否定字硬拦/零误杀）
 python3 scripts/yield_card.py --project <项目> --hook <项目>/hooks.json --blind <项目>/blind.json
 
 # 阈值校准（改判据之前先量参考片自己的读数，别拍脑袋定标准）
@@ -295,9 +296,13 @@ index_assets.py --library "<库>" --stage finish --merge-l2 # 重算分级 + 出
 
 三层分工，判断权在大模型，不在脚本：
 
-1. `lint_transcript.py --library "<库>"` → `_cutskills/transcript-fix.md`：脚本只统计（关注词表里每个词的**同音竞争**、语料里的多字术语在转写里的缺失、高频片段、异常短语），不下结论。同音靠随包带的 `pypinyin`（`scripts/vendor/`）判断。
-2. 你（大模型）读语料手册 + 那几行上下文，把决定写进 `_cutskills/lexicon.json`：`terms`（错写→正确写法）、`protect`（必须写对的专名，不参与替换）。**判断必须带背景**——读 `柒造品牌语料手册-v1.2.md` 这种库内语料，别凭空猜。
+1. `lint_transcript.py --library "<库>"` → `_cutskills/transcript-fix.md` + `_cutskills/semantic-worklist.json`：脚本只统计，不下结论。清单第一节是**语义常识扫描**（T-017，准绳 A5）：反常物理量级（「大约有十万米高」）、同音残词（「效果好先」「生万鱼池」）、口吃重尾（「讲下下」），并直接导出「待审等长替换工单」；后面几节才是语料对账（关注词表里每个词的**同音竞争**、语料里的多字术语在转写里的缺失、高频片段、异常短语）。同音靠随包带的 `pypinyin`（`scripts/vendor/`）判断。
+2. 你（大模型）读语料手册 + 那几行上下文，把决定写进 `_cutskills/lexicon.json`：`terms`（错写→正确写法）、`protect`（必须写对的专名，不参与替换）。**判断必须带背景**——读 `柒造品牌语料手册-v1.2.md` 这种库内语料，别凭空猜。标了「待人工」的条目（「大咧」可能是「大家」也可能是「大间」）必须有人读上下文再拍板。
 3. `index_assets.py --stage rephrase`：按词表在字级时间轴上做最长匹配替换，秒级，不重跑 ASR。
+
+**词表守卫（T-017）**：写进 `terms` 不等于能落地。等长且不碰否定字的自动应用；**不等长**的要条目自己标 `{"to": "…", "unsafe": true}`，调用方还要显式允许；**增删否定字**（不/没/别/未/唔/冇）的一律硬拦（会静默反转句意）。被拦的条目不会静默消失——`python3 scripts/lexicon.py --library "<库>"` 逐条列出来并给出可粘贴的修正 JSON；单条候选用 `--term "错写=>建议词"` 先问机器，`--allow-unsafe` / `--allow-negation-edit` 就是那两道人工闸。
+
+判据全在数据里，不写死在逻辑里：残词表 `scripts/data/suspect-words.txt`（`错词<TAB>建议词<TAB>等长|不等长<TAB>备注[<TAB>排除后接]`）、量级表 `scripts/data/abnormal-magnitudes.json`（长度/重量的合理量级，分「荒谬」与「可疑」两档）。上屏前 `check_subs.py` 拿同一份表再做一道闸：命中的残词、口吃重尾、荒谬量级一律 error（「可疑」量级只提示，不判红——「三十米高的中庭」是真话）。
 
 词表是库级资产，跟着库走、跨项目复用；新片不用重新纠一遍。
 
