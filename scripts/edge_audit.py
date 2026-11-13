@@ -85,8 +85,14 @@ def audit(proj: Path, lib: Path) -> list[tuple[str, str]]:
         if not aid:
             continue
         i, o = float(a.get("in") or 0), float(a.get("out") or 0)
-        ws = speech([w for w in EG.words_of(lib, aid) if i - 0.02 <= w[1] <= o + 0.02])
+        truth = EG.chars_of_asset(lib, aid)
+        ws = speech(truth.chars_in(i, o, 0.02))
         if not ws:
+            # 量不出词就报「没量」，不许当成「这段干净」——猜错的时候 words_of 全空，
+            # 审计会一路绿着骗人（这个坑刚踩过）。
+            note = EG.degrade_note(n, truth.source)
+            if note:
+                out.append(("黄", note + "（这一格的提示词/头尾静默没查）"))
             continue
         # ① 孤立提示词：说完一个词停 ≥0.70s，之后 4 秒内又把同一个词重说一遍。
         # 「每 个 包 [空 1.2s] 每 个 包 房 …」——前面那个「包」是主播在看提词卡自己念半截，

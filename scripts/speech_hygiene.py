@@ -81,16 +81,17 @@ def _ok_is_content(txt: str, hit: str) -> bool:
 
 
 def words_in(lib: Path, el: dict) -> list[tuple[str, float]]:
-    au = el.get("audio") or {}
-    aid = au.get("asset") or el.get("asset")
-    i, o = au.get("in"), au.get("out")
-    if not aid or i is None or o is None:
+    """窗口内的词级真值（已剔标点 token）。查表走 `EG.chars_of_asset`，
+    新键 + 老键都查——自己拼路径的那一份会静默退成空表（T-030）。
+    """
+    w = EG.window_of(el)
+    if not w:
         return []
-    return [(t, s) for t, s in EG.words_of(lib, aid)
-            if float(i) - 0.10 <= s <= float(o) + 0.10
+    aid, i, o = w
+    return [(t, s) for t, s in EG.chars_of_asset(lib, aid).chars_in(i, o, 0.10)
             # 剔标点 token：它挂在「这口气说完之后」的时间戳上。留着会把
             # 「鸡@6.24 。@7.26」算成 1 秒空档，也会把尾巴判断整格错位。
-            and t.strip() and not EG.PUNCT.fullmatch(t.strip())]
+            if t.strip() and not EG.PUNCT.fullmatch(t.strip())]
 
 
 def core_str(text: str) -> str:
@@ -278,6 +279,12 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for e in els:
         out.extend(per_element(e, allwords.get(e.get("n"), []), lib))
+        if not allwords.get(e.get("n")):
+            # 一条词都没有时不许当「这格很干净」：只有句级真值的格，口水/空档
+            # /接缝这四类全跳过了，必须说出来（T-030）。
+            note = EG.degrade_note(e.get("n"), EG.source_of(lib, e))
+            if note:
+                out.append(("warning", note + "（这一格的口水/空档/接缝没查）"))
     out.extend(cross(els, allwords))
     return out
 
