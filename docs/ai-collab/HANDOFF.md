@@ -356,7 +356,7 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
 
 ### 2026-11-13 · Cola · T-037 edge_audit ① 孤立提示词收紧（待复核）
 
-- **分支 / 工作树**：`ai/cola/T-037` @ `bcbb3bf`（rebase 在 master `93e8c55` 之上），worktree `/Users/jerry/Downloads/AIworks/CutSkills-wsT037`；主树只落 TASKS/HANDOFF 状态行。
+- **分支 / 工作树**：`ai/cola/T-037` @ `c69c6b3`（rebase 在 master `dfca2ff` 之上），worktree `/Users/jerry/Downloads/AIworks/CutSkills-wsT037`；主树只落 TASKS/HANDOFF 状态行。
 - **一句话**：`edge_audit` ① 原来只问「停 ≥0.90s 之前那个词，4 秒内又出现过吗」——所以单字虚词「的」、并列列举的收尾词「断烧」「倍」「道理」、句内排比「该有它」全被当成「主播自己念题」。现在先量出「停之前一口气念完的那一小截」，只认①**这一小截的开头**（≥2 字、含实词，先岔一句再回来也算）被重说，或②收尾词在停后 0–2 字内贴着重说。停 ≥0.90s 的时间口径未动，错的仍是 error。
 - **四支片 `edge_audit`（改前 → 改后，2026-11-13 当前数据；复核人请重跑 `--project` 三条命令）**：
 
