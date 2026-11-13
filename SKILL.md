@@ -269,6 +269,33 @@ timeline.json  ──I1 board_from_timeline──▶  board/board.html（人看�
 **只换数据块，不改样式和引擎**。`board_check.py` 验 14 条不变式；`board_smoke.js` 用真 Chrome
 开一次，报 JS 错误、截图、把导出的 XML 存下来对账——「报告全绿但画面是空」吃过两次亏，不能再只读 JSON。
 
+## 成片从哪儿看、工程在哪儿改
+
+片子散在不同的库和目录，文件名也全是给机器看的（`_hf_bed`、`P1-warm`、`film-hf`）。所以有两条入口：
+
+```bash
+python3 <SKILL_DIR>/scripts/showcase.py          # → ~/Downloads/CutSkills-产出/index.html
+cd "<项目>/hf" && hyperframes preview --open     # 工程页（HyperFrames studio）
+```
+
+**`showcase.py` 是给人看的产出总表**：扫多个库 → 一张静态 HTML，每支片一个可播的视频格，带主张、
+风格包、时长、响度与验收 🟢🟡🔴 计数，再加一张**命名对照表**（`timeline.json` / `brief.json` /
+`hf/` / `_hf_raw` / `P1-warm` / 素材名的 `日期_批次_内容_级别_原编号` 各是什么意思）和「想动手改」三条路。
+视频用相对路径，双击就能开；片子重渲、读数变了，重跑一次就同步——所以别手改那个 HTML。
+
+**工程页就是 HyperFrames 的 studio。** 实机验过（2026-11-13，`dianzan-a`）：`/studio` 返回 200，
+中央竖屏预览 `00:00/00:45`，右栏 Design/Layers/Renders/Variables，底部时间轴 V1–V13 + `Grade` 特效轨 +
+`Mg 01/Mg 02` 图层——能拉帧、能选元素改、能当场预演。注意两件事：
+
+1. **它是渲染产物。** `hf/index.html` 由 `render_hf.py` 从时间轴生成，studio 里改的是这份 HTML，
+   **下次重渲会被覆盖**。要留住就回写 `timeline.json`，或另存一份工程当试验。
+2. **studio 的 Lint 会把 warning 也计成红点**（`dianzan-a` 显示 3，实际 `hyperframes lint` 报的是
+   0 error / 3 warning）。别把红点当片子坏了。
+
+Windows 级的对应关系只有三条：`timeline.json` 是真值源；`hf/index.html` 是它的渲染产物；
+`out/film-hf.mp4` 是成片。想知道某个文件能不能删，问 `scripts/tidy.py`；想知道某个名字什么意思，
+看 `showcase.py` 生成的那张表。
+
 ## 阶段 A · 索引
 ```bash
 python3 <SKILL_DIR>/scripts/index_assets.py --library "<素材库根目录>" --jobs 4
