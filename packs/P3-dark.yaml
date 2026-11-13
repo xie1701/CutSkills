@@ -36,6 +36,14 @@ emphasis:
   - 304
   fit_width: 0.7
   top_h: 0.3
+  # 大字隔离层（T-045）：只有 timeline 里 `card.isolate: true` 的那张才画。
+  # 暗底包的隔离层用深青黑，不用纯黑（纯黑把这本包的青调吃成灰）。
+  isolate:
+    fill: 'rgba(10,22,26,.32)'
+    feather_px: 80
+    pad_x: 0.05
+    pad_y: 0.42
+    radius_px: 26
   max_one_action_per_caption: true
 shots:
   talking_median_s: 2.4

@@ -64,6 +64,8 @@ python3 scripts/test_sub_density.py                     # 字幕密度分母口�
 python3 scripts/test_behind_band.py                     # behind 大字取样带：人脑后大字在 6–11%H，别拿 keyword 的中段带量（T-041）
 python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）——大字逐字要能在同格词级真值里找到，卡面与台词不符怎么改回来见 [fixes-t033-cards.md](references/fixes-t033-cards.md)
 python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
+python3 scripts/check_keyword_text.py --project <项目>  # 大字：压脸 / 墨迹 vs 背景 ΔL ≥ 12 / 单排 0.62–0.78W（渲前闸门，error 退出码 8；`--film` 改成从成片帧量墨迹 bbox）
+python3 scripts/test_keyword_text.py                     # 大字判据正负样本：压脸红 / 抬到头顶绿 / 空字红 / 亮底红 / 加隔离转绿 / 95%W 红（T-045）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
 python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
 python3 scripts/test_content_guard.py                   # 内容守卫负样本（0.00s 糊片 / 四张图配工地 / 夸赞撞生肉血水）
@@ -164,6 +166,18 @@ python3 scripts/golden.py
 **MG（代码画的动效卡）**是包装的第三块：基础卡 `keyword-big` / `stat` / `steps` / `versus` / `term` 与修辞扩充卡（`proportion` 比例条 / `day-night` 时段接力 / `chips` 并列招牌）。
 选哪张由这一格的**话语修辞关系**决定（形状即语义：互补经营不许误用对抗 `VS`，常识菜名不许误用百科词条），不由风格决定；风格只决定它的**视觉语域（Visual Register）**与 `tokens`（餐饮茶楼用暖食烟火底，严禁套冷黑蓝科技弹窗把食物压灰）。
 叠加空间只允许三种合法态（轻量挂角 `corner` / 底片模糊退后 `focus_blur` / 整屏纯底切出 `cutaway`），**严禁在清晰露脸口播或美食特写正中糊全屏暗场大卡**；位置不再由固定百分比带决定，由 `scripts/card_layout.py` 逐卡读人脸框（`scripts/native/person_mask --faces`，Vision）**与人物遮罩**（同一支二进制，`hf/work/pstats/`）算出来——**避脸不等于没压主体**：卡框里主体像素占比上限 `SUBJ_COVER_MAX=0.35`，量不到遮罩时不许当「主体 = 0」，一律记 `degraded` 并降级挂角；判据落在 `scripts/check_overlay.py`（渲前拦停，error 退出码 7；压主体与量不到报 warning）；重型卡在场期间底部同期声字幕自动退场，每条挂起都记进 `out/subs.json` 的 `suppressed`（卡 id + 理由）。人工要压位置就写时间轴的 `card.layout`。
+
+**大字（`keyword` / `behind`）是另一层，也不再「没人量」**（T-045）：它不走 `card_layout` 的
+MG 避脸，所以以前「字压在眼睛上」「字被杂乱背景吃掉」两件事同时发生、8 道脚本全绿。
+现在三道量法都在 `scripts/check_keyword_text.py`（渲前闸门，error 退出码 8）：
+① 字框（**真字体量出来的墨迹框**，不是「70% 宽」的估算）× 卡窗内每一采样帧的每一张脸，重叠 > 0 判红（B-roll 格照量）；
+② 墨迹与它**紧邻**的背景实量 ΔL p10 ≥ 12（`measure_panel` 同一套 L*/邻域/p10 口径）；
+③ 单排墨迹宽必须落在 0.62–0.78 W（Jerry 定的「撑 70% 屏宽、单排」）。
+字框几何只有一份（`card_layout.kw_font_px / kw_ink_box / kw_top_of`），画字与判字同一份公式。
+压在杂乱背景上的那几张要加隔离：包 `emphasis.isolate`（柔化压暗的色/浓度/半径/外扩）+
+时间轴 `card.isolate: true` 开关——**只给要的那张**，不是包一改全片都变。
+要人工挪位置就写时间轴 `card.top_h`（画幅比例，`0.165` = 16.5%H）。
+`dianzan-c` 那颗压在脸上的字怎么挪、隔离层在哪张卡上被撤掉、以及「不要把 68.8%W 当成 85%W 读」的实测对账见 [references/fixes-t045-keyword-text.md](references/fixes-t045-keyword-text.md)。
 卡型、字段、选型顺序与硬规矩见 [references/mg-library.md](references/mg-library.md)；影视剪辑反 NG 五原则与广电包装五原则的完整产线准绳见 [references/editorial-packaging-principles.md](references/editorial-packaging-principles.md)。
 
 **现成四套包装包**：`P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（深色科技，大字即字幕）、`P4-canton-warm`（暖食烟火·广式茶楼：琥珀深茶棕卡面 + 局部暖棕柔化 + 暖金 `#E5A93C`/朱砂 `#B8332A`，严禁冷黑蓝弹窗底与冷荧光黄）；卡面底板/遮罩/描边/字色全写在包的 `tokens.surface` 里，渲器不再自带语域；底板是**纵向光线渐变**（顶部窄亮带 → 中部回落 → 底部略沉）+ 1px 内侧顶光/底暗（`edge`）+ 底板光线层（`light`），四个包都带这套字段，缺字段按单值回退。

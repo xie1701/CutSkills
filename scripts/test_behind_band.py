@@ -103,8 +103,17 @@ def main() -> int:
     # G. cutout 与 behind 同一条带；有 layout.box_px 时以卡自己的框为准
     assert text_band("cutout", None, W, H) == band_behind
     assert text_band("behind", (10, 20, 300, 60), W, H) == (10, 20, 300, 60)
-    assert text_band("keyword", (10, 20, 300, 60), W, H) == band_kw, \
-        "keyword 不该被 layout.box_px 改成小框——它本来就该在中段带整幅量"
+    # T-045 改了这一条：**有卡框就以卡框为准，keyword 也一样**。
+    # 原来的断言是「keyword 永远回中段带」——那时大字的 top_h 是全局的（pack 的
+    # `emphasis.top_h`），中段带天然罩得住。T-045 给卡加了 `card.top_h`（作者可以把它挪到
+    # 头顶避开人脸），同一条断言就变成了假红的来源：dianzan-c mg-02 上沿 0.165H 时
+    # 字在 y 326–419，中段带从 537 起，`verify_film` 报「大字烧进画面 10.7s 处花字色
+    # 占比 0.00%」，而那一帧实测有 28 800 个 #F6EB34 像素（负样本见 T-045 报告）。
+    # 松的那头没变：`box` 为 None 时 keyword 仍回中段带（上一行 band_kw 的断言）。
+    assert text_band("keyword", (10, 20, 300, 60), W, H) == (10, 20, 300, 60), \
+        "有卡框时 keyword 也该按卡框量（T-045：卡能挪到头顶，固定中段带会量空）"
+    assert text_band("keyword", None, W, H) == band_kw, \
+        "没有卡框时 keyword 必须回中段带——这条不许松"
 
     # H. 本机有真片就再对一次真帧（没有就明说跳过，不当通过）
     real = "· 真帧跳过（素材库不在本机）"

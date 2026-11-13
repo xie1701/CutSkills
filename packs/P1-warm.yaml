@@ -37,6 +37,17 @@ emphasis:
   - 304
   fit_width: 0.7
   top_h: 0.3
+  # 大字隔离层（T-045）：只有 timeline 里 `card.isolate: true` 的那张才画。
+  # 压在杂乱背景（工地工具/人身上）的大字靠 text-shadow 不够——投影只舔笔画边，
+  # 隔不开一整块高频背景；一层跟着字框走的柔化压暗才把「字底下的那几行像素」压下去。
+  # 浓度是「字读不读得出」的账（判据 ΔL ≥ 12，见 scripts/check_keyword_text.py），
+  # 不是装饰参数。
+  isolate:
+    fill: 'rgba(18,15,12,.32)'    # 暖炭黑，跟着本包的语域，不用纯黑
+    feather_px: 80                # 柔化半径：边界不许是硬边（硬边就成一块卡片了）
+    pad_x: 0.05                   # 横向外扩（×W）
+    pad_y: 0.42                   # 纵向外扩（×字高）
+    radius_px: 26
   max_one_action_per_caption: true
 shots:
   talking_median_s: 2.4

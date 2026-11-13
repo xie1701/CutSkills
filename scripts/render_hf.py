@@ -994,6 +994,11 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
         _cd = {"seg": s["n"], "kind": kind, "text": str(c.get("text") or ""),
                "data": c.get("data") or None,
                "start": start, "end": round(start + d, 3),
+               # 大字自己的两个开关（T-045）：位置与隔离层归 timeline 写，渲器不自作主张。
+               # `top_h` 只在卡自己写了才用（优先级见 card_layout.kw_top_of）；
+               # `isolate` 打开才画那把板（样式仍走包，见 packs/*.yaml 的 emphasis.isolate）。
+               **({"top_h": float(c["top_h"])} if c.get("top_h") is not None else {}),
+               **({"isolate": True} if c.get("isolate") else {}),
                "anchor_word": on or None,
                "anchor_t": round(float(anchor_t), 3) if anchor_t is not None else None,
                "appear_t": round(float(start), 3),
@@ -1136,6 +1141,11 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 .kw span {{ font-family:"SC-Big", sans-serif; font-weight:900; font-size:{kw_px}px;
   line-height:1.06; text-align:center; color:{kw_color}; white-space:nowrap;
   text-shadow:0 6px 22px rgba(0,0,0,0.6); {kw_extra} }}
+/* 大字隔离层（T-045）：字后一块柔化压暗。色/浓度/柔化半径/外扩全由包管
+   （emphasis.isolate → 渲器算成这四个 inline 值），这里只管「它是一层不占位的板」。
+   为什么不给字加 text-shadow：投影只舔笔画边，隔不开一块高频背景（工地的工具/管子）；
+   为什么不整屏暗场：露脸格整屏暗场是 B7 红线，而且它改的是整个画面的曝光。 */
+.kwpod {{ position:absolute; pointer-events:none; }}
 .idcard {{ position:absolute; left:{idc_x}%; top:{idc_y}%; text-align:left; }}
 .idcard span {{ display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }}
 /* MG 卡：按 srt-motion-cards 的设计语言重写——渐变压暗 + 居中排版 + 强对比字号。
@@ -1281,6 +1291,15 @@ document.querySelectorAll(".kw").forEach((c) => {{
     {{ scale: 1, opacity: 1, rotate: 0, duration: 0.34, ease: "back.out(2.2)",
        immediateRender: false }}, t);
   tl.to(c.querySelector("span"), {{ opacity: 0, duration: 0.16, ease: "power1.in" }},
+        t + Math.max(0, d - 0.16));
+}});
+// 大字隔离层：跟大字同进同退（它只是字底下一块板，晚一帧出现就变成「闪一下」）
+document.querySelectorAll(".kwpod").forEach((c) => {{
+  const t = parseFloat(c.dataset.start);
+  const d = parseFloat(c.dataset.duration);
+  tl.set(c, {{ opacity: 0 }}, 0);
+  tl.set(c, {{ opacity: 1 }}, t);
+  tl.to(c, {{ opacity: 0, duration: 0.16, ease: "power1.in" }},
         t + Math.max(0, d - 0.16));
 }});
 // MG 卡：件与件之间要有先后，否则就是一页 PPT 硬切上来。
@@ -1638,7 +1657,6 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     # 「脑后露出一半」：顶边压到 0.30H 附近、字再放大约 15%，让脑袋吃掉字的下半截
     kwb_top = round(float(emph.get("behind_top_h") or 0.285) * 100, 2)
     kwb_px = int(kw_px * float(emph.get("behind_scale") or 1.15))
-    fit_w = float(emph.get("fit_width") or 0.70)   # 大字单排占多宽
     entry = str(sub.get("entry") or "fade")
     # immediateRender:false 是必须的。GSAP 的 fromTo 默认立刻渲染 from 状态，
     # 于是整条时间轴在 t=0 就被设成 opacity:0；一旦浏览器的捕获路径某一段没推进
@@ -1839,27 +1857,39 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         else:
             # 大字一律单排、撑到画幅宽度的 70%（Jerry 2026-11-09：「字体还要放大 2-3 倍
             # 能撑满屏幕宽度的 70%，但所有的大字应该控制在一排出现，要进行适当的缩放」）。
-            # 做法：先按「70% 宽 ÷ 字数」给字号，再用高度上限兜住 1–2 个字的极端情况。
-            # 老做法是「全局字号 163px，超宽才缩」，2 个字的「柒造」只占 37% 宽，显得小气。
-            _n = max(1, len(c["text"]))
-            _px = min(int(round(W * fit_w / _n)), int(H * 0.34))
+            # 字号与上沿走 card_layout 那一份（T-045）：`check_keyword_text` 判的就是同一个
+            # 字框，两边各写一套公式，判据量到的和画上去的早跑了。
+            _px = card_layout.kw_font_px(c["text"], style, W, H)
             # 放脑后做不到干净时，改「头顶大字」：位置按人像头顶反算，
             # 顺手挂一层顶部渐变——不加的话，画面顶部的梁柱管道会从字缝里透出来。
-            _ov = (kw_top_override or {}).get(c.get("seg"))
-            _inline = ""
-            _scrim = ""
-            if _ov is not None:
-                _inline = f' style="top:{_ov * 100:.2f}%">'
-                card_html.append(
-                    f'    <div class="scrim" data-start="{c["start"]}" data-duration="{d}"'
-                    f' style="height:{min(0.30, _ov + 0.14) * 100:.1f}%"></div>')
+            _top_h, _want_scrim, _own_top = card_layout.kw_top_of(
+                c, style, W, H, override=(kw_top_override or {}).get(c.get("seg")))
+            if _own_top:
+                _inline = f' style="top:{_top_h * 100:.2f}%"'
+                if _want_scrim:
+                    card_html.append(
+                        f'    <div class="scrim" data-start="{c["start"]}" data-duration="{d}"'
+                        f' style="height:{min(0.30, _top_h + 0.14) * 100:.1f}%"></div>')
             else:
-                _inline = ">"
+                _inline = ""
+            # 大字隔离层（T-045）：字压在杂乱背景上时，得有一层把「字底下的那几行像素」
+            # 压下去的东西。包决定它长什么样（emphasis.isolate），卡自己开关（card.isolate）。
+            # 单独一层而不是给字加 text-shadow：投影只舔笔画边，隔不开一个高频背景；
+            # 也不要整屏暗场（口播格整屏暗场是 B7 红线）。
+            if c.get("isolate"):
+                _iso = card_layout.kw_isolate(
+                    style, card_layout.kw_ink_box(c["text"], style, W, H, _top_h)["px"], W, H)
+                _x, _y, _w2, _h2 = _iso["px"]
+                card_html.append(
+                    f'    <div class="kwpod" data-start="{c["start"]}" data-duration="{d}" '
+                    f'style="left:{_x}px;top:{_y}px;width:{_w2}px;height:{_h2}px;'
+                    f'border-radius:{_iso["radius_px"]}px;background:{_iso["rgba"]};'
+                    f'filter:blur({_iso["feather_px"]}px)"></div>')
             card_html.append(
                 f'    <div id="kw-{i:02d}" class="clip kw'
                 f'{" kw-behind" if c["kind"] == "behind" else ""}" '
                 f'data-start="{c["start"]}" '
-                f'data-duration="{d}"{_inline}<span style="font-size:{_px}px">'
+                f'data-duration="{d}"{_inline}><span style="font-size:{_px}px">'
                 f'{esc(c["text"])}</span></div>')
 
     # 跳切推近：硬切式换倍率（不是缓推）。缓推看不出「换了一镜」，
@@ -2685,6 +2715,20 @@ def main():
         "colorize": colorize,
         "engine": "hyperframes",
     }, ensure_ascii=False, indent=1), encoding="utf-8")
+    # 大字自己落在哪，落到 cards.json 里（T-045）。`build_html` 画字用的是同一个函数，
+    # 这里只是把结果记下来——`verify_film` 判「大字烧进画面」时要按**这张卡自己的位置**
+    # 取样（卡一挪到头顶，固定中段带就量空，报假红）。判据自己再估一遍 = 两份几何，
+    # 迟早漂（T-041 那条假红就是「带子写死在判据里」造成的）。
+    for _c in cards:
+        if str(_c.get("kind") or "") not in card_layout.KW_KINDS:
+            continue
+        _th, _sc, _own = card_layout.kw_top_of(
+            _c, style, W, H, override=kw_top_override.get(int(_c.get("seg") or 0)))
+        _kb = card_layout.kw_ink_box(str(_c.get("text") or ""), style, W, H, _th)
+        if _kb:
+            _c["kw_box_px"] = _kb["px"]
+            _c["kw_top_h"] = _th
+            _c["kw_font_px"] = _kb["font_px"]
     (proj / "out" / "cards.json").write_text(json.dumps(
         {"cards": cards, "engine": "hyperframes"}, ensure_ascii=False, indent=1),
         encoding="utf-8")
@@ -2735,6 +2779,24 @@ def main():
         except Exception as _e:                                    # noqa: BLE001
             print(f"！叠加态检查没跑起来：{_e}", file=sys.stderr)
             return 7
+
+    # 大字（keyword / behind）：压脸 / 可读性 / 单排宽度（T-045）。
+    # 为什么这一道必须和上面三道并列而不是塞进 check_overlay：`check_overlay` 明说了
+    # 「大字走 .kw 层，不在本判据内」——于是大字是唯一没有人量过位置的一层，
+    # 成片里才有「黄字压在眼睛上」「字被杂乱背景吃掉」两件同时发生还全绿。
+    # 退出码 8：和 5（声音在前）、6（卡准入）、7（叠加态）分开，看日志就知道卡在哪一道。
+    if not getattr(a, "force", False):
+        try:
+            import check_keyword_text as _kt
+            _kv = [(lv, m) for lv, m in _kt.audit(proj) if lv == "error"]
+            if _kv:
+                print("！大字没过（压脸 / 可读性 / 单排宽度），拒绝渲染：", file=sys.stderr)
+                for _lv, m in _kv[:8]:
+                    print(f"   · {m}", file=sys.stderr)
+                return 8
+        except Exception as _e:                                    # noqa: BLE001
+            print(f"！大字检查没跑起来：{_e}", file=sys.stderr)
+            return 8
 
     # 1b) 逐镜校对亮度与白平衡（整片一个平均值不够——口播段和工地段差一倍）
     if a.shot_match > 0 and videos:
