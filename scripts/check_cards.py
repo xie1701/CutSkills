@@ -147,31 +147,44 @@ def has_number(text: str, value: str) -> bool:
     return digits in _cn_span(text)
 
 
-def words_of_window(lib: Path, el: dict) -> str:
+def words_of_window(lib: Path, el: dict) -> tuple[str, str]:
+    """窗口内的口播真值（过词表）+ 真值来源（`EG.WORD` / `EG.SENTENCE` / `EG.NONE`）。
+
+    查表一律走 `EG.chars_of_asset`（新键 `h12(id)` + 老键 `legacy_key` 都查），
+    不在这里自己拼缓存路径——拼两份迟早只改一份，改漏的那份会静默退句级。
+    句级真值只够看字面，判「大字里的字这句口播里有没有」会因窗口错位假红，
+    所以调用方拿到 `SENTENCE` 时不许硬判。
+    """
     au = el.get("audio") or {}
     aid = au.get("asset") or el.get("asset")
     i, o = au.get("in"), au.get("out")
     if not aid or i is None or o is None:
-        return ""
-    txt = "".join(t for t, s in EG.words_of(lib, aid)
-                  if float(i) - 0.35 <= s <= float(o) + 0.35)
+        return "", EG.NONE
+    txt, src = EG.chars_of_asset(lib, aid).text_in(float(i), float(o), 0.35)
     # 必须过词表：ASR 把「四大天王」写成「四大轩王」，不过一遍就会判卡错——
     # 卡是对的，错的是转写。判据和字幕必须读同一份真值。
     lex = lexicon.load(lib / "_cutskills")
     for bad, good in (lex.get("terms") or {}).items():
         if bad in txt:
             txt = txt.replace(bad, good)
-    return txt
+    return txt, src
 
 
-def film_text(lib: Path, tl: dict) -> str:
-    """全片口播真值。只用来判「这个词片子里到底存不存在」。
+def film_text(lib: Path, tl: dict) -> tuple[str, list[str]]:
+    """全片口播真值 + 退级的那些段在哪。只用来判「这个词片子里到底存不存在」。
 
     卡上的释义可以解释的是**影片里说过的那个词**，而不是从词典里搬一套标准答案过来。
     局限也要认：拿全片而不是拿本句，是一条故意放松的口子——本句窗口只有一句，
     而解释一个行话往往要用到隔壁那句里说过的事（比如「四大天王」的四样分别在两句里）。
     """
-    return "".join(words_of_window(lib, e) for e in tl.get("elements") or [])
+    txt, notes = "", []
+    for e in tl.get("elements") or []:
+        t, src = words_of_window(lib, e)
+        txt += t
+        note = EG.degrade_note(e.get("n"), src)
+        if note:
+            notes.append(note)
+    return txt, notes
 
 
 def seg_windows(tl: dict) -> dict[int, tuple[float, float]]:
@@ -304,6 +317,11 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
                                f"一张，最多 {cap} 张，多了就只是把口播又写了一遍"))
 
     # 4. 词证与主张（核心：这张卡说什么，话里到底有没有）
+    # 全片文本只拼一次（原来每张卡都重生拼一遍）；拼的时候有段只到句级要说出来。
+    film, film_notes = film_text(lib, tl)
+    if film_notes:
+        v.append(("warning", f"全片有 {len(film_notes)} 段没有词级真值，释义比对只能跟着句级走"
+                               f"（{film_notes[0]}）"))
     for c in cards:
         if int(c.get("seg") or 0) in skip:
             continue
@@ -311,13 +329,19 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
         if not seg:
             v.append(("error", f"卡挂在不存在的段 #{c.get('seg')}"))
             continue
-        text = words_of_window(lib, seg)
+        text, src = words_of_window(lib, seg)
+        if src != EG.WORD:
+            # 查不到词级真值就如实说「查不了」——退到句级去硬判只会把窗口错位
+            # 当成「卡上的字是编的」（T-030：protect-01 五条卡全落在这条上）。
+            why = ("这一格没写 audio 的 asset/in/out，取不到声音窗口" if src == EG.NONE
+                   else "只查得到句级真值，没有逐字时间，硬判会误判")
+            v.append(("warning", f"#{c.get('seg')} 窗口里没有词级真值，卡的关联查不了（{why}）"))
+            continue
         if not text:
-            v.append(("warning", f"#{c.get('seg')} 窗口里没有词级真值，卡的关联查不了"))
+            v.append(("warning", f"#{c.get('seg')} 窗口里没有词，卡的关联查不了"))
             continue
         chunks = card_texts(c)
         name = f"#{c.get('seg')} {c.get('kind')}"
-        film = film_text(lib, tl)
 
         if c.get("kind") in ("keyword", "behind", "cutout"):
             # 大字就是这句的话被放大。出现这句里没有的字，就是替他说了他没说的话。

@@ -63,6 +63,8 @@ python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具�
 python3 scripts/test_content_guard.py                   # 内容守卫负样本（0.00s 糊片 / 四张图配工地 / 夸赞撞生肉血水）
 ```
 
+**词级真值只有一个入口：`evidence_guard.chars_of_asset(lib, asset_id)`。** 它先按 `h12(id)` 找 ASR 缓存，找不到再按索引里的 `legacy_key`（首次建索引时的路径哈希）找——**两套键都要查**；都没有才退句级，并且把 `source="sentence"` 带回来，调用方必须打一条「该段没有词级真值，已退句级比对，可能漏判」。谁自己拼 `cache/asr/` 路径，谁就会在素材改过名之后悄悄退回句级（T-030 实测：柒造库 102/153 个素材只落在 `legacy_key` 下，四个判据全部假绿）。键的规则见 [index-schema.md](references/index-schema.md) 的「缓存命名」一节。
+
 ## v4 主链路：一条命令一层
 
 ```bash
