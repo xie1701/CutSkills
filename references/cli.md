@@ -898,6 +898,11 @@
 
 （无参数）
 
+### `test_behind_band.py`
+*T-041（追加）回归：behind / cutout 大字的「取样带 + 基线」缺一条就假红。*
+
+（无参数）
+
 ### `test_blind_negative.py`
 *CutSkills · 盲测收口与阴性防误杀测试套件 (P4)*
 

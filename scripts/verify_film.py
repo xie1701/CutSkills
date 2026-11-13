@@ -26,6 +26,13 @@ import yaml
 # 那条判据就永远 0 偏差、什么都不判了（T-041）。
 REF_CHARS_PER_CUE = 8.0
 
+# 「大字/花字真的上屏了吗」的墨迹下限，按卡型分开：
+# behind/cutout 是故意被人挡住的，只剩可见边缘，墨迹天然远少于 keyword
+# （实测同一块字 keyword 0.4% 上下、behind 0.13%）。这里只判「字确实在画面上」，
+# 遮挡多少交给成片看，不假装能从一个数里量出来。
+KW_FLOOR_BEHIND = 0.0008
+KW_FLOOR_KEYWORD = 0.004
+
 
 def dark_ratio(im) -> float:
     """深底占比：像素 < 46（L 模式）的比例。供「代码画面真的在画面上」用，
@@ -36,6 +43,59 @@ def dark_ratio(im) -> float:
 
 def median_of(vals: list[float]):
     return sorted(vals)[len(vals) // 2] if vals else None
+
+
+def color_share(im, hexs, box, tol: int = 64) -> float:
+    """一块区域里接近某个颜色的像素占比。
+
+    为什么不用「深色占比」：那判据只对 ffmpeg 那条链的深底衬卡成立。
+    HyperFrames 链的大字是**亮黄字压画面**，深色占比天然为 0，
+    于是"卡明明在画面上"也会报红。卡是我们自己设计的，颜色是已知的，
+    就按颜色查——这比"深不深"诚实地多。
+    """
+    r0, g0, b0 = (int(hexs.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    crop = im.crop(box).convert("RGB")
+    px = list(crop.getdata())
+    n = sum(1 for r, g, b in px
+            if abs(r - r0) <= tol and abs(g - g0) <= tol and abs(b - b0) <= tol)
+    return n / max(1, len(px))
+
+
+def kw_ink_level(in_share: float, base_share, kind: str) -> tuple[str, float]:
+    """有卡帧的墨迹减去「卡不在」的基线 → 判 green/red，返回 (级别, 净墨迹)。
+
+    为什么要减基线：画面里本来就有同色的东西（招牌、包装 accent 用在大字以外的地方）。
+    `qizao-ground-01` 30.2s 那一帧，behind 的中段带里躺着 682 个 #F6EB34 像素（0.07%，
+    和卡无关）；而 behind 的墨迹下限只有 0.08%，一张「字根本没上屏」的帧能靠这点背景黄
+    擦着过线。减掉卡前/卡后的同一带子中位，背景就抵消了，判据量到的才是这张卡加的墨。
+    """
+    floor = KW_FLOOR_BEHIND if kind in ("behind", "cutout") else KW_FLOOR_KEYWORD
+    if base_share is None:
+        return ("green" if in_share > floor else "red"), float(in_share)
+    base = max(0.0, min(float(base_share), float(in_share)))
+    ink = float(in_share) - base
+    if in_share > 0 and base >= 0.5 * float(in_share):
+        # 带子被画面自己的同色占满（暖色/木色/陶土色多的镜头）：这时候减基线会把卡的墨迹
+        # 一起减掉——proj79 的 behind「成本贵在哪」带内 2.55%、卡不在时 2.48%，净 0.07%，
+        # 但那张卡其实在画面上（渲出来是半透明的淡黄 #F2E98F，与 pack accent 差 91 灰阶）。
+        # 退回旧口径「带内墨迹够量就算上屏」，并如实标注「净墨迹不可判」——
+        # 别拿一个量不出来的差值去报红（T-041 追加，留 T-044 用帧间差分重做这一层）。
+        return ("green" if in_share > floor else "red"), ink
+    return ("green" if ink > floor else "red"), ink
+
+
+def text_band(kind: str, box, W: int, H: int) -> tuple[int, int, int, int]:
+    """大字/花字该在画面的哪一带取样——**按卡型分开**。
+
+    keyword（替字幕说话的中央大字）落在中段带；behind / cutout（人脑后大字）
+    的排版天然更高：`emphasis.top_h: 0.30` 只是上限，字撑到 70% 屏宽之后整块上移，
+    实测 `qizao-ground-01` 那张 behind 的「售楼部 · 酒店」黄字在 **y 115–204**
+    （画面 6%–11%H），而中段带从 28%H 才开始——必然量空，报「字没上屏」（假红）。
+    有 `layout.box_px` 时以卡自己的框为准（外面各留 24px 余量，由调用方给）。
+    """
+    if kind in ("behind", "cutout"):
+        return box or (0, 0, W, int(H * 0.45))
+    return (0, int(H * 0.28), W, int(H * 0.76))
 
 
 def subtitle_density(cues: list[dict], dur: float, lo, hi) -> tuple[str, str, str] | None:
@@ -546,21 +606,6 @@ def main() -> int:
         """大字色占比：候选色里取最大。候选来自当前包装的 accent / emphasis 色。"""
         return max(color_share(im, h, box) for h in _kw_list)
 
-    def color_share(im, hexs, box, tol=64):
-        """一块区域里接近某个颜色的像素占比。
-
-        为什么不再用「深色占比」：那判据只对 ffmpeg 那条链的深底衬卡成立。
-        HyperFrames 链的大字是**亮黄字压画面**，深色占比天然为 0，
-        于是"卡明明在画面上"也会报红。卡是我们自己设计的，颜色是已知的，
-        就按颜色查——这比"深不深"诚实地多。
-        """
-        r0, g0, b0 = (int(hexs.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
-        crop = im.crop(box).convert("RGB")
-        px = list(crop.getdata())
-        n = sum(1 for r, g, b in px
-                if abs(r - r0) <= tol and abs(g - g0) <= tol and abs(b - b0) <= tol)
-        return n / max(1, len(px))
-
     if cards_meta:
         for c in [x for v in cards_meta.values() for x in v]:
             a_, b_ = float(c["start"]), float(c["end"])
@@ -585,24 +630,43 @@ def main() -> int:
                 # 只在窗口中点取一帧会撞上入场动画的半路（擦显才到一半、字刚出来三分一），
                 # 实测同一块字中点 0.02%、往后 0.1s 就 0.13%——一帧定生死会寃红。
                 # 取窗口内的三帧取最大值：只要曾经完整上过屏，就算它上了。
+                _band = text_band(kind, _box, W, H)
                 share = 0.0
                 for frac in (0.35, 0.6, 0.85):
                     tt = min(dur - 0.05, a_ + (b_ - a_) * frac)
                     im_ = frame_at(tt, f"card{c.get('el')}{frac}", "RGB")
                     if im_ is None:
                         continue
-                    share = max(share, kw_share(im_, (0, int(H * 0.28), W, int(H * 0.76))))
+                    share = max(share, kw_share(im_, _band))
                 if im_ is None:
                     continue
+                # 基线：卡前 / 卡后各一帧，同一带子量到的「本来就有的黄」。
+                # 不减掉它，一张「字没上屏」的帧会被背景黄抬过 behind 的墨迹下限。
+                _bases = []
+                for _tt, _tag in ((a_ - 0.35, "pre"), (b_ + 0.35, "post")):
+                    if not (0.0 <= _tt <= dur - 0.05):
+                        continue
+                    _im_b = frame_at(_tt, f"card{c.get('el')}{_tag}", "RGB")
+                    if _im_b is not None:
+                        _bases.append(kw_share(_im_b, _band))
+                _base = min(_bases) if _bases else None
                 # behind 卡是故意被人挡住的，可见墨迹天然远少于 keyword：
-                # 实测同一块字，keyword 在 0.4% 上下，behind 只剩 0.13%（人挡住大半）。
-                # 拿 keyword 的门槛要求 behind 只会永远报红；这里只判「字确实在画面上」，
-                # 遮挡多少交给成片看，不假装能从一个数里量出来。
-                floor = 0.0008 if kind in ("behind", "cutout") else 0.004
-                label = "大字烧进画面（可见部分）" if floor < 0.004 else "大字烧进画面"
-                add(label, f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
-                    "green" if share > floor else "red",
-                    "" if share > floor else
+                # 实测同一块字，keyword 在 0.4% 上下、behind 只剩 0.13%（人挡住大半），
+                # 两字小卡「柒造」实测 0.17%。拿 keyword 的门槛要求 behind 只会永远报红；
+                # 这里只判「这张卡确实加了一笔墨在画面上」，遮挡多少交给成片看。
+                level, ink = kw_ink_level(share, _base, kind)
+                floor = KW_FLOOR_BEHIND if kind in ("behind", "cutout") else KW_FLOOR_KEYWORD
+                label = "大字烧进画面（可见部分）" if floor < KW_FLOOR_KEYWORD else "大字烧进画面"
+                if _base is None:
+                    _bt = ""
+                elif share > 0 and _base >= 0.5 * share:
+                    _bt = (f"（卡不在时同带 {_base * 100:.2f}%——带子被画面同色占满，"
+                           f"净墨迹不可判，按带内墨迹总量判）")
+                else:
+                    _bt = f"（卡不在时同带 {_base * 100:.2f}%，净 {ink * 100:.2f}%）"
+                add(label, f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%{_bt}",
+                    level,
+                    "" if level == "green" else
                     f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
             elif kind in ("stat", "steps", "versus", "term"):
                 # MG 卡：底色是半透明 ground，accent 只出现在数字/标题/序号上，面积天然很小。
@@ -680,11 +744,20 @@ def main() -> int:
             if im is not None:
                 kind = str(card.get("kind") or "card")
                 if kind in ("keyword", "behind", "cutout"):
-                    share = kw_share(im, (0, int(H * 0.30), W, int(H * 0.74)))
-                    floor = 0.0008 if kind in ("behind", "cutout") else 0.004
+                    _band = text_band(kind, None, W, H)
+                    share = kw_share(im, _band)
+                    _bases = []
+                    for _tt, _tag in ((mid - cd / 2 - 0.35, "pre"), (mid + cd / 2 + 0.35, "post")):
+                        if not (0.0 <= _tt <= dur - 0.05):
+                            continue
+                        _im_b = frame_at(_tt, f"cardE{_tag}", "RGB")
+                        if _im_b is not None:
+                            _bases.append(kw_share(_im_b, _band))
+                    _base = min(_bases) if _bases else None
+                    level, ink = kw_ink_level(share, _base, kind)
                     add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
-                        "green" if share > floor else "red",
-                        "" if share > floor else
+                        level,
+                        "" if level == "green" else
                         f"EDL 里有大字「{card.get('text')}」，画面 {kw_hex} 色几乎为零")
                 else:
                     px = list(im.crop((0, 760, W, 1040)).getdata())

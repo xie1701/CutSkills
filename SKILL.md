@@ -61,6 +61,7 @@ python3 scripts/test_edge_audit.py                      # 孤立提示词正负�
 python3 scripts/test_timing_subs.py                     # 字幕后置判据正负样本：同音/丢字不误杀，凭空加实词与人称错位照红（T-040）
 python3 scripts/test_cue_guard.py                       # 口令查表口径：手写词优先 / 两套键 / 切片偏移 / 缺真值不静默（T-038）
 python3 scripts/test_sub_density.py                     # 字幕密度分母口径：实测与期望都按整片分钟，砍 1/3 条数仍判黄（T-041）
+python3 scripts/test_behind_band.py                     # behind 大字取样带：人脑后大字在 6–11%H，别拿 keyword 的中段带量（T-041）
 python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）——大字逐字要能在同格词级真值里找到，卡面与台词不符怎么改回来见 [fixes-t033-cards.md](references/fixes-t033-cards.md)
 python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
@@ -732,6 +733,9 @@ python3 <SKILL_DIR>/scripts/verify_film.py --project <项目目录> [--style <st
 源片字高不足 30px 时认不出是常态，脚本会直接说"别硬认"）。
 
 **但「在成片上量」不等于「读 JSON」。** 字幕和字卡要抽帧看像素：`subs.json` 里有 42 条字幕、渲染命令里也有 42 个 overlay，成片上照样可以一个字都没有（见 C 段那个 `-loop 1` 的坑）。所以 verify 会抽 3 条字幕的中点看字幕带的白像素占比、抽字卡窗口的中点看深色占比，低于阈值直接判红——**读 JSON 的验收会把这种事全判成绿灯。**
+
+**取样带按卡型分开，别拿一把尺量所有大字。** `keyword`（替字幕说话的中央大字）落在中段带（28%–76%H）；`behind` / `cutout`（人脑后大字）排版天然更高——`emphasis.top_h: 0.30` 只是上限，字撑到 70% 屏宽之后整块上移，实测 `qizao-ground-01` 那张 behind 的黄字在 **y 115–204（6%–11%H）**，用中段带必然量空、报「字没上屏」。而且判据量的是「有卡帧 − 卡前/卡后同带中位」的**净墨迹**：画面里本来就有同色的招牌，不减掉基线，一张「字根本没上屏」的帧能靠背景黄擦着过 behind 的 0.08% 下限。合同单 `scripts/test_behind_band.py`（9 条断言）。
+带子被画面自己的同色占满时（暖色镜头，基线 ≥ 0.5 × 带内），减基线会把卡的墨迹一起减掉，这时退回旧口径「带内墨迹够量就算上屏」并在读数里写明「净墨迹不可判」——半透明大字渲成 `#F2E98F`、与 accent 差 91 灰阶这件事，颜色这一层量不出来，重做见 **T-044**（帧间差分）。
 
 | 指标 | 判据 | 为什么 |
 |---|---|---|
