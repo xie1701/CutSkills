@@ -68,12 +68,16 @@ PROSE_ACK_WORD = re.compile(
     r"无需避开|不用避开|不避开|保留|允许|可以|同意|认可|放行|合规|没问题|打码|裁掉|裁切|模糊|遮罩",
     re.IGNORECASE
 )
-PROSE_TARGET = re.compile(r"#\d+|第\d+[段格]|\b\d{4}\b|[A-Za-z]{2,}[_-][A-Za-z0-9_-]{4,}")
+# 具体目标：段号 / 素材名 / 素材号。素材号要求 4 位且不像年份（19xx·20xx），
+# 否则「2026-11-11 22:22 | 方案确认 | 认可」这种日志行会被当成「在说某一段」。
+PROSE_ASSET_TOKEN = r"(?<!\d)(?!19\d{2}|20\d{2})\d{4}(?!\d)"
+PROSE_TARGET = re.compile(rf"#\d+|第\d+[段格]|{PROSE_ASSET_TOKEN}|[A-Za-z]{{2,}}[_-][A-Za-z0-9_-]{{4,}}")
 # 只说「允许/可以/同意/保留」但带段号、不涉品牌词的行，同样算「像在拍板」——也要提醒。
 PROSE_PERMISSION = re.compile(
     r"允许|可以|同意|放行|没问题|不用改|无需避开|保留|认可", re.IGNORECASE
 )
-PROSE_SEG_TARGET = re.compile(r"#\d+|第\d+[段格]")
+# 只说「允许/可以/同意/保留」的行，要指向某一段或某支素材，才算「像在拍板」。
+PROSE_SEG_TARGET = re.compile(rf"#\d+|第\d+[段格]|{PROSE_ASSET_TOKEN}")
 
 # 泛指词集合：绝对不能作为品牌特征单独用于核销判断。
 # T-036 后核销不再按散文/flag 子串匹配（只认精确指向的结构化行），此表保留给
