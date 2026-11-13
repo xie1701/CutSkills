@@ -124,6 +124,8 @@ python3 scripts/calibrate.py --video <参考片> --tolerance-from 0.85
 python3 scripts/golden.py
 ```
 
+`golden` 现在仍退出码 1：三支旧样片的红已逐条归因（5 条是旧字幕过期，1 类是慢语速单呼吸组被「停留 3.2s」误判），重渲被「卡缺锚词」与「`proj79` 是 v2」两处闸门挡住。逐条证据与拆单见 [references/fixes-t024-golden.md](references/fixes-t024-golden.md)。
+
 ### 第 4 层的另一半：声音是时间轴的主人
 
 画面事件不按秒摆，按**音频块**摆。`audio_map.py` 把声音切成半句级块并给出重音点，
