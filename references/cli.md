@@ -64,7 +64,13 @@
 ### `lexicon.py`
 *CutSkills · 转写语义纠错（词表层）。*
 
-（无参数）
+| 参数 | 说明 |
+|---|---|
+| `--library` | 素材库根（读 <库>/_cutskills/lexicon.json） |
+| `--term` | 候选替换，写法「错写=>建议词」，例「效果好=>效果图」 |
+| `--allow-unsafe` | 允许应用「不等长且已标 unsafe」的条目（默认拒绝） |
+| `--allow-negation-edit` | 允许增删否定字（不/没/别/未/唔/冇）——高危，默认硬拦 |
+| `--json` | 开关 |
 
 ### `lint_transcript.py`
 *CutSkills · 转写出「待纠错清单」给人/大模型判断。*
@@ -73,6 +79,9 @@
 |---|---|
 | `--library` | **必填** |
 | `--top` | （默认 40） |
+| `--suspects` | 嫌疑词表（默认 scripts/data/suspect-words.txt） |
+| `--magnitudes` | 量级判据表（默认 scripts/data/abnormal-magnitudes.json） |
+| `--worklist` | 待审工单 JSON 输出路径（默认 <库>/_cutskills/semantic-worklist.json） |
 
 ### `check_l2.py`
 *CutSkills · L2 记录自检。*
@@ -901,6 +910,11 @@
 
 ### `test_pip_judge.py`
 *T-012 回归：PiP 判据的三层负样本必须红（缺键 / 贴回失败 / 数量不足）。*
+
+（无参数）
+
+### `test_semantic_check.py`
+*T-017 合同测试：上屏前的语义常识校对闭环（准绳 A5）。*
 
 （无参数）
 

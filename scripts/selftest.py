@@ -316,6 +316,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_brand_safety.py")])
     must("品牌安全与第三方字样处置回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑮ 语义校对闭环回归（T-017：欧阳三片四处真错字检出 / 等长修正后清零 / 否定字硬拦）")
+    r = sh([PY, str(ROOT / "scripts" / "test_semantic_check.py")])
+    must("语义校对闭环回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     print("⑭ 口播段音画同源（画面起点被清零＝嘴形全错，原案 2026-11-12）")
     r = sh([PY, str(ROOT / "scripts" / "test_av_lock.py")])
     must("口播段音画同源", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])

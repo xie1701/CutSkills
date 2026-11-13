@@ -1,0 +1,981 @@
+{
+ "_why": "T-017 语义常识校对的回归样本：欧阳茶楼三片（dianzan-a/b/c）的 out/subs.json 逐字复制。A5 事故就出在这三片——「大约有十万米高」「我哋嘅效果好先」「大咧先可以用入」「生万鱼池」「讲下下」。复制而不引用外部路径，是为了干净机器上也能跑这条合同测试；字段只留判据用得上的，值不做任何规整。",
+ "_source": "2026-11-13 实读 /Users/jerry/Downloads/ouyangTestCut/_cutskills/projects/<slug>/out/subs.json（哈希见 _sha12）",
+ "films": {
+  "dianzan-a": {
+   "_sha12": "8014fba937a0",
+   "cues": [
+    {
+     "text": "我花咗三百万",
+     "start": 0.0,
+     "end": 1.44,
+     "el": 1,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 0,
+     "ef": 43
+    },
+    {
+     "text": "喺金湾开咗间",
+     "start": 1.44,
+     "end": 3.06,
+     "el": 1,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 43,
+     "ef": 92
+    },
+    {
+     "text": "六百平嘅点赞茶楼",
+     "start": 3.06,
+     "end": 4.8,
+     "el": 1,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 92,
+     "ef": 144
+    },
+    {
+     "text": "我哋一共有四个",
+     "start": 4.98,
+     "end": 5.94,
+     "el": 2,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 149,
+     "ef": 178
+    },
+    {
+     "text": "门口楼面两个",
+     "start": 5.94,
+     "end": 7.44,
+     "el": 2,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 178,
+     "ef": 223
+    },
+    {
+     "text": "门口厨房两个门口",
+     "start": 7.44,
+     "end": 8.6,
+     "el": 2,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 223,
+     "ef": 258
+    },
+    {
+     "text": "我哋一楼嘅话大约个",
+     "start": 8.6,
+     "end": 9.98,
+     "el": 3,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 258,
+     "ef": 299
+    },
+    {
+     "text": "卡座大约有廿五张咗右",
+     "start": 9.98,
+     "end": 12.733,
+     "el": 3,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 299,
+     "ef": 382
+    },
+    {
+     "text": "有八张包厢",
+     "start": 12.733,
+     "end": 14.233,
+     "el": 4,
+     "break_after": "clause",
+     "units": 5.0,
+     "sf": 382,
+     "ef": 427
+    },
+    {
+     "text": "每个包房大约可以",
+     "start": 14.233,
+     "end": 15.673,
+     "el": 5,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 427,
+     "ef": 470
+    },
+    {
+     "text": "坐到十个人以上",
+     "start": 15.673,
+     "end": 16.8,
+     "el": 5,
+     "break_after": "clause",
+     "units": 7.0,
+     "sf": 470,
+     "ef": 504
+    },
+    {
+     "text": "跟住入嚟呢一个",
+     "start": 16.8,
+     "end": 17.76,
+     "el": 6,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 504,
+     "ef": 533
+    },
+    {
+     "text": "超高嘅楼层哇超高",
+     "start": 17.76,
+     "end": 19.8,
+     "el": 6,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 533,
+     "ef": 594
+    },
+    {
+     "text": "大约有十万米高",
+     "start": 19.8,
+     "end": 21.3,
+     "el": 6,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 594,
+     "ef": 639
+    },
+    {
+     "text": "所以呢佢入到嚟",
+     "start": 21.3,
+     "end": 22.2,
+     "el": 6,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 639,
+     "ef": 666
+    },
+    {
+     "text": "呢个空间感咧",
+     "start": 22.2,
+     "end": 23.04,
+     "el": 6,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 666,
+     "ef": 691
+    },
+    {
+     "text": "我觉得系非常之舒服嘅",
+     "start": 23.04,
+     "end": 24.46,
+     "el": 6,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 691,
+     "ef": 734
+    },
+    {
+     "text": "空间高先可以坐得舒服",
+     "start": 24.46,
+     "end": 26.28,
+     "el": 7,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 734,
+     "ef": 788
+    },
+    {
+     "text": "就系朝早做",
+     "start": 26.28,
+     "end": 27.12,
+     "el": 8,
+     "break_after": "width",
+     "units": 5.0,
+     "sf": 788,
+     "ef": 814
+    },
+    {
+     "text": "纯手工嘅早茶",
+     "start": 27.12,
+     "end": 28.38,
+     "el": 8,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 814,
+     "ef": 851
+    },
+    {
+     "text": "晚上就系做桑拿鸡",
+     "start": 28.38,
+     "end": 30.18,
+     "el": 8,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 851,
+     "ef": 905
+    },
+    {
+     "text": "就系从山上",
+     "start": 30.18,
+     "end": 31.148,
+     "el": 9,
+     "break_after": "width",
+     "units": 5.0,
+     "sf": 905,
+     "ef": 934
+    },
+    {
+     "text": "入边捉翻嚟嘅鸡",
+     "start": 31.148,
+     "end": 32.504,
+     "el": 9,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 934,
+     "ef": 975
+    },
+    {
+     "text": "绝对品质 ok 嘅食",
+     "start": 32.504,
+     "end": 34.347,
+     "el": 9,
+     "break_after": "clause",
+     "units": 6.68,
+     "sf": 975,
+     "ef": 1027
+    },
+    {
+     "text": "就系鸡嗰种原汁原味",
+     "start": 34.347,
+     "end": 36.027,
+     "el": 10,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 1030,
+     "ef": 1081
+    },
+    {
+     "text": "就系吊水鱼一种咧",
+     "start": 36.114,
+     "end": 37.554,
+     "el": 11,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 1083,
+     "ef": 1127
+    },
+    {
+     "text": "就系从饭后嗰个",
+     "start": 37.614,
+     "end": 39.174,
+     "el": 11,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 1128,
+     "ef": 1175
+    },
+    {
+     "text": "渔船嗰度咧运翻嚟嘅",
+     "start": 39.174,
+     "end": 40.674,
+     "el": 11,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 1175,
+     "ef": 1220
+    },
+    {
+     "text": "如果大家好似邻居啦",
+     "start": 40.714,
+     "end": 42.694,
+     "el": 12,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 1221,
+     "ef": 1281
+    },
+    {
+     "text": "办公啦或者旅游啦",
+     "start": 42.694,
+     "end": 44.074,
+     "el": 12,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 1281,
+     "ef": 1322
+    },
+    {
+     "text": "都可以过嚟我哋点赞",
+     "start": 44.074,
+     "end": 45.334,
+     "el": 12,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 1322,
+     "ef": 1360
+    },
+    {
+     "text": "茶楼嗰度坐一坐饮杯茶",
+     "start": 45.334,
+     "end": 47.134,
+     "el": 12,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 1360,
+     "ef": 1414
+    },
+    {
+     "text": "唔知道大家中意食乜嘢",
+     "start": 47.157,
+     "end": 48.597,
+     "el": 13,
+     "break_after": "width",
+     "units": 10.0,
+     "sf": 1415,
+     "ef": 1458
+    },
+    {
+     "text": "可以喺评论区讲下下",
+     "start": 48.597,
+     "end": 49.947,
+     "el": 13,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 1458,
+     "ef": 1498
+    }
+   ]
+  },
+  "dianzan-b": {
+   "_sha12": "df6bf8a4f78d",
+   "cues": [
+    {
+     "text": "所以好多人都觉得",
+     "start": 0.0,
+     "end": 1.02,
+     "el": 1,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 0,
+     "ef": 31
+    },
+    {
+     "text": "我好傻一个",
+     "start": 1.08,
+     "end": 2.28,
+     "el": 1,
+     "break_after": "width",
+     "units": 5.0,
+     "sf": 32,
+     "ef": 68
+    },
+    {
+     "text": "六百平都冇嘅店",
+     "start": 2.28,
+     "end": 3.84,
+     "el": 1,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 68,
+     "ef": 115
+    },
+    {
+     "text": "哦厨房都要花",
+     "start": 3.84,
+     "end": 4.92,
+     "el": 1,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 115,
+     "ef": 148
+    },
+    {
+     "text": "三分之一两百平去制造",
+     "start": 4.92,
+     "end": 6.78,
+     "el": 1,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 148,
+     "ef": 203
+    },
+    {
+     "text": "因为我觉得纯手工",
+     "start": 6.94,
+     "end": 8.26,
+     "el": 2,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 208,
+     "ef": 248
+    },
+    {
+     "text": "系我哋嘅根本所以",
+     "start": 8.26,
+     "end": 9.46,
+     "el": 2,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 248,
+     "ef": 284
+    },
+    {
+     "text": "我哋嘅厨房就够大",
+     "start": 9.46,
+     "end": 10.64,
+     "el": 2,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 284,
+     "ef": 319
+    },
+    {
+     "text": "都系我哋嘅一个",
+     "start": 10.66,
+     "end": 11.62,
+     "el": 3,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 320,
+     "ef": 349
+    },
+    {
+     "text": "两百平嘅厨房啊",
+     "start": 11.92,
+     "end": 13.06,
+     "el": 3,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 358,
+     "ef": 392
+    },
+    {
+     "text": "都系纯手工现点现做嘅",
+     "start": 13.06,
+     "end": 14.69,
+     "el": 3,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 392,
+     "ef": 441
+    },
+    {
+     "text": "我哋咧个人",
+     "start": 14.69,
+     "end": 15.89,
+     "el": 4,
+     "break_after": "width",
+     "units": 5.0,
+     "sf": 441,
+     "ef": 477
+    },
+    {
+     "text": "客人会比较多啦",
+     "start": 15.89,
+     "end": 16.97,
+     "el": 4,
+     "break_after": "clause",
+     "units": 7.0,
+     "sf": 477,
+     "ef": 509
+    },
+    {
+     "text": "所以我哋咧工作人员",
+     "start": 17.03,
+     "end": 18.23,
+     "el": 4,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 511,
+     "ef": 547
+    },
+    {
+     "text": "都相对于比较多嘅",
+     "start": 18.23,
+     "end": 19.43,
+     "el": 4,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 547,
+     "ef": 583
+    },
+    {
+     "text": "所以都系纯手工",
+     "start": 19.49,
+     "end": 20.51,
+     "el": 4,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 585,
+     "ef": 615
+    },
+    {
+     "text": "去现场去包制作",
+     "start": 20.51,
+     "end": 22.07,
+     "el": 4,
+     "break_after": "clause",
+     "units": 7.0,
+     "sf": 615,
+     "ef": 662
+    },
+    {
+     "text": "我有咁大嘅厨房咧",
+     "start": 22.15,
+     "end": 23.41,
+     "el": 5,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 664,
+     "ef": 702
+    },
+    {
+     "text": "先可以做更好嘅出品",
+     "start": 23.41,
+     "end": 25.15,
+     "el": 5,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 702,
+     "ef": 754
+    },
+    {
+     "text": "同埋更稳定嘅出品",
+     "start": 25.15,
+     "end": 26.807,
+     "el": 5,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 754,
+     "ef": 804
+    },
+    {
+     "text": "俾大家好",
+     "start": 26.807,
+     "end": 27.73,
+     "el": 5,
+     "break_after": "clause",
+     "units": 4.0,
+     "sf": 804,
+     "ef": 832
+    },
+    {
+     "text": "大咧先可以用入",
+     "start": 27.73,
+     "end": 28.99,
+     "el": 6,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 832,
+     "ef": 870
+    },
+    {
+     "text": "更多嘅人可以纯手工",
+     "start": 28.99,
+     "end": 30.61,
+     "el": 6,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 870,
+     "ef": 918
+    },
+    {
+     "text": "做到更好嘅出品",
+     "start": 30.61,
+     "end": 31.63,
+     "el": 6,
+     "break_after": "clause",
+     "units": 7.0,
+     "sf": 918,
+     "ef": 949
+    },
+    {
+     "text": "我哋嘅四大天王啦",
+     "start": 31.863,
+     "end": 33.663,
+     "el": 7,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 956,
+     "ef": 1010
+    },
+    {
+     "text": "虾饺排骨凤爪",
+     "start": 33.763,
+     "end": 35.443,
+     "el": 8,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 1013,
+     "ef": 1063
+    },
+    {
+     "text": "同埋叉烧包",
+     "start": 35.443,
+     "end": 36.653,
+     "el": 8,
+     "break_after": "clause",
+     "units": 5.0,
+     "sf": 1063,
+     "ef": 1100
+    },
+    {
+     "text": "还有好多人中意",
+     "start": 36.713,
+     "end": 37.673,
+     "el": 9,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 1101,
+     "ef": 1130
+    },
+    {
+     "text": "我哋嘅招牌特色",
+     "start": 37.673,
+     "end": 39.113,
+     "el": 9,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 1130,
+     "ef": 1173
+    },
+    {
+     "text": "炒面绝对食过嘅话",
+     "start": 39.113,
+     "end": 40.673,
+     "el": 9,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 1173,
+     "ef": 1220
+    },
+    {
+     "text": "都会觉得非常之好食",
+     "start": 40.673,
+     "end": 42.413,
+     "el": 9,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 1220,
+     "ef": 1272
+    },
+    {
+     "text": "周边嘅邻居啦",
+     "start": 42.563,
+     "end": 43.363,
+     "el": 10,
+     "break_after": "clause",
+     "units": 6.0,
+     "sf": 1283,
+     "ef": 1301
+    },
+    {
+     "text": "过嚟办公噶啦",
+     "start": 43.603,
+     "end": 44.503,
+     "el": 10,
+     "break_after": "clause",
+     "units": 6.0,
+     "sf": 1308,
+     "ef": 1335
+    },
+    {
+     "text": "旅游噶啦个朋友咧过嚟",
+     "start": 44.623,
+     "end": 46.243,
+     "el": 10,
+     "break_after": "width",
+     "units": 10.0,
+     "sf": 1339,
+     "ef": 1387
+    },
+    {
+     "text": "坐下冇问题嘅",
+     "start": 46.243,
+     "end": 47.303,
+     "el": 10,
+     "break_after": "clause",
+     "units": 6.0,
+     "sf": 1387,
+     "ef": 1419
+    }
+   ]
+  },
+  "dianzan-c": {
+   "_sha12": "feaf5dc96836",
+   "cues": [
+    {
+     "text": "我要做全金湾",
+     "start": 0.2,
+     "end": 1.82,
+     "el": 1,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 6,
+     "ef": 55
+    },
+    {
+     "text": "最正宗嘅广东早茶",
+     "start": 1.82,
+     "end": 4.0,
+     "el": 1,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 55,
+     "ef": 120
+    },
+    {
+     "text": "我依家俾大家睇下",
+     "start": 4.0,
+     "end": 4.96,
+     "el": 2,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 120,
+     "ef": 149
+    },
+    {
+     "text": "我哋点赞茶楼",
+     "start": 5.02,
+     "end": 6.056,
+     "el": 2,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 151,
+     "ef": 182
+    },
+    {
+     "text": "个装修进度",
+     "start": 6.056,
+     "end": 6.713,
+     "el": 2,
+     "break_after": "clause",
+     "units": 5.0,
+     "sf": 182,
+     "ef": 200
+    },
+    {
+     "text": "今日我就用四张",
+     "start": 6.733,
+     "end": 7.84,
+     "el": 3,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 202,
+     "ef": 235
+    },
+    {
+     "text": "图片同大家介绍下",
+     "start": 7.84,
+     "end": 9.16,
+     "el": 3,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 235,
+     "ef": 275
+    },
+    {
+     "text": "我哋嘅布局系点样嘅",
+     "start": 9.22,
+     "end": 10.61,
+     "el": 3,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 277,
+     "ef": 318
+    },
+    {
+     "text": "我哋嘅效果好先中间咧",
+     "start": 10.65,
+     "end": 12.45,
+     "el": 4,
+     "break_after": "width",
+     "units": 10.0,
+     "sf": 319,
+     "ef": 374
+    },
+    {
+     "text": "大致上边咧就摆好多",
+     "start": 12.45,
+     "end": 13.77,
+     "el": 4,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 374,
+     "ef": 413
+    },
+    {
+     "text": "卡座嘅嗰个中空跟住",
+     "start": 14.73,
+     "end": 16.23,
+     "el": 4,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 442,
+     "ef": 487
+    },
+    {
+     "text": "有啲灯笼啦",
+     "start": 16.25,
+     "end": 17.05,
+     "el": 5,
+     "break_after": "clause",
+     "units": 5.0,
+     "sf": 489,
+     "ef": 510
+    },
+    {
+     "text": "有啲造型岭南元素嘅",
+     "start": 17.07,
+     "end": 18.99,
+     "el": 5,
+     "break_after": "clause",
+     "units": 9.0,
+     "sf": 512,
+     "ef": 570
+    },
+    {
+     "text": "所以咧佢饮茶嘅氛围咧",
+     "start": 19.05,
+     "end": 20.55,
+     "el": 5,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 572,
+     "ef": 616
+    },
+    {
+     "text": "我觉得系非常之",
+     "start": 20.61,
+     "end": 21.537,
+     "el": 5,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 618,
+     "ef": 646
+    },
+    {
+     "text": "舒服同埋非常之好",
+     "start": 21.537,
+     "end": 22.497,
+     "el": 5,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 646,
+     "ef": 675
+    },
+    {
+     "text": "嗰边咧就系我哋嘅生",
+     "start": 22.689,
+     "end": 23.637,
+     "el": 6,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 681,
+     "ef": 709
+    },
+    {
+     "text": "万鱼池到时咧就有",
+     "start": 23.637,
+     "end": 25.017,
+     "el": 6,
+     "break_after": "width",
+     "units": 8.0,
+     "sf": 709,
+     "ef": 751
+    },
+    {
+     "text": "好多新鲜嘅海鲜",
+     "start": 25.017,
+     "end": 26.457,
+     "el": 6,
+     "break_after": "width",
+     "units": 7.0,
+     "sf": 751,
+     "ef": 794
+    },
+    {
+     "text": "喺嗰度供应俾大家选择",
+     "start": 26.457,
+     "end": 28.297,
+     "el": 6,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 794,
+     "ef": 849
+    },
+    {
+     "text": "所以大家咧过嚟嗰边咧",
+     "start": 28.337,
+     "end": 29.957,
+     "el": 7,
+     "break_after": "clause",
+     "units": 10.0,
+     "sf": 850,
+     "ef": 899
+    },
+    {
+     "text": "例如邻居啦",
+     "start": 30.137,
+     "end": 31.097,
+     "el": 7,
+     "break_after": "clause",
+     "units": 5.0,
+     "sf": 904,
+     "ef": 933
+    },
+    {
+     "text": "旅游啦或者办公啦",
+     "start": 31.277,
+     "end": 32.597,
+     "el": 7,
+     "break_after": "clause",
+     "units": 8.0,
+     "sf": 938,
+     "ef": 978
+    },
+    {
+     "text": "都可以过嚟我哋点赞",
+     "start": 32.657,
+     "end": 34.037,
+     "el": 7,
+     "break_after": "width",
+     "units": 9.0,
+     "sf": 980,
+     "ef": 1021
+    },
+    {
+     "text": "茶楼嗰度试下",
+     "start": 34.037,
+     "end": 34.997,
+     "el": 7,
+     "break_after": "clause",
+     "units": 6.0,
+     "sf": 1021,
+     "ef": 1050
+    },
+    {
+     "text": "十一月份应该",
+     "start": 35.037,
+     "end": 35.877,
+     "el": 8,
+     "break_after": "width",
+     "units": 6.0,
+     "sf": 1051,
+     "ef": 1076
+    },
+    {
+     "text": "冇乜问题咯",
+     "start": 35.877,
+     "end": 36.664,
+     "el": 8,
+     "break_after": "clause",
+     "units": 5.0,
+     "sf": 1076,
+     "ef": 1100
+    }
+   ]
+  }
+ }
+}
