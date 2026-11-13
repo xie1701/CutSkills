@@ -17,6 +17,7 @@ import re
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from timeline import GEN_TEMPLATES, KINDS, element_dur, AXES, MG_ROLES, NUMERIC_TEMPLATES  # noqa: E402
 
@@ -380,6 +381,76 @@ def summary(tl: dict) -> dict:
             if total else 0}
 
 
+def t015_019_readout(proj: Path, tl: dict, lib: Path, index: dict) -> list[dict]:
+    """按 T-015～T-019 汇总现有检查器的读数；不在这里复制任何判据。"""
+    rows: list[dict] = []
+
+    import visual_grade
+    vg = visual_grade.gate(tl.get("elements") or [], lib)
+    rows.append({"task": "T-015 声/画双评级", "errors": sum(lv == "error" for lv, _ in vg),
+                 "warnings": sum(lv == "warning" for lv, _ in vg),
+                 "conclusion": f"露脸评级门禁 {len(vg)} 条读数" if vg else "无评级冲突"})
+
+    import content_guard
+    cg = content_guard.guard(tl, index)
+    rows.append({"task": "T-016 Handles / 视觉指代 / 品类禁忌",
+                 "errors": sum(lv == "error" for lv, _ in cg),
+                 "warnings": sum(lv == "warning" for lv, _ in cg),
+                 "conclusion": f"内容守卫 {len(cg)} 条读数" if cg else "三类内容守卫无命中"})
+
+    import check_subs
+    subs_f = proj / "out" / "subs.json"
+    if subs_f.exists():
+        cues = (json.loads(subs_f.read_text(encoding="utf-8")) or {}).get("cues") or []
+        sem = check_subs.semantic_judge(cues)
+        sem_errors = len(sem["suspect"]) + len(sem["stutter"]) + len(sem["magnitude_bad"])
+        sem_warn = len(sem["magnitude_note"])
+        detail = (f"残词 {len(sem['suspect'])} · 口吃重尾 {len(sem['stutter'])} · "
+                  f"荒谬量级 {len(sem['magnitude_bad'])} · 可疑量级 {sem_warn}")
+        rows.append({"task": "T-017 上屏前语义常识", "errors": sem_errors,
+                     "warnings": sem_warn, "conclusion": detail})
+    else:
+        rows.append({"task": "T-017 上屏前语义常识", "errors": 0, "warnings": 1,
+                     "conclusion": "缺 out/subs.json，语义字幕门禁未判"})
+
+    pack_id = str(tl.get("pack") or tl.get("style_pack") or "").strip()
+    pack_file = ROOT / "packs" / f"{pack_id}.yaml"
+    if not pack_file.exists():
+        pack_file = ROOT / "styles" / f"{pack_id}.yaml"
+    if pack_id and pack_file.exists():
+        try:
+            import yaml
+            import check_packs
+            from render_hf import GRADE
+            pack = yaml.safe_load(pack_file.read_text(encoding="utf-8")) or {}
+            pe, pw = check_packs.check_schema(pack_id, pack, set(GRADE))
+            pe += check_packs.check_renderer_source()
+            rows.append({"task": "T-018 包装包 / 视觉语域", "errors": len(pe),
+                         "warnings": len(pw),
+                         "conclusion": f"{pack_id} · surface/schema/渲染器 {len(pe)} error · {len(pw)} warning"})
+        except Exception as exc:  # noqa: BLE001
+            rows.append({"task": "T-018 包装包 / 视觉语域", "errors": 0, "warnings": 1,
+                         "conclusion": f"包装读数不可用：{type(exc).__name__}: {exc}"})
+    else:
+        rows.append({"task": "T-018 包装包 / 视觉语域", "errors": 0, "warnings": 1,
+                     "conclusion": f"timeline 未指向仓库内可识别 pack（{pack_id or '空'}）"})
+
+    import check_overlay
+    ov = check_overlay.audit(proj)
+    subs = json.loads(subs_f.read_text(encoding="utf-8")) if subs_f.exists() else {}
+    suppressed = subs.get("suppressed") or []
+    suppressed_n = len(suppressed) if isinstance(suppressed, list) else int(bool(suppressed))
+    cards_f = proj / "out" / "cards.json"
+    cards_doc = json.loads(cards_f.read_text(encoding="utf-8")) if cards_f.exists() else {}
+    cards = cards_doc if isinstance(cards_doc, list) else (cards_doc.get("cards") or [])
+    rows.append({"task": "T-019 叠加态 / 重卡退字幕",
+                 "errors": sum(lv == "error" for lv, _ in ov),
+                 "warnings": sum(lv == "warning" for lv, _ in ov),
+                 "conclusion": f"{len(cards)} 张卡 · suppressed {suppressed_n} 条 · "
+                               f"叠加态 {len(ov)} 条读数"})
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
@@ -489,9 +560,11 @@ def main() -> int:
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)
 
+    readout = t015_019_readout(proj, tl, lib, index)
     if a.json:
         print(json.dumps({"problems": probs, "summary": s, "library": str(lib),
-                          "index_resolved": index_ok}, ensure_ascii=False, indent=1))
+                          "index_resolved": index_ok, "t015_019": readout},
+                         ensure_ascii=False, indent=1))
     else:
         for lv, m in probs:
             print(f"  {'✗' if lv == 'error' else '!'} {m}")
@@ -500,6 +573,10 @@ def main() -> int:
               f"（{s['p10']}–{s['p90']}）· 生成物占比 {s['gen_ratio']:.0%}")
         print(f"  {kk}")
         print(f"校验：error {len(errs)} · warning {len(warns)}")
+        print("T-015～T-019 新判据读数汇总：")
+        print("  判据 | error | warning | 一行结论")
+        for r in readout:
+            print(f"  {r['task']} | {r['errors']} | {r['warnings']} | {r['conclusion']}")
     return 1 if errs else 0
 
 
