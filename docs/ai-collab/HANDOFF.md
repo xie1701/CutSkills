@@ -410,3 +410,37 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   python3 scripts/silence.py "/Users/jerry/Downloads/柒造Video/素材/20261009_木格架口播_必用_熊工口播2.MOV" 1685.73 1693.56
   ```
 - **已知边界（如实记）**：① `proj79` 未重算；② `golden.py` 仍退出码 1（T-024 历史欠账；本单把它从 🔴4 降到 🔴3，没让它变多）；③ `selftest.py` 仍退出码 1，与 master **逐行一致**（T-025 历史欠账）；④ ground-01 新增的 2 字条「最后」（真停顿 1.02s 之后才说「业主方怎么」）是「话停了字就该走」的必然结果，宽度中位 8.0 不变；⑤ `--no-render --force` 是为了在没签 `lock.json` 的老项目上重算 `subs.json`，不是拿来过判据。
+
+### 2026-11-13 · Cola · T-040 待复核（字幕比对接双向同音放行，`naming-01` 那条「什么」假红清零）
+
+- **分支 / worktree**：`ai/cola/T-040` @ `63ef79b`（业务提交）／`/Users/jerry/Downloads/AIworks/CutSkills-wsT040`（基于 master `993dec3`）。主目录未动。
+- **病灶（先复现再改）**：`check_timing` 字幕硬错只数字幕这边多出来的实词（`EG.invented` 的方向 = 单向），ASR 一丢字，人写的正确字幕就被判「音频没说」。实测 `qizao-naming-01` 字幕「为什么不叫造漆我」对上词级真值「为不叫造为我没有」→ 报「字幕里的『什么』音频没说」。
+- **改了什么**：
+  1. `scripts/evidence_guard.py` 新增 `INITIALS` / `PRONOUN` / `sound_of()` / `homophone()` / `_pair_off()` / `two_sided()`——同音放行只有这一份（同音节，或声母、韵母各有一截对得上；`PRONOUN` 不参与放行）。**`invented()` 与 `check()` 一行没动**（不是不想复用：把它改成双向会改掉它自己的判据读数，T-030 记的 `check_cards 4e/0w` 会变，铁律④不许）。
+  2. `scripts/check_timing.py` 字幕那条 error 改走 `two_sided`：**单边净多出 ≥2 个实词**才判 error；两边都有对不上的代词（我/你/佢…）判「人称错位」。仍是 error，没降级、没改成相似度。
+  3. `scripts/test_timing_subs.py`（新，7 条断言：6 条端到端 + 1 条「不同音不许放行」反例），挂进 `selftest.py` ⑰；`references/cli.md` 重生成；`SKILL.md` 补命令说明。
+- **读数（改动前 → 改动后，同一份 `out/subs.json`，`error/warning` 均取自 `--json`）**：
+
+  | 片子 | 改前 | 改后 |
+  |---|---|---|
+  | `qizao-ground-01` | 0/0 | 0/0 |
+  | `qizao-lime-baxis` | 0/0 | 0/0 |
+  | `qizao-naming-01` | 4/1 | **3/1** |
+  | `qizao-protect-01` | 0/0 | 0/0 |
+  | `dianzan-a` / `-b` / `-c` | 0/0 | 0/0 |
+
+  naming-01 少的正是「字幕「为什么不叫造漆我」里的「什么」音频没说」；其余三张卡（100ms 抢拍 ×2、无锚词 ×1）与「字比声早」黄一条不变。
+- **负样本真输出**（`python3 scripts/test_timing_subs.py`）：
+  - 同音/丢字对账（naming 真案）→ 字幕 error **0** 条；
+  - 字幕凭空加两个实词（「厨房装修好靓」/ 音频「厨房好靓」）→ **1 条**：`字幕「厨房装修好靓」里的「装修」音频没说——这段声音是「厨房好靓」`；
+  - 人称错位（字幕「我」/ 音频「你」）→ **1 条**：`字幕「我系边个」里的人称「我」，音频说的是「你」——这句是对谁说的反了`。
+  - 同一份测试在 master 上跑：naming 真案 ✗（就是本单那条假红）、人称错位 ✗（改动前 `check_timing` 单字 <2 根本不报）。
+- **复现命令**：
+  ```bash
+  cd /Users/jerry/Downloads/AIworks/CutSkills-wsT040 && source scripts/runtime.sh env
+  python3 scripts/test_timing_subs.py
+  P=/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects
+  python3 scripts/check_timing.py --project "$P/qizao-naming-01"     # error 3 · warning 1
+  python3 scripts/test_evidence_guard.py && python3 scripts/audit_skill.py
+  ```
+- **已知边界（如实记）**：① 「什/为」shén/wéi **不是同音**，这条假红是靠双向对账抵平的（字幕多「什么漆」、音频多「为我没有」），不是同音字放行；代价是「音频也恰好多出同数实词」时字幕凭空加的字会被抵账放过（七支片实测 0 例）。② 人称错位这条是**改后才有**，不是「仍报」。③ `selftest` 结尾仍 3 条历史红（验收无红 / `check_subs` / `edge_audit`，T-025 欠账），与 master 逐条一致；④ `audit_skill` 🟡1 = worktree 目录名。
