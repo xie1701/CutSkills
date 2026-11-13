@@ -5,8 +5,18 @@
 本模块提供：
   1. BRAND_PATTERN 扩展词库（含 FESTOOL、RO 150、PPG、大师漆及常见建材/设备/商标）；
   2. scan_third_party_risks() 统一接口，供 check_timeline.py 与 check_edl.py 复用；
-  3. 处置与核销闭环：若在 decisions.md 中留痕确认（或在元素中显式标注 third_party_action），
-     自动从 warning 核销并降级为已确认说明，杜绝死锁报黄。
+  3. 处置与核销闭环：若在 decisions.md 中写了**结构化核销行**（或在元素中显式标注
+     third_party_action），自动从 warning 核销并降级为已确认说明，杜绝死锁报黄。
+
+T-036（核销只认显式行）：decisions.md 是给人读的散文，判据不许读语感。原实现拿
+AFFIRMATIVE_PATTERN 在整行里搜「保留/允许/认可」，于是 T-035 自己写的一句
+「index.json 没有重写（不在本单允许改动的两个路径里）」配上同一行的 `1072`
+就把 #1 的品牌告警静默核销掉了（unresolved 11→10）。现在：
+  - 只有 `- [brand] #1 保留：<理由>` / `- [brand] #1 模糊：<理由>` / `- [brand] #1 裁掉`
+    这一类结构化行才算核销意见（目标可以是段号，也可以是素材名）；
+  - 散文一律不核销，「允许/可以/同意/认可」这类泛许可词不再单独构成核销；
+  - 看起来像在说第三方字样、却没写成结构化行的句子，由 ack_hints() 打一条 warning
+    提示「这句话没有被当作核销意见」。
 """
 from __future__ import annotations
 
@@ -21,24 +31,57 @@ BRAND_PATTERN = re.compile(
     re.IGNORECASE
 )
 
-# 明确核销放行（白名单）：无需避开 / 真实施工工具保留 / 客户认可 / 已处理
-AFFIRMATIVE_PATTERN = re.compile(
-    r"无需避开|不用避开|不避开|无须避开|免避开|保留|真实工具|施工实拍|实拍出镜|客观存在|"
-    r"客户认可|已确认|认可|允许|放行|合规|没问题|可以出镜|正常出镜|"
-    r"已打码|已裁切|已换段|已处理|keep|allow|acknowledged",
+# ---- 核销意见只认结构化行（T-036）
+# 行首必须是列表项 + `[brand]` 标签，紧跟**唯一**一个目标（段号 #1 / 第1段 / S01，或素材名/素材号）：
+#   - [brand] #1 保留：客户授权露出
+#   - [brand] #1 模糊：招牌虚化
+#   - [brand] #1 裁掉
+#   - [brand] 1072 保留：本店自己的膜
+STRUCTURED_ACK_LINE = re.compile(
+    r"^\s*[-*+]\s*\[\s*(?:brand|品牌|第三方|third[-_ ]?party)\s*\]\s*(?P<rest>\S.*)$",
     re.IGNORECASE
 )
 
-# 否定/要求避开指示/未决弱语义（黑名单）：
-# 包含明确指示不能保留、必须打码、必须换段，以及「待确认/未确认/待定/再议」等未拍板弱语义的，坚决不予核销
-NEGATIVE_PATTERN = re.compile(
-    r"不能保留|不可保留|不许保留|不得保留|不要保留|禁止|严禁|不得出镜|不可出镜|"
-    r"必须避开|需要避开|应当避开|必须打码|需要打码|必须换|需要换|必须裁|需要裁|不能露|不可露|"
-    r"待确认|未确认|尚未确认|暂未确认|待定|再议|待核实|未核实|待商榷|先保留.*待",
+# 处置词：必须显式表态「留」还是「处理掉」。
+KEEP_PATTERN = re.compile(r"保留出镜|保留|无需避开|不用避开|\bkeep\b", re.IGNORECASE)
+DROP_PATTERN = re.compile(
+    r"裁掉|裁切|打码|模糊|遮罩|换段|\bcrop\b|\bblur\b|\bmask\b|\bcovered\b",
     re.IGNORECASE
 )
+# 「不保留 / 不能保留」里的「保留」是反话：算到「处理掉」这一侧。
+# 同一行两边都出现 = 没拍板，不核销。
+NEGATED_KEEP_PATTERN = re.compile(r"(?:不|没|未|无需|不用|不得|不许|不能|严禁|禁止|别)\s*保留")
 
-# 泛指词集合：绝对不能作为品牌特征单独用于跨段核销判断
+# 结构化行里的未决弱语义：还没拍板的不算核销。
+WEAK_PATTERN = re.compile(r"待确认|未确认|尚未确认|暂未确认|待定|再议|待核实|未核实|待商榷|先保留.*待")
+
+# 段号目标（#1 / 第1段 / 第1格 / S01）
+SEG_TARGET_PATTERN = re.compile(r"^(?:#(\d+)|第(\d+)[段格]|[Ss](\d+))$")
+
+# 标题行（`# decisions` / `## 第三方字样`）要跳过；但 `#1 段落…` 这种以段号开头的正文不能跳过。
+HEADING_PATTERN = re.compile(r"^#{1,6}\s")
+
+# 散文里「像在说第三方字样」的三件套：品牌泛指词 + 表态词 + 具体目标（段号或素材名/编号）。
+# 命中只用来打提示，绝不拿来核销。
+PROSE_BRAND_WORD = re.compile(r"第三方|品牌|字样|商标|logo|brand", re.IGNORECASE)
+PROSE_ACK_WORD = re.compile(
+    r"无需避开|不用避开|不避开|保留|允许|可以|同意|认可|放行|合规|没问题|打码|裁掉|裁切|模糊|遮罩",
+    re.IGNORECASE
+)
+# 具体目标：段号 / 素材名 / 素材号。素材号要求 4 位且不像年份（19xx·20xx），
+# 否则「2026-11-11 22:22 | 方案确认 | 认可」这种日志行会被当成「在说某一段」。
+PROSE_ASSET_TOKEN = r"(?<!\d)(?!19\d{2}|20\d{2})\d{4}(?!\d)"
+PROSE_TARGET = re.compile(rf"#\d+|第\d+[段格]|{PROSE_ASSET_TOKEN}|[A-Za-z]{{2,}}[_-][A-Za-z0-9_-]{{4,}}")
+# 只说「允许/可以/同意/保留」但带段号、不涉品牌词的行，同样算「像在拍板」——也要提醒。
+PROSE_PERMISSION = re.compile(
+    r"允许|可以|同意|放行|没问题|不用改|无需避开|保留|认可", re.IGNORECASE
+)
+# 只说「允许/可以/同意/保留」的行，要指向某一段或某支素材，才算「像在拍板」。
+PROSE_SEG_TARGET = re.compile(rf"#\d+|第\d+[段格]|{PROSE_ASSET_TOKEN}")
+
+# 泛指词集合：绝对不能作为品牌特征单独用于核销判断。
+# T-036 后核销不再按散文/flag 子串匹配（只认精确指向的结构化行），此表保留给
+# 散文提示（ack_hints）与后续判据作「这词本身不构成品牌」的参考。
 GENERIC_BRAND_WORDS = {
     "第三方", "品牌", "字样", "商标", "标志", "打码", "水印", "logo",
     "工具", "入镜", "机身", "衣服", "贴纸", "特写", "后排", "白t", "印有",
@@ -46,85 +89,120 @@ GENERIC_BRAND_WORDS = {
 }
 
 
-def is_brand_acknowledged(seg_n: int, flags: list[str], asset_name: str, decisions_text: str | None) -> tuple[bool, str]:
-    """检查该段的第三方字样是否已在 decisions.md 中确认放行（例如经用户确认无需避开或已处置）。
-    
-    严谨性规则（T-007 第二轮整改）：
-      1. 跨段防误核销：若 decisions 行显式指定了其他段号（如 #2），绝对不得跨段核销当前段（#1）；
-      2. 泛指词隔离：第三方/品牌/字样/商标等泛指词不得单独作为命中品牌的依据，必须命中 flags 里实际具体品牌词；
-      3. 必须包含明确的放行/确认语义（AFFIRMATIVE_PATTERN，如「无需避开」「真实工具保留」「已确认」）；
-      4. 弱语义拒收：若包含否定整改或「待确认/未确认/待定/再议」等未决状态（NEGATIVE_PATTERN），坚决拒收。
+def structured_ack(ln: str, seg_n: int, asset_name: str) -> tuple[str, str] | None:
+    """把一行 decisions.md 解析成核销意见；不是结构化行 / 没拍到板 / 指向别的段 → None。
+
+    返回 (处置词, 整行) —— 处置词是「保留」或「裁掉」这一类显式表态。
+    """
+    m = STRUCTURED_ACK_LINE.match(ln)
+    if not m:
+        return None
+    rest = m.group("rest").strip()
+    # 目标 = 紧跟标签的第一个 token（#1 / 第1段 / S01 / 素材名或素材号）
+    target = re.split(r"\s+", rest, maxsplit=1)[0].rstrip("：:，,。.;；|")
+    if not target:
+        return None
+
+    # 一行只许指向一个段号：写了两个以上（#1 … #2）＝没说清是哪一段，不核销
+    segs = {x for tup in re.findall(r"#(\d+)|第(\d+)[段格]|[Ss](\d{2})", rest) for x in tup if x}
+    if len(segs) > 1:
+        return None
+
+    # 目标对得上当前段吗？
+    hit = False
+    sm = SEG_TARGET_PATTERN.match(target)
+    if sm:
+        hit = int(next(g for g in sm.groups() if g)) == int(seg_n)
+    elif asset_name:
+        t = target.lower()
+        aid = str(asset_name).lower()
+        stem = Path(str(asset_name)).stem.lower()
+        hit = len(t) >= 3 and (t == aid or t == stem or t in aid or aid in t)
+    if not hit:
+        return None
+
+    # 未决弱语义（「先保留，待确认」）不算拍板
+    if WEAK_PATTERN.search(rest):
+        return None
+
+    keep_n = len(KEEP_PATTERN.findall(rest)) - len(NEGATED_KEEP_PATTERN.findall(rest))
+    drop_n = len(DROP_PATTERN.findall(rest)) + len(NEGATED_KEEP_PATTERN.findall(rest))
+    if keep_n > 0 and drop_n > 0:
+        return None      # 同一行既说留又说处理掉 = 没拍板（「保留…不保留」也落到这里）
+    if keep_n > 0:
+        return "保留", ln.strip()
+    if drop_n > 0:
+        return "裁掉", ln.strip()
+    return None          # 结构化行但没写处置词 —— 也不核销
+
+
+def is_brand_acknowledged(seg_n: int, flags: list[str], asset_name: str,
+                          decisions_text: str | None) -> tuple[bool, str]:
+    """检查该段的第三方字样是否已在 decisions.md 里有**显式核销意见**。
+
+    T-036 口径：只认结构化行，散文不读语感。
+      1. 必须写成 `- [brand] #1 保留：<理由>` / `- [brand] #1 模糊：<理由>` / `- [brand] #1 裁掉`
+         这一类行（见 STRUCTURED_ACK_LINE），目标可以是段号也可以是素材名；
+      2. 散文里的「允许/可以/同意/认可」等泛许可词不再单独构成核销；
+      3. 一行只能指向一个段号，指向别的段绝不跨段核销（T-007 打回项①）；
+      4. 未决弱语义（待确认/待定/再议）不算核销；同一行既说留又说处理掉也不算。
+    flags 只在文档里说明命中来源，不参与匹配——结构化行已经精确指名了目标。
     """
     if not decisions_text:
         return False, ""
 
-    lines = decisions_text.splitlines()
-    for ln in lines:
+    for ln in decisions_text.splitlines():
         ln_s = ln.strip()
-        if not ln_s or ln_s.startswith("#"):
+        if not ln_s or HEADING_PATTERN.match(ln_s):
             continue
-
-        # 检查是否显式提到了其他段号（如 #2, #3, 第2段等）
-        other_segs = set(re.findall(r"#(\d+)|第(\d+)[段格]|S(\d{2})", ln_s))
-        mentioned_segs = {int(x) for tup in other_segs for x in tup if x}
-        if mentioned_segs and seg_n not in mentioned_segs:
-            # 这一行显式指名了其他段号且不包含当前段，绝对不得跨段核销当前段
+        got = structured_ack(ln_s, seg_n, asset_name)
+        if not got:
             continue
-
-        # 检查段号匹配
-        hit_seg = seg_n in mentioned_segs if mentioned_segs else (
-            f"#{seg_n}" in ln_s or f"第{seg_n}段" in ln_s or f"第{seg_n}格" in ln_s or f"S{seg_n:02d}" in ln_s
-        )
-
-        # 检查具体品牌特征匹配（排除泛指词）
-        hit_brand = False
-        for f in flags:
-            words = [w.strip() for w in re.split(r"[\s_（）()，,：:「」\"']+", str(f)) if len(w.strip()) >= 2]
-            for w in words:
-                if w.lower() in GENERIC_BRAND_WORDS:
-                    continue
-                if w.lower() in ln_s.lower():
-                    hit_brand = True
-                    break
-            if hit_brand:
-                break
-
-        # 也可比对具体素材名关键标识（排除泛指词）
-        if not hit_brand and asset_name:
-            stem = Path(asset_name).stem
-            stem_words = [w for w in re.split(r"[\s_]+", stem) if len(w) >= 3 and w.lower() not in GENERIC_BRAND_WORDS]
-            for sw in stem_words:
-                if sw.lower() in ln_s.lower():
-                    hit_brand = True
-                    break
-
-        # 如果既没提到当前段号也没提到该段的具体品牌词，跳过
-        if not (hit_seg or hit_brand):
-            continue
-
-        # 如果包含否定整改语义或未决弱语义（如「待确认」「待定」「不能保留」），坚决不予核销
-        if NEGATIVE_PATTERN.search(ln_s):
-            continue
-
-        # 必须匹配明确的肯定放行词（包含用户确认无需避开/真实工具保留）
-        if AFFIRMATIVE_PATTERN.search(ln_s):
-            return True, f"decisions.md 确认留痕（无需避开/保留）：{ln_s[:60]}"
-
+        dispo, line = got
+        why = "无需避开" if dispo == "保留" else "已处置"
+        return True, f"decisions.md 结构化核销（{why}）：{line[:80]}"
     return False, ""
 
 
-def scan_third_party_risks(items: list[dict], index: dict, decisions_text: str | None = None) -> tuple[list[dict], list[dict]]:
+def ack_hints(decisions_text: str | None) -> list[str]:
+    """散文里「像在说第三方字样 / 像在拍板」却没写成结构化行的句子 —— 打提示，绝不核销。
+
+    两路判据：
+      A. 品牌泛指词（第三方/品牌/字样/商标）+ 表态词（保留/允许/无需避开/打码…）+ 具体目标（#1/1072…）；
+      B. 泛许可词（允许/可以/同意/认可…）+ 段号（#1 / 第1段）—— 如「#1 这个不用改，允许留着」。
+    """
+    if not decisions_text:
+        return []
+    out: list[str] = []
+    for i, ln in enumerate(decisions_text.splitlines(), 1):
+        ln_s = ln.strip()
+        if not ln_s or HEADING_PATTERN.match(ln_s) or STRUCTURED_ACK_LINE.match(ln_s):
+            continue
+        looks_a = (PROSE_BRAND_WORD.search(ln_s) and PROSE_ACK_WORD.search(ln_s)
+                   and PROSE_TARGET.search(ln_s))
+        looks_b = PROSE_PERMISSION.search(ln_s) and PROSE_SEG_TARGET.search(ln_s)
+        if not (looks_a or looks_b):
+            continue
+        snippet = ln_s if len(ln_s) <= 60 else ln_s[:57] + "…"
+        out.append(f"第 {i} 行「{snippet}」")
+    return out
+
+
+def scan_third_party_risks(items: list[dict], index: dict, decisions_text: str | None = None,
+                           hints: list[str] | None = None) -> tuple[list[dict], list[dict]]:
     """扫描片段列表中的第三方字样风险。
 
     参数:
       items: 片段列表，每个包含 n, asset, in, out，可带有 third_party_action 等
       index: 素材库 index.json 索引字典
       decisions_text: 项目 decisions.md 全文文本（可选）
+      hints: 传入 list 时，把「看起来像在说第三方字样、但没写成结构化行」的散文行
+             追加进去（只作提示，绝不核销）。本片压根没有品牌命中时不追加。
 
     返回:
       (unresolved, resolved)
       - unresolved: 尚未处置/未确认的风险项（需触发 warning）
-      - resolved: 已在 decisions.md 确认或已标注处置的项（已核销）
+      - resolved: 已在 decisions.md 的**结构化行**确认，或元素已标注处置的项（已核销）
     """
     unresolved: list[dict] = []
     resolved: list[dict] = []
@@ -178,5 +256,10 @@ def scan_third_party_risks(items: list[dict], index: dict, decisions_text: str |
             resolved.append(risk_entry)
         else:
             unresolved.append(risk_entry)
+
+    # 本片真有品牌命中（不论有没有核销）时，才提示那些「像在说、其实不算」的散文句——
+    # 没有品牌风险可核销的片子，这句话提醒不动任何东西，只会变成黄噪声。
+    if hints is not None and (unresolved or resolved):
+        hints.extend(ack_hints(decisions_text))
 
     return unresolved, resolved

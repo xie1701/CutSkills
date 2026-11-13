@@ -333,7 +333,7 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                             f"要么做一个承接，要么写 hard_cut 说明为什么硬切"))
         prev_v, prev_e = v, e
 
-    # ---- 画面里的第三方字样与品牌安全检查（T-007）
+    # ---- 画面里的第三方字样与品牌安全检查（T-007；T-036 起只认结构化核销行）
     from brand_safety import scan_third_party_risks
     clip_items = []
     for e in els:
@@ -345,11 +345,19 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                 "out": float(e.get("out", 0.0)),
                 "third_party_action": e.get("third_party_action") or e.get("third_party")
             })
-    unresolved, resolved = scan_third_party_risks(clip_items, index, decisions_text=decisions_text)
+    ack_hint_lines: list[str] = []
+    unresolved, resolved = scan_third_party_risks(clip_items, index, decisions_text=decisions_text,
+                                                  hints=ack_hint_lines)
     if unresolved:
         hits_str = " / ".join(f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved[:3])
         more_str = f" 等共 {len(unresolved)} 段" if len(unresolved) > 3 else ""
-        out.append(("warning", f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 记「无需避开/保留」，或元素标 third_party_action: keep）：{hits_str}{more_str}"))
+        out.append(("warning", f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 写结构化行「- [brand] #段 保留：理由」，或元素标 third_party_action: keep）：{hits_str}{more_str}"))
+    # 散文里像在说品牌、但没写成结构化行的句子：明确告诉下一个人「这句没被当成核销意见」。
+    # T-036 实证：一句「不在本单允许改动的两个路径里」曾经靠「允许」+「1072」把 #1 的告警静默核销掉。
+    if ack_hint_lines:
+        shown = " / ".join(ack_hint_lines[:2])
+        more = f" 等共 {len(ack_hint_lines)} 行" if len(ack_hint_lines) > 2 else ""
+        out.append(("warning", f"decisions.md 里有像在说第三方字样的散文，但没有被当作核销意见：{shown}{more}——要核销请写结构化行「- [brand] #段 保留：理由」/「- [brand] #段 裁掉」，散文不参与核销"))
 
     return out
 

@@ -120,7 +120,7 @@ python3 scripts/hooks.py --project <项目> --kit            # 给人看的评�
 python3 scripts/hooks.py --project <项目> --vote B,B,A     # 记真人投票 → hooks.json 的 passed
 python3 scripts/hooks.py --project <项目> --check          # 校验前 3 秒策略合规性与通过性（0: OK/WARN, 1: FAIL）
 python3 scripts/test_hooks_policy.py                      # 前 3 秒策略真判定回归（正负样本与持久化）
-python3 scripts/test_brand_safety.py                      # 品牌安全与第三方字样处置回归（T-007：FESTOOL/PPG 拦截与核销）
+python3 scripts/test_brand_safety.py                      # 品牌安全与第三方字样处置回归（T-007/T-036：FESTOOL/PPG 拦截、结构化核销行、散文不核销）
 python3 scripts/test_semantic_check.py                     # 语义校对闭环回归（T-017：欧阳三片真错字检出/清零/否定字硬拦/零误杀）
 python3 scripts/test_hold_breath.py                        # 字幕停留的单呼吸组豁免回归（T-029：3.3/3.6s 连续话音判过，2s 说完赖到 3.4s 仍判红）
 python3 scripts/test_breath_split.py                        # 拆条按实测静音的回归（T-032：0.35s 停顿必拆、0.10s 停顿不拆、缺素材不静默、同一窗口走缓存）
@@ -461,7 +461,7 @@ python3 <SKILL_DIR>/scripts/intake.py --library "<库>" --project <项目> --der
 6. `python3 <SKILL_DIR>/scripts/render_paper_edit.py --project ...` → 生成给人读的**按论点分节**的三列稿。
 7. **把文字稿给用户看，等他确认。** 这是唯一必须的人工确认点。人读 2000 字稿子 3 分钟，看 20 分钟粗剪要 20 分钟而且看不出该删什么。
    **确认完立刻记一行**：`python3 <SKILL_DIR>/scripts/log_decision.py --project <项目> --said "用户原话" --did "据此改了什么" [--verdict accepted|rejected]`。`decisions.md` 追加、不改旧行，结论后面挂当时的段数与时长。没记的话 `check_edl` 会 warn——否则一周后没人分得清「他没提这条」和「提了没改」。
-   **第三方字样处置**：施工实拍中出现的专业工具/设备/材料品牌（如 FESTOOL 费斯托 RO 150、PPG 大师漆、牧田、博世等）很多时候属于现场真实证据，无需刻意避开。剪辑时应向用户确认是否需要避开：若用户确认保留/无需避开，在 `decisions.md` 中记录留痕（如「#1 FESTOOL 作为真实施工工具证据无需避开，客户认可」）或在时间轴元素标 `third_party_action: keep`（亦支持 `crop`/`blur`），`check_timeline.py` 与 `check_edl.py` 会自动核销告警；若用户要求避开则按指令裁切或换段（否定指令如「不能保留」不会误核销）。
+   **第三方字样处置**：施工实拍中出现的专业工具/设备/材料品牌（如 FESTOOL 费斯托 RO 150、PPG 大师漆、牧田、博世等）很多时候属于现场真实证据，无需刻意避开。剪辑时应向用户确认是否需要避开：若用户确认保留/无需避开，在 `decisions.md` 中写一行**结构化核销意见**——`- [brand] #1 保留：客户授权露出`（裁掉/打码写 `- [brand] #3 裁掉`，目标也可以写素材名 `- [brand] 1072 保留：本店自己的膜`）——或在时间轴元素标 `third_party_action: keep`（亦支持 `crop`/`blur`），`check_timeline.py` 与 `check_edl.py` 会自动核销告警。**核销只认这种显式行**：散文里出现的「允许/可以/同意/认可/无需避开」一律不构成核销（T-036 实测：一句「不在本单允许改动的两个路径里」配同一行的 `1072`，就靠「允许」把 protect-01 #1 的品牌告警静默核销了）；看起来像在说品牌、却没写成结构化行的句子，两个检查器会各报一条 warning 提醒「这句话没有被当作核销意见」。要避开则按指令裁切或换段（否定指令如「不能保留」不会误核销），并且同一行既写「保留」又写「不保留」＝没拍板，照样报警。
 8. 确认后再跑一次：
 
 ```bash

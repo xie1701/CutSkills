@@ -471,10 +471,17 @@ def check_project(proj: Path, lib: Path | None = None, write_report: bool = True
     # 但真实施工实拍中专业工具/材料往往无需避开，商用前应向用户确认；若用户确认无需避开/保留，在 decisions.md 中确认留痕即可自动核销。
     from brand_safety import scan_third_party_risks
     dec_text = (proj / "decisions.md").read_text(encoding="utf-8") if (proj / "decisions.md").exists() else None
-    unresolved, resolved = scan_third_party_risks(rows, index, decisions_text=dec_text)
+    ack_hint_lines: list[str] = []
+    unresolved, resolved = scan_third_party_risks(rows, index, decisions_text=dec_text,
+                                                  hints=ack_hint_lines)
     if unresolved:
         brand_hits = [f"#{r['n']} {r['tag']}：{'；'.join(r['flags'])}" for r in unresolved]
-        warns.append(f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 记「无需避开/保留」，或元素标 third_party_action: keep）：" + " / ".join(brand_hits[:3]))
+        warns.append(f"{len(unresolved)} 段画面出现第三方品牌字样（施工工具/材料很多时候无需避开，请确认是否需要避开；若确认保留请在 decisions.md 写结构化行「- [brand] #段 保留：理由」，或元素标 third_party_action: keep）：" + " / ".join(brand_hits[:3]))
+    # T-036：散文不核销。「像在说品牌」的散文照样提醒一句，但不当作核销意见。
+    if ack_hint_lines:
+        shown = " / ".join(ack_hint_lines[:2])
+        more = f" 等共 {len(ack_hint_lines)} 行" if len(ack_hint_lines) > 2 else ""
+        warns.append(f"decisions.md 里有像在说第三方字样的散文，但没有被当作核销意见：{shown}{more}——要核销请写结构化行「- [brand] #段 保留：理由」/「- [brand] #段 裁掉」")
 
     # ---- 报告
     status = "FAIL" if errors else ("WARN" if warns else "OK")
