@@ -60,7 +60,7 @@ python3 scripts/edge_audit.py --project <项目>          # 提词半截词 / �
 python3 scripts/test_edge_audit.py                      # 孤立提示词正负样本：并列列举不红 / 重起句必红（T-037）
 python3 scripts/test_timing_subs.py                     # 字幕后置判据正负样本：同音/丢字不误杀，凭空加实词与人称错位照红（T-040）
 python3 scripts/test_cue_guard.py                       # 口令查表口径：手写词优先 / 两套键 / 切片偏移 / 缺真值不静默（T-038）
-python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）
+python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）——大字逐字要能在同格词级真值里找到，卡面与台词不符怎么改回来见 [fixes-t033-cards.md](references/fixes-t033-cards.md)
 python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
 python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
@@ -951,5 +951,6 @@ python3 scripts/fetch_coli.py
 - [references/fixes-2026-11-11.md](references/fixes-2026-11-11.md) — 第一轮审查后的修复与真实读数
 - [references/audit-2026-11-11-round2-adversarial.md](references/audit-2026-11-11-round2-adversarial.md) — 第二轮对抗式审查报告（抓到的 6 处假与自证）
 - [references/fixes-2026-11-11-round2.md](references/fixes-2026-11-11-round2.md) — 第二轮审查后的修复记录
+- [references/fixes-t033-cards.md](references/fixes-t033-cards.md) — 五张卡面改回他自己那句话：逐卡窗口词级真值、数字取哪个的理由、重渲与响度
 - [references/audit-p4-blind-2026-11-11.md](references/audit-p4-blind-2026-11-11.md) — P4 盲测收口与阴性样本防误杀审计报告：20 支阴性样本 + 20 支对照组防误杀 + 6 组项目抽测
 - [BRIEF.md](BRIEF.md) — 完整需求 v1.1（硬指标数字、版本切分、砍掉了什么及为什么）
