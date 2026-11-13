@@ -76,6 +76,9 @@ tokens:
     scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%)'
     ink: '#FFFFFF'          # 纸底是浅的，卡面板却是深的：卡面字仍用白，不跟 palette.ink 走
     blur_ness: 0
+    # T-019 复核②：纸语域的板子重量比暖炭灰轻一档（外投影峰值 .34），扩散同宽。
+    # 卡面板 box-shadow 与底板（.mgplate）自模糊外投影共用这一条。
+    shadow: 'inset 0 1px 0 rgba(255,255,255,.16), 0 24px 60px rgba(6,8,12,.34), 0 6px 18px rgba(6,8,12,.20)'
   type:
     display: NotoSerifSC-Bold
     body: NotoSerifSC-Regular

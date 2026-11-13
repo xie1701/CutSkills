@@ -1151,16 +1151,27 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
      .mg      —— 卡片本体，GSAP 的入场目标（类名与动画都不动） */
 .mgwrap {{ position:absolute; inset:0; }}
 .mgbox {{ position:absolute; left:{mg_pad}px; right:{mg_pad}px; top:{mg_lo}%; bottom:{mg_hi}%; }}
-.mgplate {{ position:absolute; pointer-events:none; background:var(--surface-scrim);
-  -webkit-mask-image:var(--mg-plate-mask,none); mask-image:var(--mg-plate-mask,none); }}
+.mgplate {{ position:absolute; pointer-events:none; }}
+/* 底板外投影（T-019 复核②）：**另起一层**圆角色块 + filter:blur()。
+   为什么不能用 box-shadow：底板带羽化 mask，而 box-shadow 属于元素自身绘制，
+   同层时会被同一张 mask 一起裁掉——投影与羽化边只能二选一。参数仍取
+   tokens.surface.shadow（最大模糊的那条外投影），不另设第二个 token。 */
+.mgplate > .mp-glow {{ position:absolute; inset:var(--mg-glow-spread,0px); border-radius:{mg_rad}px;
+  background:var(--mg-glow,none); filter:blur(var(--mg-glow-blur,0px));
+  transform:translate(var(--mg-glow-shift,0px 0px)); }}
+/* 底板本体：四边羽化由 mask 给（两段 linear-gradient 取交集，带子是定宽像素，
+   所以在板边界上 alpha 恰好归零——没有任何一条边是被硬切的）；磨砂由 backdrop-filter 给 */
+.mgplate > .mp-surf {{ position:absolute; inset:0; background:var(--surface-scrim);
+  -webkit-mask-image:var(--mg-plate-mask,none); mask-image:var(--mg-plate-mask,none);
+  -webkit-mask-composite:source-in; mask-composite:intersect; }}
 /* 景深退后：只对这块底板做背景模糊，画面其余部分保持清晰 */
-.mgplate.mg-blur {{ backdrop-filter:blur({mg_blur}px) saturate(.92);
+.mgplate.mg-blur > .mp-surf {{ backdrop-filter:blur({mg_blur}px) saturate(.92);
   -webkit-backdrop-filter:blur({mg_blur}px) saturate(.92); }}
 /* 整屏纯底切出（B7 第三种态）：底衬换成包的不透明语域底，不靠半透明板子「差不多盖住」
    ——那是糊，不是切走。两层叠上去：底板色（tokens.surface.plate）压在 palette.ground 上，
    再叠包自己的遮罩。只铺 ground 一层会把整屏压成近黑（实测 L≈0.10，被 blackdetect 判成黑帧），
    底板色那一层既保住语域，也把亮度拉回 0.2 以上——切出的是「品牌底板」，不是「黑屏」。 */
-.mgplate.mg-cut {{ background-color:var(--ground);
+.mgplate.mg-cut > .mp-surf {{ background-color:var(--ground);
   background-image:linear-gradient(var(--surface-plate), var(--surface-plate)),
     var(--surface-scrim); }}
 .mg {{ position:absolute; inset:0;
@@ -1446,7 +1457,46 @@ def card_hold(kind: str, data: dict | None) -> float:
     return round(max(mg_min_s(kind, d), min(CARD_HOLD_MAX, max(CARD_HOLD_MIN, guess))), 3)
 
 
-def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
+def plate_glow(surface: dict | None):
+    """tokens.surface.shadow → (颜色, 模糊半径, (x 偏移, y 偏移), 扩散)。
+
+    一件事：底板投影与卡面板投影**共用同一条 token**，不另设第二个字段——
+    两个字段早晚会漂。取的是其中**模糊半径最大的那条外投影**（`inset` 是面板的
+    顶光，不是投影，跳过）；包没写 shadow 就不投（返回 None，像素不动）。
+
+    为什么不明写 `box-shadow`：底板带羽化 mask，box-shadow 属于元素自身绘制，
+    同层时会被同一张 mask 一起裁掉。“羽化边”与“硬投影边”只能二选一，
+    所以投影单独一层：一块同尺寸圆角色块，用 filter:blur() 自己化成光晕。
+    """
+    css = str((surface or {}).get("shadow") or "")
+    best = None
+    for part in re.split(r",(?![^()]*\))", css):
+        p = part.strip()
+        if not p or p.startswith("inset"):
+            continue
+        col = re.search(r"(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\))", p)
+        if not col:
+            continue
+        # 先把颜色摘出去，剩下的按位置读长度：x y [模糊 [扩散]]。
+        # 不能只抓「带 px 的数」——`0 26px 64px` 里第一个 0 没有单位，
+        # 那样读出来会把模糊当成第二个偏移（实测：投影直接消失）。
+        vals = re.findall(r"-?(?:\d+\.?\d*|\.\d+)",
+                          p[:col.start()] + " " + p[col.end():])
+        if len(vals) < 2:
+            continue
+        dx, dy = float(vals[0]), float(vals[1])
+        blur = float(vals[2]) if len(vals) > 2 else 0.0
+        spread = float(vals[3]) if len(vals) > 3 else 0.0
+        if best is None or blur > best[0]:
+            best = (blur, dx, dy, spread, col.group(1))
+    if not best or best[0] <= 0:
+        return None, 0.0, (0.0, 0.0), 0.0
+    blur, dx, dy, spread, col = best
+    return col, blur, (dx, dy), spread
+
+
+def _mg_html(c: dict, i: int, style: dict | None = None,
+             surface: dict | None = None) -> str:
     """一张 MG 卡 → DOM。所有内容来自元素上的 card.data，渲染器不编内容。"""
     d = c.get("data") or {}
     kind = c["kind"]
@@ -1502,12 +1552,26 @@ def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
         bx, by = (lay.get("box_px") or [0, 0])[:2]
         nw, nh = lay.get("box_nat_px") or [0, 0]
         mode = str(lay.get("mode") or "corner")
-        mask = ("none" if mode == "cutaway" else
-                "linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 18%, #000 82%, "
-                "rgba(0,0,0,0) 100%)" if mode == "focus_blur" else
-                "radial-gradient(72% 66% at 50% 50%, #000 58%, rgba(0,0,0,0) 100%)")
+        _fp = max(0, int(lay.get("feather_px") or 0))
+        # 羽化：两段**定宽**的 linear-gradient 取交集 = 四边各一条 FEATHER 像素宽的透明
+        # 过渡带，并在板的边界上恰好降到 0。以前那版径向渐变要么够不到边（中间一段实心、
+        # 边上硬切），要么越过边（羽化带落在板外，等于没羽化）——两种都不算羽化。
+        mask = ("none" if (mode == "cutaway" or _fp <= 0) else
+                f"linear-gradient(to right, rgba(0,0,0,0) 0px, #000 {_fp}px, "
+                f"#000 calc(100% - {_fp}px), rgba(0,0,0,0) 100%), "
+                f"linear-gradient(to bottom, rgba(0,0,0,0) 0px, #000 {_fp}px, "
+                f"#000 calc(100% - {_fp}px), rgba(0,0,0,0) 100%)")
+        # 底板外投影：同一条 tokens.surface.shadow 的最大模糊外投影，画成一层自模糊色块。
+        # 整屏切出态不投影——那是“换了一张底”，不是“一块板压在上面”。
+        g_col, g_blur, (g_dx, g_dy), g_sp = ((None, 0.0, (0.0, 0.0), 0.0)
+                                             if mode == "cutaway"
+                                             else plate_glow(surface))
+        glow_css = ("" if not g_col else
+                    f"--mg-glow:{g_col};--mg-glow-blur:{g_blur:g}px;"
+                    f"--mg-glow-shift:{g_dx:g}px {g_dy:g}px;"
+                    f"--mg-glow-spread:{(-g_sp if g_sp else 0.0):g}px;")
         plate_style = (f"left:{px_}px;top:{py_}px;width:{pw_}px;height:{ph_}px;"
-                       f"--mg-plate-mask:{mask};")
+                       f"--mg-plate-mask:{mask};{glow_css}")
         box_style = (f"left:{bx}px;top:{by}px;right:auto;bottom:auto;"
                      f"width:{nw}px;height:{nh}px;"
                      f"transform:scale({lay.get('scale')});transform-origin:top left;")
@@ -1518,7 +1582,8 @@ def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
         box_style, blur_cls, mode = "", "", "legacy"
     return (f'    <div id="mg-{i:02d}" class="clip mgwrap" '
             f'data-start="{c["start"]}" data-duration="{dur}" data-layout="{mode}">\n'
-            f'      <div class="mgplate{blur_cls}" style="{plate_style}"></div>\n'
+            f'      <div class="mgplate{blur_cls}" style="{plate_style}">'
+            f'<i class="mp-glow"></i><i class="mp-surf"></i></div>\n'
             f'      <div class="mgbox" style="{box_style}">\n'
             f'        <div class="mg mg-{kind}">\n{body}\n        </div>\n'
             f'      </div>\n'
@@ -1739,7 +1804,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                 f'    <div id="idc" class="clip idcard" data-start="{c["start"]}" '
                 f'data-duration="{d}">\n{lines}\n    </div>')
         elif c["kind"] in MG_KINDS:
-            card_html.append(_mg_html(c, i, style))
+            card_html.append(_mg_html(c, i, style, _surf))
         else:
             # 大字一律单排、撑到画幅宽度的 70%（Jerry 2026-11-09：「字体还要放大 2-3 倍
             # 能撑满屏幕宽度的 70%，但所有的大字应该控制在一排出现，要进行适当的缩放」）。

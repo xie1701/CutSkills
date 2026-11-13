@@ -279,18 +279,39 @@ def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0):
     return best
 
 
+# 羽化半径（按画幅换算的像素），T-019 复核②。
+# 上一版 `feather_px` 算了却**没接进 CSS**：mask 写的是「径向 72%×66%、实心到 58%」，
+# 椭圆半径比半个板大，于是板边界上 alpha 还有 ~26% 就被一刀切断——1080 原像素上
+# 只剩一圈 20px 的过渡，读起来仍是「圆角矩形硬轮廓 + 贴片」。
+# 现在羽化带是**定宽像素、四边都有**，且在板边界上恰好降到 0（没有任何一条边被硬切）：
+# corner 3.8%W（1080 下 41px）、focus_blur 8.0%H（1920 下 154px），
+# 再按「不超过板短边的 22%」封顶（如 812×684 的板上 154px 压到 150px），
+# 因为羽化比板还宽就不叫羽化，叫一团雾。
+PLATE_FEATHER = (0.038, 0.080)      # (corner: ×W, focus_blur: ×H)
+PLATE_PAD = (0.052, 0.038)          # (×W, ×H)：留出余地，羽化带不许啃到卡本体
+PLATE_FEATHER_MAX = 0.22            # 羽化带最多吃掉板短边的这么一截
+
+
 def _plate(mode, box, faces, W, H):
-    """底衬跟着卡走（B10）：不再是「整屏 90%」，而是卡背后一块带羽化的板。"""
+    """底衬跟着卡走（B10）：不再是「整屏 90%」，而是卡背后一块带羽化的板。
+
+    T-019 复核②把 focus_blur 的底衬从「横向铺满的一条带」收成「贴着卡的一块」：
+    满宽暗带本质上还是「压暗全屏的一条」，卡的圆角矩形坐在上面就成了「贴片」；
+    收成局部板之后，连 backdrop-filter 的模糊也只发生在卡背后那一块，
+    再经羽化带过渡回清晰——这才读得出「底片退后 + 一块板压在上面」。
+    """
     if mode == "cutaway":
         return [0.0, 0.0, 1.0, 1.0], 0
-    padx, pady = 0.030, 0.022
+    padx, pady = PLATE_PAD
     px0 = max(0.0, box[0] - padx)
     px1 = min(1.0, box[0] + box[2] + padx)
     py0 = max(0.0, box[1] - pady)
     py1 = min(1.0, box[1] + box[3] + pady)
-    if mode == "focus_blur":
-        return [0.0, py0, 1.0, py1 - py0], int(round(0.055 * H))
-    return [px0, py0, px1 - px0, py1 - py0], int(round(0.020 * W))
+    plate = [round(px0, 4), round(py0, 4), round(px1 - px0, 4), round(py1 - py0, 4)]
+    f = int(round((PLATE_FEATHER[1] * H) if mode == "focus_blur"
+                  else (PLATE_FEATHER[0] * W)))
+    f = min(f, int(round(PLATE_FEATHER_MAX * min(plate[2] * W, plate[3] * H))))
+    return plate, max(12, f)
 
 
 def plan(card: dict, ctx: dict) -> dict:

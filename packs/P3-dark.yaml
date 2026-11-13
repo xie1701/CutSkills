@@ -73,6 +73,9 @@ tokens:
     scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%)'
     ink: '#FFFFFF'
     blur_ness: 0
+    # T-019 复核②：黑语域里投影不靠色温而是靠**深度**（峰值 .46，扩得最宽 70px），
+    # 否则黑底上的黑板看不出“压在上面”。卡面板 box-shadow 与底板自模糊外投影共用。
+    shadow: 'inset 0 1px 0 rgba(255,255,255,.14), 0 28px 70px rgba(0,0,0,.46), 0 8px 22px rgba(0,0,0,.28)'
   type:
     display: NotoSansSC-Black
     body: NotoSansSC-Regular
