@@ -87,6 +87,21 @@ MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `
 规矩：同一卡型一条片里不重复超过 2 次；每条片至少一张内容专属卡（有数字用 `stat`，
 有对比用 `versus`，有流程用 `steps`）。数字没有出处就必须 `approx: true`。
 
+### props（实拍/素材元素也认这三个键）
+
+`props` 原来只给 `gen` 模板用。2026-11-13 起，实拍元素（`kind: clip` / `image`）也可以带
+下面三个键。它们回答的是同一个问题：**这一格画面能不能证明这句话。**
+判据落在 `scripts/content_guard.py`（`check_timeline.py` 会自动调）。
+
+| 字段 | 用在哪 | 说明 |
+|---|---|---|
+| `handles_exempt` | clip + `medium: broll` | 起尾余量豁免的**理由**（必须是非空字符串，否则不认）。缺省不豁免：`in < 0.40s` 判 error（那是按键/对焦未稳的糊片），`duration - out < 0.40s` 也判 error（尾段是收机甩镜、松气低头）。确实必须贴头/贴尾（素材本身就只有 1 秒、或动作就在开头半秒）时写一句理由，守卫改报 warning，并把这句理由原样带到报告里——豁免是人的判断，但必须留得下痕供复核 |
+| `visual_ref` | 任意元素 | 视觉佐证：这一格画面就是台词里「呢张图 / 四张图 / 效果图 / 睇下呢度」指的那个东西。填素材 id 或一句能认人的说明。台词命中指代词而这一格没有它（且 `kind` 不是 image/gen、素材 L2 标签也没命中图纸/效果图/截图类）→ error，同时把缺口写进项目 `gap.md`（带时间戳） |
+| `taboo_tags` | 任意元素 | 这一格画面自带的品类负向标签（`raw_meat` / `kitchen_trash` / `heavy_construction_trash` / `crew_leak` / `unappetizing_dark`），与素材 L2 的 `taboo_tags` 取并集。正向夸赞台词（舒服/正宗/好食/靓/享受/招牌/新鲜/干净/卫生…）撞上 → error；写错的标签名会当 warning 报出来（`raw-meat` 这种认不出，静默放行比报错更危险） |
+
+为什么不把这些搬到顶层字段：它们是**因人而异、大多数格子没有**的现场标注。放顶层会让每个元素
+都多一行 `null`，人写的时候反而容易漏掉 `evidence` 这些真正必填的东西。
+
 ## gen 模板表（代码生成，全部参数化）
 
 每个模板的 `minDur` 是**下限不是建议**——低于它观众读不完，宁可不放。
@@ -147,6 +162,7 @@ MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `
 |---|---|
 | error | `kind`/`track` 缺失或非法；clip 缺 `in`/`out` 或 `asset` 不在索引；gen 缺 `template`/`props`；`dur` 低于模板 `minDur`；props 字数超限；`why` 是套话；总时长与 `brief.length_s` 差 >10% |
 | error | 元素首尾相接有空隙或重叠（时间轴必须连续） |
+| error | 内容守卫（`content_guard.py`）：实拍 B-roll `in < 0.40s` 或距素材尾 < 0.40s（除 `props.handles_exempt` 带理由）；台词命中视觉指代词而这一格没有视觉佐证；正向夸赞台词撞 `taboo_tags` 负向画面 |
 | warning | 单镜超 12s；`generated` 占比 >25%；40s 内没有介质变化；`warrant` 段缺失；B-roll 没有 `audio` 字段；画面出现未处置的第三方品牌字样（提示向用户确认是否需要避开，若无需避开留痕核销） |
 | info | 各 kind 占比、各 beat 时长分布 |
 

@@ -445,6 +445,9 @@ def main() -> int:
         probs.append(("error", f"边界审计没跑起来（{exc}）——不许静默跳过"))
     except Exception as exc:                      # noqa: BLE001
         probs.append(("warning", f"边界审计出错：{type(exc).__name__}: {exc}"))
+    # 内容守卫（T-016）：起尾余量 / 视觉指代词 / 品类禁忌——判「画面证不证明这句话」。
+    import content_guard
+    probs.extend(content_guard.guard(tl, index, proj=proj))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)
