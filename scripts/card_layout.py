@@ -32,8 +32,8 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parent.parent
 NATIVE = Path(__file__).resolve().parent / "native" / "person_mask"
 
-# 重型 MG 卡：一屏多要素（数字/两栏/三步/词条），必须把视觉主权拿走。
-HEAVY_KINDS = {"stat", "proportion", "day-night", "versus", "steps", "term"}
+# 重型 MG 卡：一屏多要素（数字/两栏/三步/词条/名牌），必须把视觉主权拿走。
+HEAVY_KINDS = {"stat", "proportion", "day-night", "versus", "steps", "term", "chips"}
 LIGHT_KINDS = {"keyword", "keyword-big", "behind", "cutout", "idcard"}
 
 FACE_IOU_MAX = 0.02        # 卡与任一帧人脸框的重叠率上限（B7 硬线，禁止调大）
@@ -82,6 +82,7 @@ WANT = {
     "term": (0.66, 0.28),
     "proportion": (0.80, 0.26),
     "day-night": (0.82, 0.34),
+    "chips": (0.82, 0.28),
     "keyword": (0.72, 0.20),
     "keyword-big": (0.72, 0.20),
     "idcard": (0.40, 0.16),

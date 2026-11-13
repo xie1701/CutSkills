@@ -1300,6 +1300,86 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   color:rgba(var(--surface-ink-rgb),.95); margin-top:var(--surface-term-gap);
   line-height:1.42; text-align:left;
   text-shadow:0 2px 10px rgba(0,0,0,.9); }}
+/* proportion：比例切分条（局部占整体比例，形状即语义） */
+.mg-proportion {{ width:100%; display:flex; flex-direction:column; align-items:center; text-align:center; }}
+.mg-prop {{ width:100%; display:flex; flex-direction:column; align-items:center; }}
+.mg-prop-hero {{ display:flex; align-items:baseline; justify-content:center; gap:{mg_gap2}px; }}
+.mg-prop-hero .ratio {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_ratio}px;
+  line-height:.92; color:var(--accent); letter-spacing:-.03em;
+  text-shadow:0 12px 36px rgba(0,0,0,.65); }}
+.mg-prop-hero .prop-tag {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_label}px;
+  color:var(--surface-ink); text-shadow:0 2px 8px rgba(0,0,0,.8); }}
+.mg-prop-bar-wrap {{ width:100%; max-width:92%; margin:{mg_gap2}px 0; }}
+.mg-prop-track {{ position:relative; width:100%; height:{mg_prop_bar}px;
+  background:rgba(var(--surface-ink-rgb),.12); border-radius:{mg_rad}px;
+  border:1px solid var(--surface-border); box-shadow:inset 0 2px 6px rgba(0,0,0,.45);
+  backdrop-filter:var(--surface-blur); }}
+.mg-prop-fill {{ position:relative; height:100%; border-radius:{mg_rad}px;
+  background:linear-gradient(90deg, var(--accent2), var(--accent));
+  box-shadow:0 0 16px rgba(var(--surface-ink-rgb),.3); }}
+.mg-prop-pin {{ position:absolute; right:0; top:50%; transform:translate(50%, -50%);
+  width:{mg_dot_t}px; height:{mg_dot_w}px; background:var(--surface-ink);
+  border-radius:{mg_dot_t}px; box-shadow:0 2px 10px rgba(0,0,0,.85); }}
+.mg-prop-ticks {{ display:flex; justify-content:space-between; margin-top:{mg_gap2}px; width:100%; }}
+.mg-prop-ticks .part {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_src}px;
+  color:var(--accent); text-shadow:0 2px 6px rgba(0,0,0,.8); }}
+.mg-prop-ticks .total {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
+  color:rgba(var(--surface-ink-rgb),.82); text-shadow:0 2px 6px rgba(0,0,0,.8); }}
+.mg-proportion .mg-label {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_label}px;
+  color:var(--surface-ink); margin-top:{mg_gap}px; line-height:1.32;
+  text-shadow:0 2px 6px rgba(0,0,0,.9), 0 6px 22px rgba(0,0,0,.7); }}
+
+/* day-night：早晚时段接力卡（互补经营非死敌擂台） */
+.mg-day-night {{ width:100%; }}
+.mg-dn {{ width:100%; display:flex; flex-direction:column; align-items:center; }}
+.mg-dn-relay {{ display:flex; align-items:stretch; gap:{mg_gap2}px; width:100%; justify-content:center; }}
+.mg-dn .side {{ flex:1; display:flex; flex-direction:column; gap:{mg_gap2}px;
+  padding:{mg_pan}px {mg_pad2}px; border-radius:{mg_rad}px;
+  background:var(--surface-plate); border:1px solid var(--surface-border);
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow);
+  text-align:left; position:relative; }}
+.mg-dn .side .dn-tag {{ display:inline-block; align-self:flex-start;
+  padding:{mg_dot_t}px {mg_gap2}px; border-radius:{mg_rad}px;
+  font-family:"SC-Sub"; font-weight:700; font-size:{mg_src}px;
+  background:rgba(var(--surface-ink-rgb),.12); border:1px solid rgba(var(--surface-ink-rgb),.2); }}
+.mg-dn .side.day .dn-tag {{ color:var(--accent); }}
+.mg-dn .side.night .dn-tag {{ color:var(--accent2); }}
+.mg-dn .side b.dn-head {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_vh}px;
+  color:var(--surface-ink); line-height:1.1; }}
+.mg-dn .side span.dn-body {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_vs}px;
+  color:rgba(var(--surface-ink-rgb),.88); line-height:1.32; }}
+.mg-dn .side span.dn-sub {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_src}px;
+  color:var(--accent); opacity:.9; }}
+.mg-dn .dn-flow {{ align-self:center; flex:0 0 auto; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:{mg_dot_t}px; }}
+.mg-dn .dn-flow .dn-pill {{ padding:{mg_dot_t}px {mg_gap2}px; border-radius:{mg_rad}px;
+  font-family:"SC-Big"; font-weight:900; font-size:{mg_flow_pill}px; color:#0b0d11;
+  background:var(--accent); box-shadow:0 4px 14px rgba(0,0,0,.5); letter-spacing:.04em; }}
+.mg-dn .dn-flow .dn-arrow {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_badge_t}px;
+  color:var(--accent); line-height:1; }}
+.mg-dn .mg-tail {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
+  color:rgba(var(--surface-ink-rgb),.88); margin-top:{mg_gap}px; }}
+
+/* chips：招牌名牌卡（2–4枚名牌踩词逐枚点亮） */
+.mg-chips {{ width:100%; }}
+.mg-chips-wrap {{ width:100%; display:flex; flex-direction:column; align-items:center; }}
+.chips-grid {{ display:flex; gap:{mg_gap2}px; justify-content:center; align-items:stretch;
+  width:100%; }}
+.chips-grid .chip {{ flex:1; min-width:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; padding:{mg_pan}px {mg_gap2}px;
+  border-radius:{mg_rad}px; background:var(--surface-plate);
+  border:1px solid var(--surface-border); backdrop-filter:var(--surface-blur);
+  box-shadow:var(--surface-shadow); text-align:center; }}
+.chips-grid .chip-num {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_chip_num}px;
+  color:var(--accent); margin-bottom:{mg_dot_t}px; letter-spacing:.04em; }}
+.chips-grid .chip-name {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_chip_name}px;
+  color:var(--surface-ink); line-height:1.15; word-break:break-all;
+  text-shadow:0 2px 10px rgba(0,0,0,.7); }}
+.chips-grid .chip-tag {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_src}px;
+  color:var(--accent2); margin-top:{mg_dot_t}px; padding:2px {mg_dot_t}px;
+  border-radius:4px; background:rgba(var(--surface-ink-rgb),.08); }}
+.mg-chips-wrap .mg-tail {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
+  color:rgba(var(--surface-ink-rgb),.88); margin-top:{mg_gap}px; }}
 {gen_css}
 </style>
 </head>
@@ -1392,8 +1472,8 @@ document.querySelectorAll(".mgwrap").forEach((w) => {{
         {{ opacity: 0.52, duration: 0.4, immediateRender: false }}, t + 0.46);
     }}
   }}
-  // 条目逐条进来（步骤卡 / 对比卡的两栏 / 术语卡的释义）
-  const kids = c.querySelectorAll("li, .side, .mg-tail");
+  // 条目逐条进来（步骤卡 / 对比卡的两栏 / 术语卡的释义 / 名牌卡的各枚名牌）
+  const kids = c.querySelectorAll("li, .side, .chip, .mg-tail");
   kids.forEach((k, i) => {{
     const when = t + 0.2 + i * 0.22;
     tl.set(k, {{ opacity: 0 }}, t);
@@ -1405,6 +1485,23 @@ document.querySelectorAll(".mgwrap").forEach((w) => {{
     tl.fromTo(vs, {{ scale: 0.4, opacity: 0 }},
       {{ scale: 1, opacity: 0.9, duration: 0.26, ease: "back.out(3)",
          immediateRender: false }}, t + 0.42);
+  }}
+  const dnFlow = c.querySelector(".dn-flow");
+  if (dnFlow) {{
+    tl.fromTo(dnFlow, {{ scale: 0.5, opacity: 0 }},
+      {{ scale: 1, opacity: 1, duration: 0.26, ease: "back.out(2.5)",
+         immediateRender: false }}, t + 0.38);
+  }}
+  const propFill = c.querySelector(".mg-prop-fill");
+  if (propFill) {{
+    const targetW = propFill.style.width || "33.3%";
+    tl.fromTo(propFill, {{ width: "0%" }},
+      {{ width: targetW, duration: 0.68, ease: "power2.out", immediateRender: false }}, t + 0.22);
+  }}
+  const propRatio = c.querySelector(".mg-prop-hero .ratio");
+  if (propRatio) {{
+    tl.fromTo(propRatio, {{ scale: 0.84, opacity: 0, filter: "blur(8px)" }},
+      {{ scale: 1, opacity: 1, filter: "blur(0px)", duration: 0.55, ease: "expo.out", immediateRender: false }}, t + 0.08);
   }}
   const def = c.querySelector(".mg-def");
   if (def) {{
@@ -1473,13 +1570,21 @@ def fonts_hint(style) -> str:
 
 # 五子系统里的 mg：这是**内容形态**决定的，不是风格决定的。
 # 一句话结论 → 大字；数字/规模/时长 → stat；两三个步骤或并列条件 → steps；
-# 两个方案对比 → versus；名词解释 → term。风格包只决定它长什么样（tokens）。
-MG_KINDS = {"stat", "steps", "versus", "term"}
+# 两个方案对比 → versus；名词解释 → term；
+# 局部占整体比例 → proportion；早晚时段接力 → day-night；并列名牌逐枚点亮 → chips。风格包只决定它长什么样（tokens）。
+MG_KINDS = {"stat", "steps", "versus", "term", "proportion", "day-night", "chips"}
 
 # MG 卡的最短放映时长：按内容条数算，不是一律 1.5s。
 # 原来所有卡都夹在 emphasis.hold_s（默认 1.0–1.5s），三条内容的 steps 卡
 # 在 1.5 秒里读完＝一闪而过——这就是「MG 出现时间过短」的真因。
-MG_MIN_S = {"stat": 1.8, "term": 2.2, "versus": 2.4}
+MG_MIN_S = {
+    "stat": 1.8,
+    "term": 2.2,
+    "versus": 2.4,
+    "proportion": 2.2,
+    "day-night": 2.6,
+    "chips": 2.4,
+}
 MG_ENTRY_MAX = 1.25       # 入场可以推到块首之后这么多（块越长越晚）
 MG_ENTRY_CALM = 2.5       # 块短于这个秒数就贴着块首出，不再往后推
 
@@ -1497,6 +1602,9 @@ def mg_min_s(kind: str, data: dict | None) -> float:
     if kind == "steps":
         n = len((data or {}).get("items") or [])
         return 0.6 + 0.7 * min(3, max(1, n))
+    if kind == "chips":
+        n = len((data or {}).get("items") or [])
+        return 1.6 + 0.25 * min(4, max(2, n))
     return float(MG_MIN_S.get(kind) or 0.0)
 
 
@@ -1508,14 +1616,19 @@ def card_hold(kind: str, data: dict | None) -> float:
     """
     d = data or {}
     parts: list[str] = []
-    for k in ("kicker", "value", "unit", "label", "title", "term", "def", "source"):
+    for k in ("kicker", "value", "unit", "label", "title", "term", "def", "source",
+              "total", "ratio", "part_label", "total_label", "relay", "tail"):
         v = d.get(k)
         if isinstance(v, str) and v.strip():
             parts.append(v)
-    for side in ("left", "right"):
+    for side in ("left", "right", "day", "night"):
         s = d.get(side) or {}
-        parts.extend(str(s.get(k) or "") for k in ("head", "body"))
-    parts.extend(str(x) for x in (d.get("items") or []))
+        parts.extend(str(s.get(k) or "") for k in ("head", "body", "sub", "tag"))
+    for it in (d.get("items") or []):
+        if isinstance(it, dict):
+            parts.extend(str(v) for v in it.values() if isinstance(v, str) and v.strip())
+        elif isinstance(it, str) and it.strip():
+            parts.append(it)
     units = 0.0
     for p in parts:
         cjk = sum(1 for ch in p if "\u4e00" <= ch <= "\u9fff")
@@ -1605,6 +1718,105 @@ def _mg_html(c: dict, i: int, style: dict | None = None,
                 f'<span>{esc(str(R.get("body") or ""))}</span></div></div>')
         if d.get("tail"):
             body += f'\n      <div class="mg-tail">{esc(str(d["tail"]))}</div>'
+    elif kind == "proportion":
+        val = str(d.get("value") or "")
+        tot = str(d.get("total") or "")
+        unit = str(d.get("unit") or "")
+        ratio = str(d.get("ratio") or "")
+        part_label = str(d.get("part_label") or "")
+        total_label = str(d.get("total_label") or "")
+        label = str(d.get("label") or c.get("text") or "")
+        kicker = str(d.get("kicker") or "")
+        pct = 33.3
+        if "percent" in d:
+            try:
+                pct = float(d["percent"])
+            except (ValueError, TypeError):
+                pass
+        elif val and tot:
+            try:
+                v_n = float(re.sub(r"[^\d.]", "", val))
+                t_n = float(re.sub(r"[^\d.]", "", tot))
+                if t_n > 0:
+                    pct = (v_n / t_n) * 100.0
+            except (ValueError, TypeError):
+                pass
+        elif ratio and "/" in ratio:
+            try:
+                p_a, p_b = ratio.split("/", 1)
+                pct = (float(p_a) / float(p_b)) * 100.0
+            except (ValueError, TypeError):
+                pass
+        pct = max(8.0, min(92.0, pct))
+        body = '      <div class="mg-prop">\n'
+        if kicker:
+            body += f'        <div class="mg-kick">{esc(kicker)}</div>\n'
+        hero_tag = part_label or (f"占 {round(pct):d}%" if not ratio else "")
+        body += (f'        <div class="mg-prop-hero"><span class="ratio">{esc(ratio or (val + "/" + tot))}</span>'
+                 + (f'<span class="prop-tag">{esc(hero_tag)}</span>' if hero_tag else '')
+                 + '</div>\n')
+        part_tick = (f"{val}{unit}" if not part_label else f"{part_label} {val}{unit}").strip()
+        total_tick = (f"总计 {tot}{unit}" if not total_label else f"{total_label} {tot}{unit}").strip()
+        body += (f'        <div class="mg-prop-bar-wrap">\n'
+                 f'          <div class="mg-prop-track"><div class="mg-prop-fill" style="width:{pct:.1f}%">'
+                 f'<span class="mg-prop-pin"></span></div></div>\n'
+                 f'          <div class="mg-prop-ticks"><span class="tick part">{esc(part_tick)}</span>'
+                 f'<span class="tick total">{esc(total_tick)}</span></div>\n'
+                 f'        </div>\n')
+        if label:
+            body += f'        <div class="mg-label">{esc(label)}</div>\n'
+        body += '      </div>'
+    elif kind == "day-night":
+        day = d.get("day") or {}
+        night = d.get("night") or {}
+        relay = str(d.get("relay") or "接力")
+        tail = str(d.get("tail") or c.get("text") or "")
+        title = str(d.get("title") or "")
+        body = '      <div class="mg-dn">\n'
+        if title:
+            body += f'        <div class="mg-title">{esc(title)}</div>\n'
+        body += ('        <div class="mg-dn-relay">\n'
+                 f'          <div class="side day">\n'
+                 f'            <div class="dn-tag">{esc(str(day.get("tag") or "早市"))}</div>\n'
+                 f'            <b class="dn-head">{esc(str(day.get("head") or "朝早"))}</b>\n'
+                 f'            <span class="dn-body">{esc(str(day.get("body") or ""))}</span>\n'
+                 + (f'            <span class="dn-sub">{esc(str(day["sub"]))}</span>\n' if day.get("sub") else '')
+                 + '          </div>\n'
+                 f'          <div class="dn-flow"><div class="dn-pill">{esc(relay)}</div>'
+                 f'<div class="dn-arrow">→</div></div>\n'
+                 f'          <div class="side night">\n'
+                 f'            <div class="dn-tag">{esc(str(night.get("tag") or "晚市"))}</div>\n'
+                 f'            <b class="dn-head">{esc(str(night.get("head") or "晚上"))}</b>\n'
+                 f'            <span class="dn-body">{esc(str(night.get("body") or ""))}</span>\n'
+                 + (f'            <span class="dn-sub">{esc(str(night["sub"]))}</span>\n' if night.get("sub") else '')
+                 + '          </div>\n        </div>\n')
+        if tail:
+            body += f'        <div class="mg-tail">{esc(tail)}</div>\n'
+        body += '      </div>'
+    elif kind == "chips":
+        title = str(d.get("title") or c.get("text") or "")
+        raw_items = d.get("items") or []
+        items = []
+        for x in raw_items[:4]:
+            if isinstance(x, dict):
+                items.append((str(x.get("name") or ""), str(x.get("tag") or "")))
+            else:
+                items.append((str(x), ""))
+        tail = str(d.get("tail") or "")
+        body = '      <div class="mg-chips-wrap">\n'
+        if title:
+            body += f'        <div class="mg-title">{esc(title)}</div>\n'
+        body += '        <div class="chips-grid">\n'
+        for idx, (name, tag) in enumerate(items, 1):
+            body += (f'          <div class="chip">\n'
+                     f'            <span class="chip-num">{str(idx).zfill(2)}</span>\n'
+                     f'            <span class="chip-name">{esc(name)}</span>\n'
+                     + (f'            <span class="chip-tag">{esc(tag)}</span>\n' if tag else '')
+                     + '          </div>\n')
+        body += '        </div>\n'
+        if tail:
+            body += f'        <div class="mg-tail">{esc(tail)}</div>\n'
+        body += '      </div>'
     else:  # term
         term = str(d.get("term") or c.get("text") or "")
         # 内层词头叫 mg-word：外层容器就是 mg mg-term，同名会让 `.mg-term` 同时命中两层（框套框）
@@ -1808,6 +2020,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     mg_vh, mg_vs, mg_badge, mg_badge_t = _px(50), _px(40), _px(104), _px(38)
     mg_rad, mg_pan = _px(26), _px(30)
     mg_dot, mg_dot_w, mg_dot_r, mg_dot_t = _px(34), _px(58), _px(29), _px(8)
+    mg_prop_bar, mg_ratio = _px(28), _px(160)
+    mg_flow_pill, mg_chip_num, mg_chip_name = _px(24), _px(22), _px(48)
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
 
@@ -1971,6 +2185,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         mg_vs=mg_vs, mg_badge=mg_badge, mg_badge_t=mg_badge_t, mg_rad=mg_rad,
         mg_pan=mg_pan, mg_dot=mg_dot, mg_dot_w=mg_dot_w, mg_dot_r=mg_dot_r,
         mg_dot_t=mg_dot_t,
+        mg_prop_bar=mg_prop_bar, mg_ratio=mg_ratio,
+        mg_flow_pill=mg_flow_pill, mg_chip_num=mg_chip_num, mg_chip_name=mg_chip_name,
         kw_color=emph.get("keyword_color") or "#FFD400",
         scrim_a=card_layout.KW_SCRIM_ALPHA,
         kw_extra=("background:linear-gradient(180deg,%s 0%%,%s 100%%);"
