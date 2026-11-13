@@ -327,3 +327,39 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   - `audit_skill.py`：✅ **OK · 🔴 0 · 🟡 0 · 🟢 8**（退出码 0）；
   - `golden.py`：❌ 退出码 1（`proj79` 🔴3、`qizao-ground-01` 🔴3、`qizao-protect-01` 🔴2——系上一提交 `cbcc3ef` 将 `字幕停留`/`助词孤行` 与 `strip_noise` 并入 `verify_film.py` 时未同步更新 11-08 旧样片 `subs.json` 或校准基线所致，已单列 `T-024`）；
   - `selftest.py`：⛔ 退出码 2（`coli` 不在 PATH，已单列 `T-023`）；Python 现为 `3.15.2`（`~/.cutskills/py` 含 Pillow/numpy/pypinyin，`scripts/vendor/yaml` 已内置），`ffmpeg 9.0.2` 与 `hyperframes 0.9.39` 正常。
+
+### 2026-11-13 · Cola · T-032 完成待复核（拆条按实测静音，不再只信 ASR 词起点间隔）
+
+- **分支 / worktree**：`ai/cola/T-032` @ `f0660b2`（业务提交）／`/Users/jerry/Downloads/AIworks/CutSkills-wsT032`。主目录（master）未动。
+- **根因（实测，别再从头查）**：ASR 把停顿算进前一个字的时长——`qizao-ground-01` 的「有」占 1689.60–1691.22（1.62s），其中 **1690.03–1691.23 有 1.20s 没声音**。`subs.GAP_BREAK/GAP_SPLIT` 看的是词起点间隔，那里 gap=0，所以该拆的地方永远不拆，字幕真静音却撑 3.5–4.4s。T-029 已经把判据改严（量出停顿就判红），这一单是让**产线**去满足它。
+- **改了什么**（全在 `scripts/subs.py`，不动任何判据阈值）：
+  1. `speech_silences()`：按「格」量真静音，走 `silence.runs_strict()`（`_MEM` + `~/.cutskills/cache/silence` 双层缓存复用，一条片子几十条字幕只按格抽一次音轨）；返回 `None`＝没量成，与 `[]`＝窗口里真没静音分开；
+  2. `retime_off_silence()`：把字的起止从静音里拉出来，停顿成为真 gap（拉完只剩零长度的字保留原样，否则书面稿对齐会错位）；
+  3. `BREATH_MIN = 0.30`（与 `check_subs.BREATH_MIN` 同一个数）+ `MAX_HOLD = 3.2` + `split_breath_groups()`：超时长**且**窗口里有真静音才补一刀；没停顿时 3.3–4.5s 的单呼吸组一律不动（那是 T-029 放行的）；
+  4. `split_point` / `split_long`：宽度必须拆时优先拆在真静音上；`word_bounds` 仍是硬约束，真静音落在词中间宁可不断；
+  5. 缺音频（素材不在本机）→ 退回词界逻辑 + stderr「静音探针不可用，按词界拆分」，`subs.LAST_PROBE` 记账，**不静默**；
+  6. 顺带修：真实停顿显形后，「2–3 字填充词直接丢」会把实词吞掉（`dianzan-a` 的「食」264→263 字），改成先并邻居、装不下才丢。
+- **读数（改动前 → 改动后，两轮都用同一份 `out/shots.json`）**：
+
+  | 片子 | 条数 | `check_subs` 停留 | 结论 | `verify_film` 🟢/🟡/🔴 |
+  |---|---|---|---|---|
+  | `qizao-ground-01` | 36 → 37 | ✗4 → **✅0** | 没过 → **过** | 26/0/4 → 26/**1**/3 |
+  | `qizao-protect-01` | 28 → 28 | ✅0 → ✅0 | 过 → 过 | 22/2/5 → 22/2/5（逐条一致） |
+  | `dianzan-a` | 34 → 34 | ✅0 → ✅0 | 残词/口吃/量级（T-017 那批，未变） | — |
+  | `dianzan-b` | 35 → 35 | ✅0 → ✅0 | 同上（残词） | — |
+  | `dianzan-c` | 27 → 28 | ✅0 → ✅0 | 同上（残词）；字一个没少 | — |
+
+  ground-01 多出来的 1 黄是「字幕密度 27.5 条/分钟 vs 期望 36」——**不是片子变差**，是语速估计 4.1→4.3 字/秒（字幕窗口不再盖住尾部静音）把期望值抬上去了，判据本身把两个不同分母硬比，已挂 **T-035**。大字烧进画面那 3/5 条与字幕无关（内容侧）。
+- **`proj79` 没动**：它只有 `edl.json`（v2），重算被 T-028 挡着（`lock.py` 只认 `timeline.json`），本单不替它开路。
+- **负样本**：`python3 scripts/test_breath_split.py`（4 条）——合成为「说话—静音—说话」纯音，字级时间戳按 ASR 的坏习惯把停顿算进前一个字的时长：**0.35s 停顿必拆**（`我们的厨房`｜`占了三分`）、**0.10s 停顿不许拆**（一条 3.5s）、素材缺失时说话（stderr + `LAST_PROBE`）且不崩、同一窗口第二次走缓存。证据与真素材四处对照见 `references/negative-samples/breath-split.md`。
+- **复现命令**：
+  ```bash
+  cd /Users/jerry/Downloads/AIworks/CutSkills-wsT032
+  python3 scripts/test_breath_split.py
+  P=/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-ground-01
+  python3 scripts/render_hf.py --project "$P" --no-render --force   # 重算 out/subs.json（产线入口，必需）
+  python3 scripts/check_subs.py --project "$P"        # 停留 ✅ / 结论：过
+  python3 scripts/verify_film.py --project "$P"       # 26/1/3
+  python3 scripts/silence.py "/Users/jerry/Downloads/柒造Video/素材/20261009_木格架口播_必用_熊工口播2.MOV" 1685.73 1693.56
+  ```
+- **已知边界（如实记）**：① `proj79` 未重算；② `golden.py` 仍退出码 1（T-024 历史欠账；本单把它从 🔴4 降到 🔴3，没让它变多）；③ `selftest.py` 仍退出码 1，与 master **逐行一致**（T-025 历史欠账）；④ ground-01 新增的 2 字条「最后」（真停顿 1.02s 之后才说「业主方怎么」）是「话停了字就该走」的必然结果，宽度中位 8.0 不变；⑤ `--no-render --force` 是为了在没签 `lock.json` 的老项目上重算 `subs.json`，不是拿来过判据。
