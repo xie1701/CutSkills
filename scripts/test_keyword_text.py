@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -187,6 +188,7 @@ def main() -> int:
     else:
         print("  · 跳过 G（本机没有 dianzan-c 的成片）")
 
+    shutil.rmtree(base, ignore_errors=True)
     print("✅ T-045 大字判据回归：A 压脸红 / B 挪开绿 / C 空字红 / D 亮底红 / "
           "E 加隔离绿 / F 越界红 / H 窄字文本填满且真窄仍红 / I behind 量在渲器落点且算渐变"
           + (" / G 真片对齐" if (REAL / "out" / "film-hf.mp4").exists() else ""))

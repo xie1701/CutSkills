@@ -50,11 +50,13 @@ sys.path.insert(0, str(HERE))
 import evidence_guard as EG  # noqa: E402
 import lexicon  # noqa: E402
 
+from card_layout import MG_KINDS as MG_KINDS_CHK  # noqa: E402
+from libs import resolve_lib as _resolve_lib  # noqa: E402
+
 CARD_HOLD_MIN = 2.6       # 读完一张**信息卡**的下限（秒）
 KEYWORD_HOLD_MIN = 0.9    # 大字只有四五个字，读得快；但也不能闪一下就过
 KEYWORD_HOLD_MAX = 2.4
 CARD_HOLD_MAX = 4.5       # 再长就是赖着不走
-MG_KINDS_CHK = {"stat", "steps", "versus", "term", "proportion", "day-night", "chips"}
 CARD_GAP = 0.20           # 相邻两张卡之间的空档
 MIN_LEAD = 0.12           # 卡不许早于它锚定的词（声音在前）
 SCREEN_SHARE = 0.25       # 卡在场时间占全片的上限
@@ -282,7 +284,7 @@ def card_texts(c: dict) -> dict[str, list[str]]:
 
 def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     tl = json.loads((proj / "timeline.json").read_text())
-    lib = lib or proj.parents[2]
+    lib = _resolve_lib(proj, lib)
     total = 0.0
     for e in tl.get("elements") or []:
         au = e.get("audio") or {}

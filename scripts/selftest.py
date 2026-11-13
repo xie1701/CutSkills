@@ -95,18 +95,22 @@ def _dark_judge_negative() -> bool:
         print(f"     导入失败：{e}"); return False
 
     def _frame(film: Path, t: float, tag: str) -> Image.Image | None:
-        out = Path(tempfile.mkdtemp(prefix="darkneg_")) / f"{tag}.png"
-        r = sh(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}",
-                "-i", str(film), "-frames:v", "1", str(out)])
-        if r.returncode != 0 or not out.exists():
-            return None
-        return Image.open(out).convert("L")
+        with tempfile.TemporaryDirectory(prefix="darkneg_") as _td:
+            out = Path(_td) / f"{tag}.png"
+            r = sh(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}",
+                    "-i", str(film), "-frames:v", "1", str(out)])
+            if r.returncode != 0 or not out.exists():
+                return None
+            im = Image.open(out).convert("L")
+            im.load()
+            return im
 
     # 负样本主体：拿 ground-01 成片（纯实拍，无 gen）抽三帧，用与 verify_film
     # 同一个 dark_ratio/median_of 量——必须低（会触发红）；没有真语料时跳过
     # 这半边但明说，合成帧对照必须跑。
-    g = Path.home() / "Downloads" / "柒造Video" / "素材" / "_cutskills" / "projects" \
-        / "qizao-ground-01" / "out" / "film.mp4"
+    g_out = Path.home() / "Downloads" / "柒造Video" / "素材" / "_cutskills" / "projects" \
+        / "qizao-ground-01" / "out"
+    g = next((p for p in (g_out / "film-hf.mp4", g_out / "film.mp4") if p.exists()), g_out / "film-hf.mp4")
     if g.exists():
         vals = [dark_ratio(im) for im in (_frame(g, 10.0, "a"), _frame(g, 30.0, "b"),
                                           _frame(g, 55.0, "c")) if im]
@@ -375,13 +379,27 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_tidy.py")])
     must("收工清理不误删", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
 
-    print("㉘ MG 卡「剧组建事本」不许上屏（谁说的/哪天拍的/什么设备；真出处与空出处放行）")
-    r = sh([PY, str(ROOT / "scripts" / "test_cards_meta.py")])
-    must("记事本判据回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
-
     print("㉗ 一键工程页入口（studio：项目解析/命令拼装/双击 .command，不起真服务）")
     r = sh([PY, str(ROOT / "scripts" / "test_studio.py")])
     must("工程页入口回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
+
+    print("㉘ MG 卡「剧组记事本」不许上屏（谁说的/哪天拍的/什么设备；真出处与空出处放行）")
+    r = sh([PY, str(ROOT / "scripts" / "test_cards_meta.py")])
+    must("记事本判据回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
+
+    print("㉙ 其余八支离线合同单测（台词真值/口播洁净度/内容守卫/叠加态/面板光感/呼吸停留/静音拆条/P4盲测）")
+    for _tname in (
+        "test_evidence_guard.py",
+        "test_speech_hygiene.py",
+        "test_content_guard.py",
+        "test_overlay_judge.py",
+        "test_panel_light.py",
+        "test_hold_breath.py",
+        "test_breath_split.py",
+        "test_blind_negative.py",
+    ):
+        r = sh([PY, str(ROOT / "scripts" / _tname)])
+        must(_tname, r.returncode == 0, (r.stderr or r.stdout).strip()[-300:])
 
     secs = time.time() - t0
     print()

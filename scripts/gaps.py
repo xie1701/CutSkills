@@ -103,7 +103,9 @@ def main() -> int:
     ap.add_argument("--no-search", action="store_true", help="不查库（快，但缺口只报不验证）")
     a = ap.parse_args()
     proj = Path(a.project).expanduser().resolve()
-    lib = Path(a.library).expanduser().resolve() if a.library else proj.parents[2]
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from libs import resolve_lib
+    lib = resolve_lib(proj, a.library)
     edl = json.loads((proj / "edl.json").read_text())
     intent = json.loads((proj / "intent.json").read_text()) if (proj / "intent.json").exists() else {}
     segs = edl.get("segments") or []

@@ -167,9 +167,6 @@ def _center_text(d: ImageDraw.ImageDraw, W: int, H: int, text: str, y_frac: floa
     d.text(((W - tw) / 2 - bb[0], H * y_frac - th / 2 - bb[1]), text, font=f, fill=fill)
 
 
-SCENES = {"phase": scene_phase}
-
-
 # ---------------------------------------------------------------- 场景：原料 → 成品
 
 def _backdrop(t: float, W: int, H: int, cy: float = 0.5, glow: float = 1.0) -> np.ndarray:
@@ -665,19 +662,17 @@ SCENES = {"phase": scene_phase, "pour": scene_pour,
 
 def render(scene: str, out: Path, dur: float, fps: int, W: int, H: int) -> Path:
     fn = SCENES[scene]
-    tmp = Path(tempfile.mkdtemp(prefix="scene-"))
     frames = int(round(dur * fps))
-    for i in range(frames):
-        fn(i / fps, W, H, dur).save(tmp / f"f{i:04d}.png")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-framerate", str(fps),
-                        "-i", str(tmp / "f%04d.png"), "-c:v", "libx264", "-crf", "17",
-                        "-pix_fmt", "yuv420p", str(out)], capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(r.stderr[-400:])
-    for f in tmp.glob("*.png"):
-        f.unlink()
-    tmp.rmdir()
+    with tempfile.TemporaryDirectory(prefix="scene-") as _td:
+        tmp = Path(_td)
+        for i in range(frames):
+            fn(i / fps, W, H, dur).save(tmp / f"f{i:04d}.png")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-framerate", str(fps),
+                            "-i", str(tmp / "f%04d.png"), "-c:v", "libx264", "-crf", "17",
+                            "-pix_fmt", "yuv420p", str(out)], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(r.stderr[-400:])
     return out
 
 

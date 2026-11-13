@@ -292,26 +292,27 @@ def mg_page(pack_id: str, work: Path) -> Path:
 
 def render_mg(pack_id: str, outdir: Path) -> list[Path]:
     # 合成页与截图都落在临时目录：它们是可重建的中间物，不进仓（样片预览才进）
-    tmp = Path(tempfile.mkdtemp(prefix=f"cutskills-mg-{pack_id}-"))
-    work = tmp / "page"
-    work.mkdir()
-    mg_page(pack_id, work)
-    raw = tmp / "shots"
-    cmd = [_hf_bin(), "snapshot", str(work), "-o", str(raw),
-           "--at", ",".join(f"{t:g}" for t in MG_AT), "--no-end", "--keep"]
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(work))
-    if r.returncode != 0:
-        raise SystemExit("hyperframes snapshot 失败：\n"
-                         + "\n".join(((r.stdout or "") + (r.stderr or "")).splitlines()[-15:]))
-    shots = sorted(raw.glob("*.png"))
-    if len(shots) != len(MG_AT):
-        raise SystemExit(f"期望 {len(MG_AT)} 张截图，实际 {len(shots)}：{[p.name for p in shots]}")
-    made = []
-    for card, src in zip(MG_CARDS, shots):   # snapshot 按时间顺序命名，卡也按时间排
-        dst = outdir / f"{pack_id}-mg-{card['kind']}.png"
-        shutil.copy2(src, dst)
-        made.append(dst)
-    return made
+    with tempfile.TemporaryDirectory(prefix=f"cutskills-mg-{pack_id}-") as _td:
+        tmp = Path(_td)
+        work = tmp / "page"
+        work.mkdir()
+        mg_page(pack_id, work)
+        raw = tmp / "shots"
+        cmd = [_hf_bin(), "snapshot", str(work), "-o", str(raw),
+               "--at", ",".join(f"{t:g}" for t in MG_AT), "--no-end", "--keep"]
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(work))
+        if r.returncode != 0:
+            raise SystemExit("hyperframes snapshot 失败：\n"
+                             + "\n".join(((r.stdout or "") + (r.stderr or "")).splitlines()[-15:]))
+        shots = sorted(raw.glob("*.png"))
+        if len(shots) != len(MG_AT):
+            raise SystemExit(f"期望 {len(MG_AT)} 张截图，实际 {len(shots)}：{[p.name for p in shots]}")
+        made = []
+        for card, src in zip(MG_CARDS, shots):   # snapshot 按时间顺序命名，卡也按时间排
+            dst = outdir / f"{pack_id}-mg-{card['kind']}.png"
+            shutil.copy2(src, dst)
+            made.append(dst)
+        return made
 
 
 def main() -> int:

@@ -422,8 +422,10 @@ def coverage(truth: str, spoken: float, dur: float) -> float:
 
 
 def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from libs import resolve_lib
     tl = json.loads((project / "timeline.json").read_text())
-    lib = lib or project.parents[2]
+    lib = resolve_lib(project, lib)
     out: list[tuple[str, str]] = []
     for el in tl.get("elements") or []:
         ev = str(el.get("evidence") or "").strip()
@@ -473,9 +475,11 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
 
 def fix(project: Path, lib: Path | None = None) -> int:
     """用真值覆盖 evidence。只用于「编造」的场合——真值里有口水是 P2 的事。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from libs import resolve_lib
     f = project / "timeline.json"
     tl = json.loads(f.read_text())
-    lib = lib or project.parents[2]
+    lib = resolve_lib(project, lib)
     n = 0
     for el in tl.get("elements") or []:
         if not str(el.get("evidence") or "").strip():

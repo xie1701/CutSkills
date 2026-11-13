@@ -25,9 +25,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 from timeline import element_dur  # noqa: E402
+from card_layout import MG_KINDS, KW_KINDS as _KW_TUPLE  # noqa: E402
 
-MG_KINDS = {"stat", "proportion", "day-night", "versus", "steps", "term"}
-KW_KINDS = {"keyword", "keyword-big", "behind", "cutout"}
+KW_KINDS = set(_KW_TUPLE)
 
 
 def load_json(path: Path, default=None):

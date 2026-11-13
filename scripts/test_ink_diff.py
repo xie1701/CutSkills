@@ -168,12 +168,11 @@ def synthetic(tmp: Path) -> list[str]:
 def real_films(tmp: Path) -> list[str]:
     """真片补跑：有素材就跑，没有就 SKIP（不许静默当通过）。"""
     fails: list[str] = []
-    proj79 = Path("/Users/jerry/Downloads/Aiworks/CutSkills-wsT047/"
-                  "references/packtest-2026-11-08/proj79")
+    proj79 = HERE.parent / "references" / "packtest-2026-11-08" / "proj79"
     naming = Path("/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-naming-01")
     ground = Path("/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-ground-01")
     if not (proj79 / "out" / "film-hf.mp4").exists():
-        print("  SKIP 真片补跑：proj79 新片不在本机（wsT047 工作树）")
+        print("  SKIP 真片补跑：proj79 成片不在本机")
         return fails
     film = proj79 / "out" / "film-hf.mp4"
     cards = json.loads((proj79 / "out" / "cards.json").read_text())["cards"]

@@ -141,7 +141,7 @@ python3 scripts/calibrate.py --video <参考片> --tolerance-from 0.85
 python3 scripts/golden.py
 ```
 
-`golden` 现在仍退出码 1：三支旧样片的红已逐条归因（5 条是旧字幕过期，1 类是慢语速单呼吸组被「停留 3.2s」误判），重渲被「卡缺锚词」与「`proj79` 是 v2」两处闸门挡住。逐条证据与拆单见 [references/fixes-t024-golden.md](references/fixes-t024-golden.md)。
+`golden` 三支样片现已全部清账、退出码 0（`proj79` 31 绿 / `qizao-ground-01` 31 绿 / `qizao-protect-01` 29 绿，0 红）。此前旧样片的红如何逐条归因并清零（旧字幕过期、慢语速单呼吸组豁免、按实测静音拆条、`proj79` 升 v5 重渲），完整证据链见 [references/fixes-t024-golden.md](references/fixes-t024-golden.md)。
 
 老项目的卡缺 `on` 锚词时，`check_timing` 会直接拦住重渲；逐卡锚词怎么从词级真值里定位、哪张卡根本找不到声音依据，见 [references/fixes-t027-anchors.md](references/fixes-t027-anchors.md)。
 

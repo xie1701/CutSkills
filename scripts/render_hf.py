@@ -1572,7 +1572,7 @@ def fonts_hint(style) -> str:
 # 一句话结论 → 大字；数字/规模/时长 → stat；两三个步骤或并列条件 → steps；
 # 两个方案对比 → versus；名词解释 → term；
 # 局部占整体比例 → proportion；早晚时段接力 → day-night；并列名牌逐枚点亮 → chips。风格包只决定它长什么样（tokens）。
-MG_KINDS = {"stat", "steps", "versus", "term", "proportion", "day-night", "chips"}
+MG_KINDS = card_layout.MG_KINDS
 
 # MG 卡的最短放映时长：按内容条数算，不是一律 1.5s。
 # 原来所有卡都夹在 emphasis.hold_s（默认 1.0–1.5s），三条内容的 steps 卡

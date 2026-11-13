@@ -40,7 +40,7 @@ def read_json(path: Path, default=None):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
 
-def resolve_library(project: Path, given: str | None) -> Path:
+def resolve_library(project: Path, given: str | None = None) -> Path:
     if given:
         return Path(given).expanduser().resolve()
     for parent in (project, *project.parents):

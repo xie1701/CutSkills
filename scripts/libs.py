@@ -5,8 +5,33 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import os
 
 REPO = Path(__file__).resolve().parent.parent
+
+
+def resolve_lib(proj: Path, given: str | Path | None = None, *, strict: bool = False) -> Path:
+    """项目 → 素材库根目录（单一真值源）。
+
+    优先级：显式 `--library` > 沿祖先目录向上找 `_cutskills/index.json` > 环境变量 `CUTSKILLS_LIB`。
+    `strict=True` 时若找不到索引则直接 `SystemExit` 报明原因；否则退回 `proj.parents[2]`。
+    """
+    if given:
+        return Path(given).expanduser().resolve()
+    for up in (proj, *proj.parents):
+        if (up / "_cutskills" / "index.json").exists():
+            return up
+    env = os.environ.get("CUTSKILLS_LIB")
+    if env and (Path(env).expanduser() / "_cutskills" / "index.json").exists():
+        return Path(env).expanduser().resolve()
+    cand = proj.parents[2] if len(proj.parents) > 2 else proj
+    if strict:
+        raise SystemExit(
+            f"找不到素材库：{cand}/_cutskills/index.json 不存在。\n"
+            f"  项目默认要建在 <库>/_cutskills/projects/<slug> 下；\n"
+            f"  放在别处就加 --library \"<素材库根目录>\"。"
+        )
+    return cand
 DEFAULT_LIBS = [
     "/Users/jerry/Downloads/ouyangTestCut",              # 欧阳 · 点赞茶楼 dianzan-a/b/c
     "/Users/jerry/Downloads/柒造Video/素材",              # 柒造 · qizao-*

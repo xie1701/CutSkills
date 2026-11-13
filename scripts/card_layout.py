@@ -34,6 +34,7 @@ NATIVE = Path(__file__).resolve().parent / "native" / "person_mask"
 
 # 重型 MG 卡：一屏多要素（数字/两栏/三步/词条/名牌），必须把视觉主权拿走。
 HEAVY_KINDS = {"stat", "proportion", "day-night", "versus", "steps", "term", "chips"}
+MG_KINDS = HEAVY_KINDS
 LIGHT_KINDS = {"keyword", "keyword-big", "behind", "cutout", "idcard"}
 
 FACE_IOU_MAX = 0.02        # 卡与任一帧人脸框的重叠率上限（B7 硬线，禁止调大）

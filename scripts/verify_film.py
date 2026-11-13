@@ -1336,7 +1336,8 @@ def main() -> int:
             # 三支片各挂一条假红，全是这一个原因。
             try:
                 import lexicon as _lx
-                _lex = _lx.load(proj.parents[2] / "_cutskills")
+                from libs import resolve_lib as _res_lib
+                _lex = _lx.load(_res_lib(proj, a.library) / "_cutskills")
                 ev = _bare(_lx.strip_noise(_lx.fix_text(host.get("evidence") or "", _lex)))
             except Exception:                                      # noqa: BLE001
                 ev = _bare(host.get("evidence") or "")
@@ -1349,14 +1350,14 @@ def main() -> int:
             "这些是已经被剪掉、字幕还留着的句子：" +
             " / ".join(f"「{t}」" for t, _ in strays[:3]))
         # 词表：品牌名/术语写错是最容易被观众一眼抓住的错误（「7灶」）。
-        # 判据是字面扫描，不靠模型：词表里每一条「错写法」都不许出现在字幕和 evidence 里。
+        # 判据是字面扫描，不靠模型：词表里每一条「错写法」都不许出现在字幕和手写 evidence 里。
         try:
             import lexicon
-            from make_edl import resolve_lib
-            _lex = lexicon.load(resolve_lib(proj) / "_cutskills")
+            from libs import resolve_lib
+            _lex = lexicon.load(resolve_lib(proj, a.library) / "_cutskills")
             _els = (edl.get("elements") or [])
-            _bad = lexicon.violations([c["text"] for c in cues] +
-                                      [e.get("evidence") or "" for e in _els], _lex)
+            _ev_chk = [e.get("evidence") or "" for e in _els if e.get("evidence_source") != "asr"]
+            _bad = lexicon.violations([c["text"] for c in cues] + _ev_chk, _lex)
         except Exception:
             _bad = []
         add("过词表（品牌名/术语）", f"{len(_bad)} 处",

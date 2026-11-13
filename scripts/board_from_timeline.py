@@ -50,14 +50,10 @@ MODE_DEF = {
 }
 
 
-def resolve_lib(proj: Path, given: str | None) -> Path:
-    if given:
-        return Path(given).expanduser().resolve()
-    cand = proj.parents[2] if len(proj.parents) > 2 else proj
-    if (cand / "_cutskills" / "index.json").exists():
-        return cand
-    raise SystemExit(f"找不到素材库：{cand}/_cutskills/index.json 不存在。"
-                     f"项目放在别处就加 --library。")
+def resolve_lib(proj: Path, given: str | None = None) -> Path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from libs import resolve_lib as _resolve_lib
+    return _resolve_lib(proj, given, strict=True)
 
 
 def el_dur(el: dict) -> float:

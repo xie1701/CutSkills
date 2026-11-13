@@ -201,19 +201,11 @@ def build_edl(lib: Path, plan, index: dict | None = None, *,
 
 
 
-def resolve_lib(proj: Path, given: str | None) -> Path:
-    """素材库在哪。项目默认建在 `<库>/_cutskills/projects/<slug>`，那种情况下往上三层就是库；
-    项目放在别处（/tmp、别的盘）时，往上三层会解析到一个没有索引的目录——以前这里
-    直接抛 FileNotFoundError，看不出是「库路径错了」还是「索引没建」。所以要能显式指定。
-    """
-    if given:
-        return Path(given).expanduser().resolve()
-    cand = proj.parents[2] if len(proj.parents) > 2 else proj
-    if (cand / "_cutskills" / "index.json").exists():
-        return cand
-    raise SystemExit(f"找不到素材库：{cand}/_cutskills/index.json 不存在。\n"
-                     f"  项目默认要建在 <库>/_cutskills/projects/<slug> 下；\n"
-                     f"  放在别处就加 --library \"<素材库根目录>\"。")
+def resolve_lib(proj: Path, given: str | None = None) -> Path:
+    """素材库在哪（委托给 libs.resolve_lib 单一真值源）。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from libs import resolve_lib as _resolve_lib
+    return _resolve_lib(proj, given, strict=True)
 
 def main() -> int:
     ap = argparse.ArgumentParser()

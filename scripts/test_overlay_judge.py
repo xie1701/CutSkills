@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -192,8 +193,9 @@ def main() -> int:
     if fails:
         print("❌ 叠加态判据负样本没抓住：" + "；".join(fails))
         return 1
+    shutil.rmtree(tmp, ignore_errors=True)
     print("✅ 叠加态判据：压脸 / 口播整屏暗场 / 重卡撞字幕 三红，"
-          f"压主体与主体量不到两条 warning，合法卡零误杀（夹具 {tmp}）")
+          "压主体与主体量不到两条 warning，合法卡零误杀")
     return 0
 
 

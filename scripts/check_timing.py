@@ -56,16 +56,10 @@ def subs_of(proj: Path) -> list[dict]:
     return d.get("items") or d.get("cues") or []
 
 
-def resolve_lib(project: Path) -> Path:
-    """项目 → 素材库根（**往上找** `_cutskills/index.json`）。
-
-    仓里放的项目（`references/packtest-*/proj79`）按 `parents[2]` 算出来是 `references/`，
-    于是真值全判 `none`、每张卡都报「判不了」——库根靠目录深度猜是错的，要按库的标记找。
-    """
-    for up in [project, *project.parents]:
-        if (up / "_cutskills" / "index.json").exists():
-            return up
-    return project.parents[2] if len(project.parents) > 2 else project
+def resolve_lib(project: Path, given: str | Path | None = None) -> Path:
+    """项目 → 素材库根（委托给 libs.resolve_lib 单一真值源）。"""
+    from libs import resolve_lib as _resolve_lib
+    return _resolve_lib(project, given)
 
 
 _TRUTH: dict[str, "EG.Truth"] = {}

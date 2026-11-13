@@ -272,8 +272,9 @@ def cross(elements: list[dict], allwords: dict[int, list[tuple[str, float]]]) ->
 
 
 def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
+    from libs import resolve_lib
     tl = json.loads((project / "timeline.json").read_text())
-    lib = lib or project.parents[2]
+    lib = resolve_lib(project, lib)
     els = [e for e in (tl.get("elements") or []) if e.get("kind") == "clip"]
     allwords = {e.get("n"): words_in(lib, e) for e in els}
     out: list[tuple[str, str]] = []
