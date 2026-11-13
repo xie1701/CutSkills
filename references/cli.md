@@ -978,6 +978,11 @@
 
 （无参数）
 
+### `test_mg_kinds.py`
+*MG 新卡型（proportion / day-night / chips）结构与词证/修辞误用回归（T-020）。*
+
+（无参数）
+
 ### `test_overlay_judge.py`
 *T-019 回归：check_overlay 的三条判据必须判红，且**不许误杀合法卡**。*
 
