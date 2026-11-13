@@ -214,8 +214,9 @@ def guard(tl: dict, index, *, proj: Path | None = None) -> list[tuple[str, str]]
             gap_rows.append(row)
         probs += check_taboo(n, el, rec, props)
 
-    if gap_rows and proj:
-        # 缺口必须落到人看得见的地方：只在 stdout 报一遍，下一轮就没人记得补。
+    if proj:
+        # 缺口必须落到人看得见的地方：只在 stdout 报一遍，下一轮就没人记得补；
+        # 缺口补齐后也要把旧的 visual_gap 节清掉，免得 gap.md 留假账。
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             from gaps import append_visual_gap
@@ -223,8 +224,8 @@ def guard(tl: dict, index, *, proj: Path | None = None) -> list[tuple[str, str]]
             if p:
                 probs.append(("warning", f"指代缺口 {len(gap_rows)} 条已记入 {p}（带时间戳）"))
         except Exception as exc:                        # noqa: BLE001
-            # 写不进去要说出来，不能让「报过缺口」变成一句空话。
-            probs.append(("warning", f"指代缺口没能写进 gap.md：{type(exc).__name__}: {exc}"))
+            if gap_rows:
+                probs.append(("warning", f"指代缺口没能写进 gap.md：{type(exc).__name__}: {exc}"))
     return probs
 
 
@@ -239,7 +240,9 @@ def main() -> int:
     proj = Path(a.project).expanduser().resolve()
     tp = Path(a.timeline) if a.timeline else proj / "timeline.json"
     tl = json.loads(tp.read_text())
-    lib = Path(a.library).expanduser().resolve() if a.library else proj.parent.parent.parent
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from libs import resolve_lib
+    lib = resolve_lib(proj, a.library)
     probs = guard(tl, load_index(lib), proj=proj)
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]

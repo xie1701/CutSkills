@@ -59,7 +59,7 @@ VISUAL_GAP_END = "<!-- content_guard:visual_gap:end -->"
 
 
 def append_visual_gap(proj: Path, rows: list[dict]) -> Path | None:
-    """把「台词点了图、画面没给」的缺口写进 `gap.md`（带时间戳，整节替换）。
+    """把「台词点了图、画面没给」的缺口写进 `gap.md`（带时间戳，整节替换；清零时自动剥掉旧节）。
 
     为什么要追加进 `gap.md` 而不是另开一个文件：给人看的缺口清单只该有一张，
     分成两张就是两张都没人看。为什么整节替换而不是每次往后堆：这道守卫每跑一次
@@ -68,7 +68,18 @@ def append_visual_gap(proj: Path, rows: list[dict]) -> Path | None:
 
     rows: `[{n: 镜号, text: 台词, word: 命中的指代词, asset: 素材 id, why: 哪条不成立}]`
     """
+    p = proj / "gap.md"
     if not rows:
+        if p.exists():
+            old = p.read_text(encoding="utf-8")
+            if VISUAL_GAP_BEGIN in old and VISUAL_GAP_END in old:
+                head, _, rest = old.partition(VISUAL_GAP_BEGIN)
+                _, _, tail = rest.partition(VISUAL_GAP_END)
+                cleaned = (head.rstrip() + "\n\n" + tail.lstrip()).strip()
+                if cleaned:
+                    p.write_text(cleaned + "\n", encoding="utf-8")
+                else:
+                    p.unlink()
         return None
     lines = [VISUAL_GAP_BEGIN,
              "## 四、指代词缺画面（说了「呢张图 / 四张图 / 效果图」，画面没给）", "",

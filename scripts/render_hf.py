@@ -2691,7 +2691,8 @@ def main():
                              "_dur_q": el.get("_dur_q") or el_dur(el),
                              "asset": au.get("asset") or el.get("asset"),
                              "in": au.get("in"), "out": au.get("out"),
-                             "audio": au, "medium": "talking"})
+                             "audio": au, "medium": "talking",
+                             "evidence": el.get("evidence")})
     active = sorted(carriers, key=lambda s: s["_start"])
     # 2026-11-09 换实现：按呼吸组切、去标点、单行、数字与否定词变色（scripts/subs.py）。
     # render_film.build_cues 是保留路径，仍按字数软断——主链路不再用它。

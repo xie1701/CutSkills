@@ -333,6 +333,8 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     skip = stale | orphan
 
     if not cards:
+        if tl.get("axis") == "B" and not any(e.get("card") for e in (tl.get("elements") or [])):
+            return []
         return [("error", "一块卡都没有——先确认 plan_card 的「已使用」清单")]
 
     # 1. 时长与相邻

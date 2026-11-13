@@ -62,7 +62,7 @@ fonts:
 ### 机器能判的（已进验收）
 
 ```bash
-python3 scripts/verify_film.py --project <项目> --style styles/pack-warm-keyword.yaml
+python3 scripts/verify_film.py --project <项目> --style styles/talking-head-v1.yaml
 ```
 
 新增一行 **字体分层**：
@@ -75,57 +75,13 @@ python3 scripts/verify_film.py --project <项目> --style styles/pack-warm-keywo
 
 这条检查只挡得住"结构错"，挡不住"这个字体丑"。丑必须人看。
 
-### 人眼看之前，先把候选摆成一张卡
-
-```bash
-python3 scripts/font_sheet.py --w 1080 --glyph 54 --out /tmp/fonts.png
-python3 scripts/font_sheet.py --text "成本贵在哪" --glyph 182 --out /tmp/emph.png
-```
-
-同一句话 × 11 种字体 × 两种底色（中灰 / 近黑），字高按**墨迹高**对齐，
-描边宽度按墨迹高的比例给。这样比出来的差异才是字形本身的差异，
-而不是"字号没对齐"或"描边宽了一点"。
-
-### 想从参考片反推字体：`match_font.py`（有上限，别当成答案）
-
-```bash
-python3 scripts/match_font.py --video 参考片.mp4 --t 19 --text "这都是我们|绕不开的坑啊"
-```
-
-做法是模板匹配：把参考帧的白字抠成掩膜 → 紧致裁切 → 每个候选字体渲同一串字 →
-缩放到同尺寸 → 算 IoU，按**字体族**排序（同族不同字重只差 0.03，那是噪声，
-判族才有意义）。
-
-三条实测边界，写在前面免得白跑：
-
-1. **源分辨率决定上限。** 576×1024 的参考片里字高只有 29 像素，IoU 到 0.75 已经很高；
-   1080 宽的自制素材能到 0.88 并稳定认出族。
-2. **背景亮就抠不出字。** 白字压在浅色背景（白板、水泥地、亮衣服）上时，
-   阈值法会连背景一起吞进来。换一帧、或者等片子自己切到暗场。
-3. **认不出就写认不出。** 前两名差不到 0.06 时脚本直接说"别硬认"。
-   凭一个 0.02 的差距宣布"参考片用的是 X"，比不知道更糟。
-
-自检（不依赖任何素材，能直接验证工具本身没坏）：
-
-```bash
-python3 - <<'PY'
-from PIL import Image, ImageDraw, ImageFont
-img=Image.new("RGB",(1080,1920),(30,30,32)); f=ImageFont.truetype("/Users/jerry/Library/Fonts/NotoSansSC-SemiBold.ttf",60)
-d=ImageDraw.Draw(img); t="不管珠海的、广州的、上海"
-d.text(((1080-d.textlength(t,font=f))/2,1340),t,font=f,fill=(255,255,255),stroke_width=3,stroke_fill=(0,0,0))
-img.save("/tmp/dark_sub.png")
-PY
-python3 scripts/match_font.py --video /tmp/dark_sub.png --t 0 --text "不管珠海的、广州的、上海" --band 0.6 0.8
-# 期望：最像 思源黑体（领先第二名 0.081，可以认）
-```
-
 ## 五、这一页给产线留下的一步
 
-`fonts:` 是模板里的**必填字段**吗？不是——不写会落到 `FONT_CLASS` 的默认值，
+`fonts:` 是模板里的**必填字段**吗？不是——不写会落到默认值，
 而默认值已经是对的（字幕 SemiBold / 花字 Black / 卡面 Bold）。
 写它只在你需要偏离默认时。
 
-所以新库冷启动不需要做任何字体决策，**但新模板要人眼看一次 `font_sheet.py` 的输出**——
+所以新库冷启动不需要做任何字体决策，**但新模板要人眼看一次真实字号输出**——
 这一步目前没有自动化，也不该自动化：字号和位置可以量，"这个字在这个字号上好不好看"
 只能由看片子的人定。
 

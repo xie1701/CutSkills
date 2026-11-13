@@ -690,50 +690,6 @@ python3 <SKILL_DIR>/scripts/render_hf.py --project <项目> --extractor hf
 `render_film.py` 还在，能用，但不再是主路径。留着它的理由有两个：一是不依赖 Chrome 和网络，
 二是今天换引擎这件事可能还要退回来。它的产物是 `out/film.mp4`。
 
-### ⛔ 包装模板层已雪藏（2026-11-08）
-
-下面这一整节留作记录，**不要再用**。停的原因和实测数据在 [SHELVED.md](SHELVED.md)：
-按参考片量出来的比例复刻，18 项绿灯、四轮迭代，得到的仍是「完全不可用」——
-因为那些指标只量几何和信号，量不了"好不好看"。
-
-当前主链路是**不带 `--pack`** 的那条：`--style styles/talking-head-v1.yaml`
-（字幕 1080 宽 80px、居中 0.674H、思源黑体 SemiBold）。下面关于 `--pack` / `--shell` /
-`measure_pack` / `compare_films` / `pick_pack` / `gen_boroll` 的内容，全部按"已停"读。
-
-### 包装模板：用 `--pack` / `--shell`，不要手改像素
-
-```bash
-# 只出字幕系统（A 族）
-python3 <SKILL_DIR>/scripts/render_film.py --project <项目> --library "<库>" \
-  --pack pack-safe-talking --canvas 1080x1920 --fps 30
-
-# 壳 + 字幕系统（C 族的顶条/角标/时间码叠在 A 的字幕上）
-python3 <SKILL_DIR>/scripts/render_film.py --project <项目> --library "<库>" \
-  --pack pack-safe-talking --shell pack-hud-monitor --canvas 1080x1920 --fps 30
-```
-
-`styles/` 里有 5 族模板（从 20 支参考片反解出来的，见 [references/packaging-families.md](references/packaging-families.md)），
-外加一套给本地商家内容用的可组合套 [styles/set-qizao.yaml](styles/set-qizao.yaml)。分层是硬的：
-
-| 角色 | 谁能当 | 说明 |
-|---|---|---|
-| 字幕系统（`--pack`） | A 安全口播 / B 纸感品牌 / D 双语双行 | 二选一，不许同片混两支 |
-| 壳（`--shell`） | C 监控壳体 | 可选，0 或 1 |
-| 卡（EDL 里的 `card`） | E 图文界面叙事 | 可选，跟着段走 |
-
-**C 和 E 不能传给 `--pack`**——它们没有字幕系统，`pack_style.to_style()` 会直接停下并告诉你该配哪支。这条不是靠文档守，是靠代码守。
-
-模板里存的是**比例**（字高占画幅 4.5%、顶条占 5%H），`scripts/pack_style.py` 负责翻成像素：
-字号不是 `4.5%×1920`，而是用 PIL 量一次真字形墨迹高度再反算（直接乘会小 20–30%），
-所以"按模板做"和"照参考片做"能对到一起。改完模板先跑一行自检，比渲一遍便宜：
-
-```bash
-python3 <SKILL_DIR>/scripts/pack_style.py --pack pack-safe-talking --canvas 1080x1920
-```
-
-包到什么程度算复刻到位：**换素材之后声明的区间还在带内**，这一条有实测存档——
-[references/packtest-2026-11-08/report.md](references/packtest-2026-11-08/report.md)（10 秒、同素材换模板、8 个 token、7 个搬得走 1 个搬不动）。
-
 | 步 | 做法 | 为什么这么做 |
 |---|---|---|
 | 逐段渲 | 每段单独编码到 `work/v**.mp4`（1080×1920 / 30fps / x264 CRF18），再 `concat -c copy` | 单通道 filtergraph 一次合成，改一段就得整片重编码 |
@@ -786,14 +742,10 @@ D 段有一条专门查这个：每条字幕的文字必须能在它所属那一
 python3 <SKILL_DIR>/scripts/verify_film.py --project <项目目录> [--style <styles 里的某个 .yaml>]
 ```
 
-`--style` 吃两种：渲染用的样式包，或 `styles/` 下的**包装模板**（`pack-*.yaml`）。后者会先走渲染时的同一个翻译层 `pack_style.to_style()` 再验——两边各读一套字段，迟早出现「渲的时候 0.098H、验的时候 0.070H」。模板画幅写成 `canvas.aspect`（`[9:16, 16:9]`）时，画幅/帧率一律以**成片自己的流信息**为准，模板在这两项上不发言。
-
 在**成片**上量，不在 EDL 上量。红黄绿一页，红=必须改。
 
 其中「字体分层」只挡得住结构错（字幕用了标题美术字、字幕和花字同一个字体），
-**挡不住"这个字体丑"**——丑只能人看。新模板上线前拿 `scripts/font_sheet.py` 把候选排成
-一张对照卡过一眼；想从参考片反推字体用 `scripts/match_font.py`（IoU 模板匹配，判到字体族，
-源片字高不足 30px 时认不出是常态，脚本会直接说"别硬认"）。
+**挡不住"这个字体丑"**——丑只能人看。
 
 **但「在成片上量」不等于「读 JSON」。** 字幕和字卡要抽帧看像素：`subs.json` 里有 42 条字幕、渲染命令里也有 42 个 overlay，成片上照样可以一个字都没有（见 C 段那个 `-loop 1` 的坑）。所以 verify 会抽 3 条字幕的中点看字幕带的白像素占比、抽字卡窗口的中点看深色占比，低于阈值直接判红——**读 JSON 的验收会把这种事全判成绿灯。**
 
@@ -843,8 +795,6 @@ EDL 里每段的 `card` 决定往上贴什么。四种 `kind`，各管一件事�
 - 遮罩存**灰度视频**而不是 PNG 序列（90 张 1080×1920 PNG ≈ 300MB）。
 - 遮罩要**二值化**再用（`lut=y='if(gt(val,140),255,0)'`）。软边羽化压在亮字上会透出一圈黄，看着像人物长白毛。
 
-**整屏信息卡要铺底、字幕要让位**（卡片参数见 [references/boroll-specs.md](references/boroll-specs.md)）。 `spec` 里写 `backdrop: "#15100C"` 让 `gen_boroll.py` 铺满整幅；卡片窗口内的口播字幕整条不画——同一屏两套字，读的人当场就乱。
-
 **字体四层各自指定**（细节见 [references/typography.md](references/typography.md)）：模板里 `subtitle.font` / `emphasis.font` /
 `fonts.card` 三个字段，不写就落到默认（SemiBold / Black / Bold）。换字体**必须重算字号**——
 `size_for_glyph()` 量的是真字形墨迹高，思源黑体 0.88em、阿里妈妈数黑 0.75em，沿用旧 `size_px` 会小一圈。
@@ -855,35 +805,6 @@ ttc 要写 face 序号，苹方第 0 个是 HK Regular，不是你要的那个�
 静音 0.2%。**没有 BGM 的片子，人声一停就是录音棚空场**——观众说不出哪不对，但会觉得"没做完"。
 
 **音效**（`gen_sfx.py` 合成 + `mix_sfx.py` 混，细节见 [references/sfx.md](references/sfx.md)）：只给**换介质**的切点和**大字/卡出场**，再按模板 `sfx_density_per_min` 截断。每刀都给是最典型的音效疲劳（参考片实测：95 个切点只有 13 个带瞬态，还低于随机基线）。混音用 numpy 直接相加，**不要用 ffmpeg amix**——amix 按输入数归一，人声会被压下去。
-
-### 按秒对照参考片：`compare_films.py`
-
-```bash
-python3 <SKILL_DIR>/scripts/compare_films.py --ref <参考片> --ours out/film.mp4 --out cmp/
-```
-
-`measure_pack.py` 是**静态对账**（字幕带在 0.69H 吗），它全绿的时候片子照样可以"不像"。
-差的那部分在**时间轴上**：什么时候亮、什么时候静、什么时候切。这个脚本把两条片子抽成 2fps 的
-曲线一起摆：亮度 / 饱和度 / 暖度 / 帧间运动 / 字幕覆盖 / 信息层覆盖 / 切点，外加同位置的配对帧。
-
-判读：**差 5% 以上才动手**，差 1% 别理。最容易漏的三项是亮度、底噪、动态差——
-它们都不在 8 个 token 里，只能这么量出来。
-
-### 按包装模板量：`measure_pack.py`
-
-```bash
-python3 <SKILL_DIR>/scripts/measure_pack.py --video out/film.mp4 \
-  --pack pack-safe-talking [--shell pack-hud-monitor] --json out/measure.json
-```
-
-只看**成片像素**，不读渲染器的 JSON；量 8 个 token 和模板声明的区间对账（字幕带中心 / 字形高 / 下沿距底 /
-镜头中位 / 音效密度 / 顶条高 / 顶条字高 / 角标高）。判读只有三种：`在带内` / `带外` / `未声明`。
-
-四个口径上的坑，量之前先知道：
-- **字幕带取最靠下的那一段，不是方差最大的那一段。** 花字、章节卡比字幕更亮更跳，往方差最大的方向找会一路吃到上方那几层，把「花字 + 字幕」合成一条 9%H 的带。参考片和成片曾**同时**报出 0.0906H（正好撞 9% 上限）——两支完全不同的片子撞同一个上限，说明是尺子坏了。
-- **音效密度这一项，凡带人声的片子都量不准**，只作参考、不参与判定。黑盒测音效靠能量突跳，而人声每个词都是一次突跳：参考片 126s 被测成 0.0，我们手打 9 处（6.8/分，模板 4.0–8.5）被测成 12.9。同一个数字往两个方向错，它就不是尺子。要判只有一条路：数混音用的 `cues.json`。
-- **字形高度含描边。** 模板写的是字的墨迹高，实测是"字 + 2×描边"。7px 描边会让 0.045H 量成 0.052H，别当成超限。
-- **白像素不能用来找字幕。** 白字压亮底（白墙、白水泥）时整行白像素和背景同量级，判据直接失效（实测报"没有字幕"）。改成判**横向边缘能量随时间的起伏**才稳；角标同理，判"同一镜头内两帧像素差 <5"（叠加层是画上去的，不动），按亮度判会被亮地面骗到 24.7%H。
 
 **D 只覆盖能量出来的东西。** 节奏顺不顺、话说清没清，得人看一遍——报告末尾就写着这句，别让人误以为绿灯等于能发。
 
@@ -1033,8 +954,6 @@ python3 scripts/fetch_coli.py
 ## 参考文件
 
 - [STATUS.md](STATUS.md) — 这套东西现在到底能做什么、缺什么、下一步优化什么
-- [SHELVED.md](SHELVED.md) — 已雪藏的包装模板层，为什么停、怎么复活
-
 - [references/index-schema.md](references/index-schema.md) — `index.json` v2 字段（uid/spec/handling/storage/l2_coverage）、L2 记录字段、阈值标定数据
 - [references/glossary.md](references/glossary.md) — 术语释义：ASR/HLG/PQ/LUFS/EDL… 对着用户解释时先查这里
 - [references/library-hygiene.md](references/library-hygiene.md) — 素材库怎么管：命名、冷存储、迁移、去重
@@ -1042,9 +961,6 @@ python3 scripts/fetch_coli.py
 - [references/plan-templates.md](references/plan-templates.md) — 六套剪辑方案骨架（beats + role），以及怎么按库里的素材挑一套
 - [references/blind-test-playbook.md](references/blind-test-playbook.md) — 盲测怎么落地：三种身份、同源偏差七条缓解、怎么判读、机器能查的 vs 只有裁判能查的
 - [references/stage-b-playbook.md](references/stage-b-playbook.md) — B 段怎么选段、怎么写理由、什么时候该砍
-- [references/packaging-families.md](references/packaging-families.md) — 20 支参考片反解出的 5 族包装语言 + 四条跨族铁律（含 A 族的「让位变体」）
-- [references/pack-compose-set.md](references/pack-compose-set.md) — 可组合套怎么选：手动挑 / `pick_pack.py` 自动判 / 沿用上一次
-- [references/packtest-2026-11-08/report.md](references/packtest-2026-11-08/report.md) — **换素材的 10 秒：模板和临摹的分界线**，8 个 token 的实测与三个新坑
 - [references/cli.md](references/cli.md) — **全部脚本的全部参数**（从代码生成，不要手改）
 - [references/production-line.md](references/production-line.md) — 这套东西当**产线**看时的验收：要量的四个数、现在各有多少、为什么「一条片 12 项绿灯」证明不了可复用
 - [references/board-fusion.md](references/board-fusion.md) — **制作看板与 CutSkills 的融合规格**：三层、字段映射（timeline → BOARD）、三道接口、看板能做什么/做不了什么

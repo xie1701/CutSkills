@@ -243,10 +243,6 @@
 | `--project` | **必填** |
 | `--library` | **必填** |
 | `--style` | — |
-| `--pack` | 字幕系统模板：pack-safe-talking / pack-paper-brand / pack-bilingual 等 |
-| `--shell` | 壳体模板（可选）：pack-hud-monitor。只出壳，字幕系统仍由 --pack 定 |
-| `--canvas` | WxH；用 --pack 时生效（默认 '1080x1920'） |
-| `--fps` | （默认 30） |
 | `--bgm` | 背景音乐（本地文件）。参考片全程铺底、不换曲；没有 BGM 的片，人声一停就是录音棚空场，这是看着不像的一半 |
 | `--crf` | （默认 18） |
 | `--no-punch` | 不做推镜切：口播长段保持一镜到底（口播中位会超标，只在刻意要长镜头时用） |
@@ -490,15 +486,6 @@
 | `--library` | — |
 | `--json` | 开关 |
 
-### `compare_films.py`
-*成片 vs 参考片 · 逐帧对照台。*
-
-| 参数 | 说明 |
-|---|---|
-| `--ref` | **必填** |
-| `--ours` | **必填** |
-| `--out` | （默认 'comparison'） |
-
 ### `compare_tones.py`
 *两条片子的影调对比：luma / G÷R / B÷R，不拿饱和度当指标。*
 
@@ -554,19 +541,6 @@
 
 （无参数）
 
-### `font_sheet.py`
-*font_sheet.py — 把同一句字幕排成 N 种字体的一张对照卡，让人眼当场判。*
-
-| 参数 | 说明 |
-|---|---|
-| `--text` | （默认 '不管珠海的、广州的、上海的'） |
-| `--w` | 画幅宽（按成片宽度给）（默认 1080） |
-| `--glyph` | 目标墨迹高（像素）。1080 宽的下沿字幕约 54（默认 54） |
-| `--stroke` | 描边宽 / 墨迹高，默认 0.052（默认 0.052） |
-| `--bg` | 背景色 #RRGGBB；不给就上下两种（中灰 + 近黑） |
-| `--ref` | 参考片字幕裁图，贴在最上面做基准 |
-| `--out` | （默认 Path('/tmp/font-sheet.png')） |
-
 ### `fonts.py`
 *字体表：别名 → 文件，以及**字号反算**。*
 
@@ -584,17 +558,6 @@
 | `--project` | **必填** |
 | `--library` | 素材库根；默认从项目祖先找 _cutskills/index.json |
 | `--projects` | broll_split 互斥检查的同组项目目录；dianzan-* 默认自动发现同组 |
-
-### `gen_boroll.py`
-*CutSkills · B-roll 图形卡生成器：三种可参数化的图形卡 → 透明 PNG 叠加层。*
-
-| 参数 | 说明 |
-|---|---|
-| `--kind` | **必填** |
-| `--spec` | **必填**　JSON 或 YAML 参数文件（字段表见 references/boroll-specs.md） |
-| `--out` | **必填**　输出 PNG（RGBA，画幅外全透明） |
-| `--canvas` | WxH，默认 1080x1920；spec 里也能写 canvas |
-| `--font` | f'字体，默认 {FONT_DEFAULT}（默认 str(FONT_DEFAULT)） |
 
 ### `gen_scene.py`
 *用代码画画面——不是把字卡换个样式，是让画面本身把话讲完。*
@@ -660,28 +623,6 @@
 | `--status` | 开关 |
 | `--note` | — |
 
-### `match_font.py`
-*match_font.py — 认一支片子的字幕/花字用的是哪一种字体。*
-
-| 参数 | 说明 |
-|---|---|
-| `--video` | **必填** |
-| `--t` | **必填**　取帧时间（秒） |
-| `--text` | **必填**　该帧的字幕文字；多行用 | 分隔 |
-| `--band` | 只在画幅的这个纵向区间找字（比例）。默认 0.55–1.0（默认 [0.55, 1.0]） |
-| `--top` | （默认 6） |
-| `--crop-out` | 把参考字幕行裁出来存成图，方便人眼复核 |
-
-### `measure_pack.py`
-*读像素的包装裁判：量出成片**实际长什么样**，和包装模板声明的区间对账。*
-
-| 参数 | 说明 |
-|---|---|
-| `--video` | **必填** |
-| `--pack` | **必填** |
-| `--shell` | — |
-| `--json` | — |
-
 ### `measure_panel.py`
 *CutSkills · 卡面板可读性实测：文字像素 vs **紧邻**底板的 ΔL*
 
@@ -701,26 +642,6 @@
 | `--out` | **必填**　输出 wav |
 | `--sfx-dir` | 音效目录（默认 $CUTSKILLS_HOME/assets/sfx） |
 | `--ceiling-db` | f'混后峰值硬顶（默认 {CEILING_DB} dBFS）。人声轨若已经过 loudnorm，它的样本峰本身就贴着 -1dBTP，硬顶设得更严只会把音效压没（默认 CEILING_DB） |
-
-### `pack_style.py`
-*包装模板 → 渲染参数 + 壳体叠加层。*
-
-| 参数 | 说明 |
-|---|---|
-| `--pack` | **必填** |
-| `--canvas` | （默认 '1080x1920'） |
-| `--fps` | （默认 30） |
-
-### `pick_pack.py`
-*CutSkills · 包装选择：按实测规则，从一套包装里挑出「字幕系统 + 壳 + 卡」。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填**　项目目录（_cutskills/projects/<slug>） |
-| `--library` | 素材库根；不给就按项目路径往上找 |
-| `--set` | 包装套 yaml，默认 styles/set-qizao.yaml |
-| `--json` | 打印机器可读结果 |
-| `--no-write` | 不写 pack-choice.md |
 
 ### `pick_take.py`
 *CutSkills · 一个论点有好几个 take 时，选哪个。*
@@ -742,23 +663,6 @@
 | `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
 | `--approve` | 人看过之后拍板：写 approval.json，render 才放行 |
 | `--show` | 开关 |
-
-### `probe_packaging.py`
-*CutSkills · 包装探针：从参考片里量出「包装」这一层的规格。*
-
-| 参数 | 说明 |
-|---|---|
-| `--dir` | **必填** |
-| `--out` | 默认 <dir>/_packaging |
-| `--only` | 只跑文件名含该子串的 |
-
-### `ref_frames.py`
-*CutSkills · 参考片取样：把一支片子的「包装信息量最大的那些帧」拼成联系表，交给视觉模型看。*
-
-| 参数 | 说明 |
-|---|---|
-| `--dir` | **必填** |
-| `--only` | — |
 
 ### `refit_text.py`
 *把每一格的 `evidence` 按 ASR 字流重算——**改过剪切就必须重跑这一步**。*

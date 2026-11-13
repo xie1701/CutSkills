@@ -35,9 +35,6 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import pack_style  # noqa: E402  包装模板 → 像素参数 / 壳体叠加层
-
 W_FALLBACK = 1080
 H_FALLBACK = 1920
 
@@ -492,15 +489,6 @@ def main() -> int:
     ap.add_argument("--project", required=True)
     ap.add_argument("--library", required=True)
     ap.add_argument("--style", default=None)
-
-    # 包装模板（不写 --style 时用）
-    ap.add_argument("--pack", default=None,
-                    help="字幕系统模板：pack-safe-talking / pack-paper-brand / pack-bilingual 等")
-    ap.add_argument("--shell", default=None,
-                    help="壳体模板（可选）：pack-hud-monitor。只出壳，字幕系统仍由 --pack 定")
-    ap.add_argument("--canvas", default="1080x1920", help="WxH；用 --pack 时生效")
-    ap.add_argument("--fps", type=int, default=30)
-
     ap.add_argument("--bgm", default=None,
                     help="背景音乐（本地文件）。参考片全程铺底、不换曲；"
                          "没有 BGM 的片，人声一停就是录音棚空场，这是看着不像的一半")
@@ -515,13 +503,7 @@ def main() -> int:
     plan = json.loads((proj / "plan.json").read_text()) \
         if (proj / "plan.json").exists() else {}
 
-    # 三条路进同一个 style dict：显式 --style / --pack（包装模板）/ EDL 里写的风格包。
-    # 包装模板存的是比例，所以画布要现给（--canvas/--fps），默认竖版 1080×1920@30。
-    if a.pack:
-        cw, ch = (int(x) for x in a.canvas.lower().split("x"))
-        style = pack_style.to_style(pack_style.load(a.pack), cw, ch, a.fps)
-        style["name"] = pack_style.load(a.pack).get("name")
-    elif a.style:
+    if a.style:
         style_path = Path(a.style).expanduser()
         style = yaml.safe_load(style_path.read_text())
     else:
@@ -531,7 +513,6 @@ def main() -> int:
     W = style["canvas"]["width"]
     H = style["canvas"]["height"]
     FPS = style["canvas"]["fps"]
-    shell_pack = pack_style.load(a.shell) if a.shell else None
 
     index = json.loads((lib / "_cutskills" / "index.json").read_text())
     by_id = {x["id"]: x for x in index["assets"]}
@@ -882,43 +863,15 @@ def main() -> int:
                 else:
                     print(f"  ！大字对不上原话「{on}」（段 {s['n']}），沿用默认时机", file=sys.stderr)
         card_proj.append({"text": str(c.get("text") or ""), "start": start,
-                          "end": round(start + d, 3), "kind": kind,
-                          "spec": c.get("spec"), "boroll_kind": c.get("boroll_kind")})
-    # B-roll 图形卡（色块章节卡 / 侧栏卡 / 对比条）：不画字，交给 gen_boroll.py 用代码画。
-    # 这一类卡和"一句话的牌子"不是一回事：它承载的是一屏需要读的结构，
-    # 所以停留时间按模板给的 3–5s，而且**整屏盖住画面**（y=0，全幅 PNG）。
-    bor_gen = Path(__file__).resolve().parent / "gen_boroll.py"
-    for c in [x for x in card_proj if x.get("kind") == "boroll"]:
-        # spec 写相对路径时按**项目目录**解析：卡是项目的一部分，不是"当前目录的一部分"
-        spec = Path(str(c.get("spec") or "")).expanduser()
-        if not spec.is_absolute():
-            spec = proj / spec
-        if not spec.exists():
-            print(f"  ！B-roll spec 不存在：{spec}", file=sys.stderr)
-            continue
-        png = work / "boroll" / f"{spec.stem}-{W}x{H}.png"
-        png.parent.mkdir(parents=True, exist_ok=True)
-        if not png.exists():
-            _cardfont = (style.get("card") or {}).get("font_path") or None
-            _cmd = [sys.executable, str(bor_gen), "--kind",
-                    str(c.get("boroll_kind") or "grid"), "--spec", str(spec),
-                    "--out", str(png), "--canvas", f"{W}x{H}"]
-            if _cardfont:
-                _cmd += ["--font", str(_cardfont)]
-            r = subprocess.run(_cmd, capture_output=True, text=True)
-            if r.returncode != 0 or not png.exists():
-                print(f"  ！B-roll 生成失败：{(r.stdout + r.stderr)[-300:]}", file=sys.stderr)
-                continue
-        c["path"] = str(png)
-        c["start"], c["end"] = c["start"], c["start"] + max(3.0, min(5.0, c["end"] - c["start"]))
-    card_proj = [c for c in card_proj if c.get("kind") != "boroll" or c.get("path")]
+                          "end": round(start + d, 3), "kind": kind})
+    card_proj = [c for c in card_proj if c.get("kind") != "boroll"]
     _cf = (style.get("card") or {}).get("font_path")
     cards, card_info = render_cards(segs, card_proj, font, W, work / "cards",
                                     style.get("emphasis"), H,
                                     Path(_cf) if _cf else None) if (font and card_proj) else ([], {})
 
     # 音效：按模板的 sfx 带上限来选点，不是每刀都给。
-    # 参考片的教训（family doc 第三条铁律）：音效密度和切点密度必须解耦——
+    # 参考片的教训：音效密度和切点密度必须解耦——
     # 95 个切点只有 13 个有瞬态也是成立的。这里只给**换介质**的切点和**大字/卡的出场**，
     # 给出的处数再按模板的 per-minute 上限截断，宁可少不可多。
     sfx_cues: list[dict] = []
@@ -926,7 +879,7 @@ def main() -> int:
     for sh in shots:
         _starts.append(_t)
         _t = round(_t + sh["dur"], 4)
-    if style.get("sfx") and shell_pack is None or (style.get("sfx") and shell_pack):
+    if style.get("sfx"):
         sfx_dir = Path(os.environ.get("CUTSKILLS_HOME") or (Path.home() / ".cutskills")) / "assets" / "sfx"
         if sfx_dir.exists():
             prev_med = None
@@ -1038,30 +991,6 @@ def main() -> int:
     overlays += [{"path": c["path"], "y": c["y"], "loop": True, "card": True,
                   "kind": c.get("kind") or "card", "bg": c.get("bg"),
                   "start": c["start"], "end": c["end"]} for c in cards]
-
-    # 壳体（C 族）：顶条 / 角标 / 时间码。
-    #
-    # 条目从 EDL 的 beats 来，不是从模板里抄一串固定词——「常驻条」之所以有用，
-    # 是因为它告诉观众"现在是第几章、还有几章"，抄一串没有含义的条目只是装饰。
-    # 时间码逐镜重画：一张静止 PNG 里的数字不会自己走。
-    if shell_pack:
-        beats = edl.get("beats") or []
-        titles = [str(b.get("title") or f"第{b['n']}章")[:8] for b in beats]
-        beat_of_seg = {i: s.get("beat") for i, s in enumerate(segs, 1)}
-        shell_shots, tt2 = [], 0.0
-        for sh in shots:
-            b = beat_of_seg.get(sh["seg"])
-            shell_shots.append({"start": round(tt2, 4), "dur": sh["dur"],
-                                "active": (int(b) - 1) if isinstance(b, int) and b else None})
-            tt2 = round(tt2 + sh["dur"], 4)
-        layers = pack_style.shell_layers(
-            shell_pack, W, H,
-            {"title": str(edl.get("brand") or ""), "entries": titles,
-             "total": total, "shots": shell_shots},
-            work / "shell")
-        overlays += [{"path": l["path"], "y": l["y"], "start": l["start"], "end": l["end"],
-                      "shell": True} for l in layers]
-        print(f"  壳体 {shell_pack.get('name')}  层 {len(layers)}  条目 {len(titles)}")
 
     film = out / "film.mp4"
 

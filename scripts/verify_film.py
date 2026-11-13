@@ -623,29 +623,6 @@ def main() -> int:
     else:
         style_path = (root / "styles" / f"{edl.get('style_pack') or 'talking-head-v1'}.yaml")
     style = yaml.safe_load(style_path.read_text())
-    # 包装模板（pack-*.yaml）不是渲染参数表：它的画幅写成 `canvas.aspect`（[9:16, 16:9]），
-    # 因为同一族要跨两个方向用。验收这一步却需要**一个**确定画幅。
-    # 所以碰到这种模板，画幅/帧率一律以成片自己的流信息为准，模板在这两项上不发言——
-    # 硬塞一个 width 进去，等于让模板替片子决定它该是什么尺寸。
-    # 只有**包装模板**才需要翻译：它们写的是 `canvas.aspect`（一族跨两个方向用）。
-    # 风格包（talking-head-v1）本来就是最终参数表，再翻译一遍会把 size_px 80 变成 96——
-    # 2026-11-09 就是这一步让验收算出「96px × 12 字 = 1152px 出画」，
-    # 而渲染端老老实实按 80px 排，字幕其实是好的。两边读两套数，谁都不知道对方的存在。
-    if "width" not in (style.get("canvas") or {}):
-        # 走渲染时用的同一个翻译层，别让验收去读模板的原始字段：
-        # 两边各读一套字段，迟早会出现"渲的时候 0.098H、验的时候 0.070H"这种对不上的事。
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import pack_style as _ps
-        _c = style.get("canvas") or {}
-        _W = int(_c.get("width") or 1080)
-        _H = int(_c.get("height") or 1920)
-        _f = _c.get("fps")
-        _fps = int((_f[0] if isinstance(_f, (list, tuple)) else _f) or 30)
-        style = _ps.to_style(style, _W, _H, _fps)
-        # 模板允许两种帧率（[24, 30]）时，翻译层只会挑第一个。验收得知道"哪些都算对"，
-        # 不然 30fps 的成片会被 24 判红——这不是片子的问题，是我们把选择权丢了。
-        if isinstance(_f, (list, tuple)):
-            style.setdefault("canvas", {})["fps"] = list(_f)
     film = (proj / a.film) if (a.film and not Path(a.film).is_absolute()) else (
         Path(a.film).expanduser().resolve() if a.film else proj / "out" / "film.mp4")
     if not a.film:
