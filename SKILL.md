@@ -111,7 +111,9 @@ python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
-python3 scripts/test_overlay_judge.py                 # 叠加态判据三条负样本（T-019：压脸/口播整屏暗场/重卡撞字幕）
+python3 scripts/test_overlay_judge.py                 # 叠加态判据负样本（T-019 压脸/口播整屏暗场/重卡撞字幕 + T-042 压主体与主体量不到两条 warning）
+python3 scripts/test_panel_light.py                   # 面板光感可读性（T-042：四个包 × 五档背景，笔画 vs 紧邻底板 ΔL ≥ 12）
+python3 scripts/measure_panel.py --image <卡面裁图> --box x,y,w,h   # 量一张卡的可读性读数（ΔL 最差/中位）
 python3 scripts/sync_check.py --project <项目>              # 同步率 / 断章率 / 卡片锚词只许晚
 python3 scripts/check_subs.py --project <项目>              # 字幕：无标点/不断词/≤10 单位/0.8–3.2s（单呼吸组 4.5s）/助词孤行/重叠/硬切 + 残词/口吃重尾/荒谬量级门禁（T-017）
 python3 scripts/hooks.py --project <项目> --kit            # 给人看的评审包（2/3 人同选才算过）
@@ -157,10 +159,10 @@ python3 scripts/golden.py
 
 **MG（代码画的动效卡）**是包装的第三块：基础卡 `keyword-big` / `stat` / `steps` / `versus` / `term` 与修辞扩充卡（`proportion` 比例条 / `day-night` 时段接力 / `chips` 并列招牌）。
 选哪张由这一格的**话语修辞关系**决定（形状即语义：互补经营不许误用对抗 `VS`，常识菜名不许误用百科词条），不由风格决定；风格只决定它的**视觉语域（Visual Register）**与 `tokens`（餐饮茶楼用暖食烟火底，严禁套冷黑蓝科技弹窗把食物压灰）。
-叠加空间只允许三种合法态（轻量挂角 `corner` / 底片模糊退后 `focus_blur` / 整屏纯底切出 `cutaway`），**严禁在清晰露脸口播或美食特写正中糊全屏暗场大卡**；位置不再由固定百分比带决定，由 `scripts/card_layout.py` 逐卡读人脸框（`scripts/native/person_mask --faces`，Vision）算出来，判据落在 `scripts/check_overlay.py`（渲前拦停，error 退出码 7）；重型卡在场期间底部同期声字幕自动退场，每条挂起都记进 `out/subs.json` 的 `suppressed`（卡 id + 理由）。人工要压位置就写时间轴的 `card.layout`。
+叠加空间只允许三种合法态（轻量挂角 `corner` / 底片模糊退后 `focus_blur` / 整屏纯底切出 `cutaway`），**严禁在清晰露脸口播或美食特写正中糊全屏暗场大卡**；位置不再由固定百分比带决定，由 `scripts/card_layout.py` 逐卡读人脸框（`scripts/native/person_mask --faces`，Vision）**与人物遮罩**（同一支二进制，`hf/work/pstats/`）算出来——**避脸不等于没压主体**：卡框里主体像素占比上限 `SUBJ_COVER_MAX=0.35`，量不到遮罩时不许当「主体 = 0」，一律记 `degraded` 并降级挂角；判据落在 `scripts/check_overlay.py`（渲前拦停，error 退出码 7；压主体与量不到报 warning）；重型卡在场期间底部同期声字幕自动退场，每条挂起都记进 `out/subs.json` 的 `suppressed`（卡 id + 理由）。人工要压位置就写时间轴的 `card.layout`。
 卡型、字段、选型顺序与硬规矩见 [references/mg-library.md](references/mg-library.md)；影视剪辑反 NG 五原则与广电包装五原则的完整产线准绳见 [references/editorial-packaging-principles.md](references/editorial-packaging-principles.md)。
 
-**现成四套包装包**：`P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（深色科技，大字即字幕）、`P4-canton-warm`（暖食烟火·广式茶楼：琥珀深茶棕卡面 + 局部暖棕柔化 + 暖金 `#E5A93C`/朱砂 `#B8332A`，严禁冷黑蓝弹窗底与冷荧光黄）；卡面底板/遮罩/描边/字色全写在包的 `tokens.surface` 里，渲器不再自带语域。
+**现成四套包装包**：`P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（深色科技，大字即字幕）、`P4-canton-warm`（暖食烟火·广式茶楼：琥珀深茶棕卡面 + 局部暖棕柔化 + 暖金 `#E5A93C`/朱砂 `#B8332A`，严禁冷黑蓝弹窗底与冷荧光黄）；卡面底板/遮罩/描边/字色全写在包的 `tokens.surface` 里，渲器不再自带语域；底板是**纵向光线渐变**（顶部窄亮带 → 中部回落 → 底部略沉）+ 1px 内侧顶光/底暗（`edge`）+ 底板光线层（`light`），四个包都带这套字段，缺字段按单值回退。
 
 **反 NG 与声画一致性硬闸**：单人口播在索引与选句层拆为「声/画双评级」（手持台本纸、看场外、切头切肩、闭眼帧一律标 `audio_only`，只许留声做旁白，禁止挂 `talking` 露脸）；实拍 B-roll 强制预留 ≥0.40s 起尾余量（Handles），禁止从 `0.00s` 按键糊片起切；台词含「四张图/效果图/睇呢度」等视觉指代词而库内无对应画面时，直接报缺口拦停，禁止拿工地/生肉等违和空镜硬顶造成「音画反讽」；字幕上屏前必须过整稿等长语义常识校对。
 

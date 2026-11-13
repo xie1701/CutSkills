@@ -38,6 +38,11 @@ LIGHT_KINDS = {"keyword", "keyword-big", "behind", "cutout", "idcard"}
 
 FACE_IOU_MAX = 0.02        # 卡与任一帧人脸框的重叠率上限（B7 硬线，禁止调大）
 COVER_TALKING_MAX = 0.15   # 口播格人占画面 ≥ 这个数 → 禁止整屏暗场
+# 卡框里主体的像素占比上限（T-042）：脸只占人身上一小块，避了脸不等于没压主体。
+# 实测 dianzan-c 的 term 卡（改前）：整块卡 61% 的像素是人，51% 的板面积压在身上。
+# 0.35 = 「背景占大头、主体还能从卡后面认出来」的上限；超过就换位/缩尺/降级。
+# 这是判据不是参数：check_overlay 报的那条 warning 用同一个数，两边不许漂。
+SUBJ_COVER_MAX = 0.35
 BLUR_PX = 22               # focus_blur 的高斯半径（B7 给的 20–28 区间中位）
 FACE_PAD = 0.02            # 布局时的安全余量：跳切推近会让画面最多挪 ~1.5%W
 
@@ -173,18 +178,22 @@ def _dur(clip: Path) -> float:
         return 1.0
 
 
-def person_cover(proj: Path, clip: Path, t0: float, t1: float, W: int, H: int,
-                 fps: float = 3.0) -> float | None:
-    """人占画面多少（遮罩白像素比例，窗口内的最大值）。
+def person_frames(proj: Path, clip: Path, fps: float = 3.0, shrink: int = 4):
+    """这份片段的人物遮罩帧：[(相对秒, 布尔数组)]。**None = 量不出来**。
 
-    为什么取最大值不取均值：判「这一格能不能整屏压暗」问的是「有没有那么一瞬
-    人是主角」。取均值会让一个人在画面里走动、某几帧侧身变小的镜头混过去。
+    遮罩缓存与失效判据只有这一份（`person_cover` / 主体框 / 卡压主体全走它）：
+    同一份数据两个实现早晚会漂（T-038 就是照这个模式坏的）。
+
+    数组降采样到 1/shrink：判的是「一块矩形里主体的面积比」，
+    270×480 与 1080×1920 量出来的比例差 < 0.3%，但内存差 16 倍。
+    <=> 返回 `[]` 与返回 `None` 是两件事：
+        `[]`  = 量过了，这一段没有人（遮罩全黑）→ 可以走 cutaway；
+        `None` = 根本没量（缺编译产物 / 解码失败）→ 必须降级并报 warning。
     """
     import numpy as np
     from PIL import Image
     mdir = proj / "hf" / "work" / "pstats" / clip.stem
     stamp = mdir / "_stamp.json"
-    need = abs(t1 - t0)
     ok = False
     if stamp.exists():
         try:
@@ -205,20 +214,98 @@ def person_cover(proj: Path, clip: Path, t0: float, t1: float, W: int, H: int,
     fs = sorted(mdir.glob("f*.png")) if mdir.exists() else []
     if not fs:
         return None
-    # 帧序 × 步长 ≈ 时间：这里只需要「窗口里那几帧」，按比例挑
     step = 1.0 / fps
-    vals = []
+    out = []
     for i, f in enumerate(fs):
-        t = i * step
-        if t < t0 - 0.05 or t > t1 + 0.05:
-            continue
-        a = np.asarray(Image.open(f).convert("L").resize((W, H)))
-        vals.append(float((a > 128).mean()))
+        a = Image.open(f).convert("L")
+        w, h = max(1, a.width // shrink), max(1, a.height // shrink)
+        m = np.asarray(a.resize((w, h), Image.BOX)) > 128
+        out.append((round(i * step, 3), m))
+    return out
+
+
+def person_cover(proj: Path, clip: Path, t0: float, t1: float, W: int, H: int,
+                 fps: float = 3.0) -> float | None:
+    """人占画面多少（遮罩白像素比例，窗口内的最大值）。
+
+    为什么取最大值不取均值：判「这一格能不能整屏压暗」问的是「有没有那么一瞬
+    人是主角」。取均值会让一个人在画面里走动、某几帧侧身变小的镜头混过去。
+    `W/H` 只为兼容旧调用点保留（比例与分辨率无关）。
+    """
+    fr = person_frames(proj, clip, fps)
+    if fr is None:
+        return None
+    vals = [float(m.mean()) for t, m in fr if t0 - 0.05 <= t <= t1 + 0.05]
     if not vals:                                  # 窗口比采样还短：整段取最大
-        for f in fs:
-            a = np.asarray(Image.open(f).convert("L").resize((W, H)))
-            vals.append(float((a > 128).mean()))
-    return round(max(vals), 4) if vals else None
+        vals = [float(m.mean()) for _, m in fr]
+    return round(max(vals), 4) if vals else 0.0
+
+
+def subject_box(frames) -> list[float] | None:
+    """窗口内主体的**联合外框** [x, y, w, h]（归一化）。量不到就 None。"""
+    import numpy as np
+    if not frames:
+        return None
+    x0, y0, x1, y1 = 1.0, 1.0, 0.0, 0.0
+    seen = False
+    for _, m in frames:
+        ys, xs = np.nonzero(m)
+        if not len(ys):
+            continue
+        seen = True
+        h, w = m.shape
+        x0, y0 = min(x0, xs.min() / w), min(y0, ys.min() / h)
+        x1, y1 = max(x1, (xs.max() + 1) / w), max(y1, (ys.max() + 1) / h)
+    if not seen:
+        return None
+    return [round(x0, 4), round(y0, 4), round(x1 - x0, 4), round(y1 - y0, 4)]
+
+
+def cover_in(frames, box) -> float | None:
+    """卡框里主体的像素占比（窗口内**最大**那帧）。压主体只能这么量。"""
+    if frames is None:
+        return None
+    if not frames:
+        return 0.0
+    best = 0.0
+    for _, m in frames:
+        h, w = m.shape
+        x0 = max(0, int(round(box[0] * w)))
+        y0 = max(0, int(round(box[1] * h)))
+        x1 = min(w, int(round((box[0] + box[2]) * w)))
+        y1 = min(h, int(round((box[1] + box[3]) * h)))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        best = max(best, float(m[y0:y1, x0:x1].mean()))
+    return round(best, 4)
+
+
+def plate_tint(proj: Path, clip: Path, t: float, alpha: float = 0.26) -> dict | None:
+    """底片单帧平均色 → 底板色温。**暖就暖、冷就冷，不写死。**
+
+    为什么要在渲染期量：focus_blur 的底片可能是暖茶楼，也可能是冷白工作室，
+    拿一个固定色温的板子压上去，不是「隔夜菜」就是「塑料膜」（T-018 事故的同一病根）。
+
+    做法：ffmpeg 取一帧缩到 1×1 读 RGB，把明度归一到一个不抢眼的档（最大通道≈120），
+    保住色相/色比的相对关系，再连同色温标签交给渲器。量不出来返回 None（渲器就用包里的底）。
+    """
+    from render_hf import ffmpeg_bin          # 延迟 import：render_hf 顶层会 import 本模块
+    r = subprocess.run([ffmpeg_bin(), "-v", "error", "-ss", f"{max(0.0, t):.3f}",
+                        "-i", str(clip), "-frames:v", "1",
+                        "-vf", "scale=1:1:flags=area", "-f", "rawvideo",
+                        "-pix_fmt", "rgb24", "-"], capture_output=True)
+    if r.returncode != 0 or len(r.stdout) < 3:
+        return None
+    pr, pg, pb = r.stdout[0], r.stdout[1], r.stdout[2]
+    mx = max(pr, pg, pb, 1)
+    k = 120.0 / mx
+    cr, cg, cb = int(pr * k), int(pg * k), int(pb * k)
+    # 色温判据只在「暖冷」两个标签上说话，不拿它做任何取舍：
+    # 分差 < 6 就是中性，中性不许硬说成暖或冷。
+    hue = "warm" if cr - cb > 6 else ("cool" if cb - cr > 6 else "neutral")
+    return {"tint": f"rgba({cr},{cg},{cb},{alpha:g})", "hue": hue,
+            "mean_rgb": [pr, pg, pb]}
+
 
 
 # ---------------------------------------------------------------- 布局搜索
@@ -237,7 +324,7 @@ def _anchors(w: float, h: float):
     return out
 
 
-def _legal(box, faces, band, subs_on, min_area):
+def _legal(box, faces, band, subs_on, min_area, cov=None):
     area = box[2] * box[3]
     if area < min_area:
         return False
@@ -250,6 +337,13 @@ def _legal(box, faces, band, subs_on, min_area):
     for f in faces:
         if iou(box, pad_box(f, FACE_PAD * 0.5, FACE_PAD * 0.5)) >= FACE_IOU_MAX:
             return False
+    # 主体（T-042，B10）：不只避脸——脸下面还有身体/手上那盘菜。
+    # 一块板子把主体盖掉一半，观众看到的是「被拦腰截断的人」，不是「卡浮在上面」。
+    # 阈值 SUBJ_COVER_MAX 是判据不是参数：它和 check_overlay 报的那条 warning 同一个数。
+    if cov is not None:
+        c = cov(box)
+        if c is not None and c > SUBJ_COVER_MAX:
+            return False
     # 字幕带：字幕还在的时候卡不许压上去（压上去就是两套字打架）
     if subs_on and band:
         if hits(box, [0.0, band[0], 1.0, band[1] - band[0]]):
@@ -257,7 +351,7 @@ def _legal(box, faces, band, subs_on, min_area):
     return True
 
 
-def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0):
+def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0, cov=None):
     """在缩放梯度上找「面积最大且合法」的一格。返回 (box, scale) 或 None。"""
     wn, hn = want_of(kind)
     min_area = MIN_AREA["heavy" if heavy else "light"]
@@ -269,7 +363,7 @@ def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0):
             continue
         for (x, y) in _anchors(w, h):
             box = [x, y, w, h]
-            if not _legal(box, faces, band, subs_on, min_area):
+            if not _legal(box, faces, band, subs_on, min_area, cov):
                 continue
             # 分数：面积为主；靠边/靠角的位比正中更像「挂」，正中最容易撞脸也最像贴脸
             edge = 1.0 if (abs(x - (1 - w) / 2) > 1e-3 or abs(y - (1 - h) / 2) > 1e-3) else 0.94
@@ -333,6 +427,12 @@ def plan(card: dict, ctx: dict) -> dict:
     subs_on = bool(ctx.get("subs_on", True))
     cover = ctx.get("cover")
     face_src = ctx.get("face_src") or ("vision" if faces else "none")
+    # 主体遮罩（T-042）：`None` = 这一格量不出来，不给判据假装「主体 = 0」。
+    subj = ctx.get("subj")
+    subj_known = subj is not None
+
+    def cov(box):
+        return cover_in(subj, box) if subj_known else None
 
     # 视觉主权红线：口播 + 人占 ≥15% → 不许整屏暗场
     talking_hit = ("talking" in media) and (cover is None or float(cover) >= COVER_TALKING_MAX)
@@ -358,7 +458,7 @@ def plan(card: dict, ctx: dict) -> dict:
             if box and len(box) == 4:
                 box = [round(float(v), 4) for v in box]
             else:
-                got = _search(kind, faces, band, subs_on, heavy)
+                got = _search(kind, faces, band, subs_on, heavy, cov=cov)
                 box = got[0] if got else [0.06, 0.56, want_of(kind)[0] * 0.8, want_of(kind)[1] * 0.8]
             plate, feather = _plate(mode, box, faces, W, H)
             if ov.get("plate") and len(ov["plate"]) == 4:
@@ -366,6 +466,19 @@ def plan(card: dict, ctx: dict) -> dict:
             k = round(box[2] / want_of(kind)[0], 3) if want_of(kind)[0] else 1.0
             return _pack(mode, box, plate, feather, k, faces, ctx, W, H,
                          f"人工覆写：{ov.get('why') or 'timeline card.layout'}", face_src, False)
+
+    # ⑤ 主体量不到（T-042）：**不许把 `cover` 当 0 就完事**。
+    # 「这一段没有主角」与「我不知道有没有主角」是两个判断：前者能切走，后者只能挂角。
+    # 以前 b-roll 格根本不量（person_cover 只在 talking 格调），于是 cover 硬写 0.0、
+    # 卡继续走 focus_blur 压在一条腿上——这就是 dianzan-c 的 c5。
+    if heavy and not subj_known:
+        got = _search(kind, faces, band, subs_on, heavy)          # 只能避脸
+        if got:
+            box, k, _ = got
+            plate, feather = _plate("corner", box, faces, W, H)
+            return _pack("corner", box, plate, feather, k, faces, ctx, W, H,
+                         f"主体占比量不出来（缺人物遮罩）→ 降级挂角，{why_cover}，"
+                         f"交闸门报 warning", face_src, True)
 
     # ① cutaway：没有真人脸 + 不是口播 + 卡够长（不足 2.5s 切走再切回是眨眼）
     if heavy and cutaway_ok and face_src == "vision" and not faces and dur >= 2.5 \
@@ -377,23 +490,25 @@ def plan(card: dict, ctx: dict) -> dict:
         return _pack("cutaway", box, plate, feather, 1.0, faces, ctx, W, H,
                      f"{dur:.1f}s 空镜无脸 → 整屏纯底切出，底片主权正式移交卡片", face_src, False)
 
-    # ② focus_blur：重型卡要舞台，底片模糊退后，卡仍避脸
+    # ② focus_blur：重型卡要舞台，底片模糊退后，卡仍避脸 + 避主体
     if heavy:
-        got = _search(kind, faces, band, subs_on, heavy)
+        got = _search(kind, faces, band, subs_on, heavy, cov=cov)
         if got:
             box, k, _ = got
             plate, feather = _plate("focus_blur", box, faces, W, H)
             return _pack("focus_blur", box, plate, feather, k, faces, ctx, W, H,
-                         f"重型卡；底片模糊 {BLUR_PX}px 退后 + 局部底板，{why_cover}", face_src, False)
+                         f"重型卡；底片模糊 {BLUR_PX}px 退后 + 局部底板，{why_cover}"
+                         f"，卡面主体 {0 if not subj_known else round((cov(box) or 0) * 100)}%",
+                         face_src, not subj_known)
     # ③ corner：轻量挂角，一点不压暗
-    got = _search(kind, faces, band, subs_on, heavy)
+    got = _search(kind, faces, band, subs_on, heavy, cov=cov)
     if got:
         box, k, _ = got
         plate, feather = _plate("corner", box, faces, W, H)
         return _pack("corner", box, plate, feather, k, faces, ctx, W, H,
-                     f"挂角不压暗（{k:.2f}×），{why_cover}", face_src, False)
+                     f"挂角不压暗（{k:.2f}×），{why_cover}", face_src, not subj_known)
 
-    # ④ 哪都放不下：退到「最小尺寸 + 离脸最远」，并如实标 degraded 交给闸门
+    # ④ 哪都放不下：退到「最小尺寸 + 离脸/离主体最远」，并如实标 degraded 交给闸门
     wn, hn = want_of(kind)
     best, best_iou = None, 2.0
     for k in SCALES:
@@ -405,10 +520,13 @@ def plan(card: dict, ctx: dict) -> dict:
             if worst < best_iou:
                 best, best_iou = box, worst
     box = best or [0.06, 0.60, wn * 0.6, hn * 0.6]
-    plate, feather = _plate("focus_blur", box, faces, W, H)
-    return _pack("focus_blur", box, plate, feather,
+    plate, feather = _plate("corner", box, faces, W, H)
+    _c = cov(box)
+    return _pack("corner", box, plate, feather,
                  round(box[2] / wn, 3) if wn else 1.0, faces, ctx, W, H,
-                 f"找不到完全避脸的位置（最小重叠 {best_iou * 100:.1f}%）→ 降级，交闸门判红",
+                 f"找不到「不压脸 + 卡面主体 ≤{SUBJ_COVER_MAX * 100:.0f}%」的位置"
+                 f"（最小脸重叠 {best_iou * 100:.1f}%，卡面主体 "
+                 f"{'量不出' if _c is None else f'{_c * 100:.0f}%'}）→ 降级挂角，交闸门报红",
                  face_src, True)
 
 
@@ -420,8 +538,15 @@ def _pack(mode, box, plate, feather, k, faces, ctx, W, H, why, face_src, degrade
     wn_k = (box[2] / k) if k else box[2]
     hn_k = (box[3] / k) if k else box[3]
     worst = max((iou(box, f) for f in faces), default=0.0)
+    _subj = ctx.get("subj")
+    _tint = ctx.get("plate_tint") or {}
     return {
         "mode": mode,
+        "subject_cov": cover_in(_subj, box),           # 卡框里主体占比（窗口最大帧）
+        "subject_box": subject_box(_subj),             # 主体联合外框（量不到就 null）
+        "subject_src": "mask" if _subj is not None else "missing",
+        "plate_tint": _tint.get("tint"),               # 底片平均色温（量不到就不写）
+        "plate_hue": _tint.get("hue"),                 # warm / cool / neutral（量出来的）
         "box": box,                       # 画幅比例 [x,y,w,h]，原点左上（可视框）
         "plate": plate,                   # 底衬（跟卡走的那一块）
         "box_px": px(box),
@@ -454,7 +579,8 @@ def layout_cards(cards: list[dict], *, proj: Path, videos: list[dict], style: di
     med = media_of or (lambda n: "")
     # 人脸/遮罩的缓存：一卡一取太贵，同一段素材整片只跑一次
     face_cache: dict[str, list | None] = {}
-    cov_cache: dict[str, float | None] = {}
+    mask_cache: dict[str, list | None] = {}
+    tint_cache: dict[str, dict | None] = {}
     done = 0
     for c in cards:
         kind = str(c.get("kind") or "")
@@ -462,6 +588,7 @@ def layout_cards(cards: list[dict], *, proj: Path, videos: list[dict], style: di
             continue          # 大字走 .kw 层（有自己的 top_h 与抠像遮挡），不在本层挪
         a_, b_ = float(c["start"]), float(c["end"])
         faces, medias, covers = [], [], []
+        subj: list | None = []        # None = 有一格量不出来（这张卡就不能当「主体清楚」用）
         face_ok, seen = True, False
         refs: list[dict] = []
         for v in videos:
@@ -488,11 +615,19 @@ def layout_cards(cards: list[dict], *, proj: Path, videos: list[dict], style: di
                 if t0 - 0.25 <= float(f["t"]) <= t1 + 0.25:
                     faces.append({**f, "seg": int(v["n"]), "at": round(v0 + float(f["t"]), 3)})
             if m == "talking":
-                ck = f"{key}@{round(t0, 2)}-{round(t1, 2)}"
-                if ck not in cov_cache:
-                    cov_cache[ck] = person_cover(proj, clip, t0, t1, W, H)
-                if cov_cache[ck] is not None:
-                    covers.append(cov_cache[ck])
+                cv = person_cover(proj, clip, t0, t1, W, H)
+                if cv is not None:
+                    covers.append(cv)
+            # 主体遮罩（T-042）：**不只 talking 格量**。b-roll 里也可以有一个占满画面的
+            # 人（dianzan-c seg 5 就是：通话中景，人占 31%、纵向 17%–100%），
+            # 以前它连量都不量，cover 硬写 0.0，卡就心安理得地压在腿上。
+            if key not in mask_cache:
+                mask_cache[key] = person_frames(proj, clip)
+            mf = mask_cache[key]
+            if mf is None:
+                subj = None
+            elif subj is not None:
+                subj += [(tt, mm) for tt, mm in mf if t0 - 0.05 <= tt <= t1 + 0.05]
         # 前后格的介质：cutaway 的「短暂切走」判据要看它
         prev_m = next_m = None
         for i, v in enumerate(videos):
@@ -502,11 +637,30 @@ def layout_cards(cards: list[dict], *, proj: Path, videos: list[dict], style: di
                 if i + 1 < len(videos):
                     next_m = str(med(int(videos[i + 1]["n"])) or "")
                 break
-        cover = max(covers) if covers else (None if "talking" in medias else 0.0)
+        # 人占画面：现在对**所有**介质都量（以前 b-roll 格是硬写 0.0）。
+        # 量不到 = None（「不知道」），与「量到 0%（确实没人）」分开写进 cards.json。
+        _all = cover_in(subj, [0.0, 0.0, 1.0, 1.0]) if subj else None
+        cover = max(covers) if covers else _all
+        # 底板色温（T-042）：取卡窗所在那一格的中点帧的平均色，暖就暖、冷就冷。
+        tk = None
+        for v in videos:
+            v0 = float(v["start"])
+            v1 = v0 + float(v["dur"])
+            if v0 > b_ or v1 <= a_:
+                continue
+            mid = min(max(float(c["start"]), v0), max(v0, v1 - 0.05))
+            clip = proj / "hf" / v["src"]
+            if clip.exists():
+                ck2 = f"{clip}@{round(mid - v0, 2)}"
+                if ck2 not in tint_cache:
+                    tint_cache[ck2] = plate_tint(proj, clip, mid - v0)
+                tk = tint_cache[ck2]
+            break
         ctx = {"W": W, "H": H, "faces": faces, "cover": cover,
                "media": sorted(set(medias)), "prev_medium": prev_m, "next_medium": next_m,
                "sub_band": sub_band, "subs_on": subs_on, "face_refs": refs,
                "face_src": ("vision" if (face_ok and seen) else "missing"),
+               "subj": subj, "plate_tint": tk,
                "override": overrides.get(str(c.get("seg"))) or {}}
         c["layout"] = plan(c, ctx)
         done += 1

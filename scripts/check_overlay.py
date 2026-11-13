@@ -202,6 +202,30 @@ def audit(proj: Path) -> list[tuple[str, str]]:
                              f" #{hit_talk[0][0]['n']}——B7 只允许「没有人脸」或"
                              f"「≤2.5s 且前后有 B-roll 承接」的切走"))
 
+        # ⑤ 压主体（T-042，B10）：**自**己从人物遮罩重算，不采信 cards.json 的 subject_cov。
+        # 为什么是 warning 不是 error：卡压在一条腿上，字仍读得出，属于「美术不达标」；
+        # 压在脸上才是硬伤（①就是 error）。但美术不达标也必须被看见——
+        # 否则「主体占多少从来没人量过」就会再发生一次。
+        if mode != "cutaway":
+            sub_cov, sub_known, miss = _subject_cov(proj, refs, win, box)
+            if not sub_known:
+                rows.append(("warning",
+                             f"{mg}（{kind} {mode} {win[0]:.1f}–{win[1]:.1f}s）主体占比量不出来"
+                             f"（缺 {', '.join(miss) or '人物遮罩'}）——压主体这一条判不了，"
+                             f"不当它通过；布局应已降级挂角（cards.json degraded="
+                             f"{bool(lay.get('degraded'))}）"))
+            elif sub_cov is not None and sub_cov > CL.SUBJ_COVER_MAX:
+                rows.append(("warning",
+                             f"{mg}（{kind} {mode} {win[0]:.1f}–{win[1]:.1f}s）压主体："
+                             f"卡面主体占比 {sub_cov * 100:.0f}% > "
+                             f"{CL.SUBJ_COVER_MAX * 100:.0f}%"
+                             f"（卡框 {[round(v, 3) for v in box]}）"
+                             f"——B10 卡是「浮在主体之上」，不是「盖住主体一半」"))
+        if lay.get("degraded"):
+            rows.append(("warning",
+                         f"{mg} 布局降级（{lay.get('why') or ''}）——"
+                         f"降级不是通过：重新选锚词/换卡型/补遮罩都行，就是不许当没看见"))
+
         # ③ 重卡退字幕（B9）
         if layer_off:
             continue
@@ -242,6 +266,33 @@ def _cover(proj: Path, refs: list[dict], win, W: int, H: int):
         if c is not None:
             best = c if best is None else max(best, c)
     return best
+
+
+def _subject_cov(proj: Path, refs: list[dict], win, box):
+    """卡框里的主体占比（自己从人物遮罩重算）。
+
+    返回 (占比 | None, 有没有量到, 缺了哪几段)。
+    遮罩目录就用 `card_layout.person_frames` 那一份：**同一个测量器**，
+    判据不许自己再写一套（两份实现早晚会漂，T-038 就是这么坏的）。
+    """
+    frames, missing = [], []
+    for r in refs:
+        clip = proj / "hf" / "clips" / (str(r.get("clip")) + ".mp4")
+        if not clip.exists():
+            missing.append(str(r.get("clip")))
+            continue
+        fr = CL.person_frames(proj, clip)
+        if fr is None:
+            missing.append(str(r.get("clip")))
+            continue
+        off = float(r.get("offset") or 0.0)
+        dur = float(r.get("dur") or 0.0)
+        t0 = max(0.0, win[0] - off)
+        t1 = min(dur, win[1] - off)
+        frames += [(t, m) for t, m in fr if t0 - 0.05 <= t <= t1 + 0.05]
+    if missing and not frames:
+        return None, False, missing
+    return CL.cover_in(frames, box), True, missing
 
 
 def main() -> int:

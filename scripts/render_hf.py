@@ -1160,8 +1160,12 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   background:var(--mg-glow,none); filter:blur(var(--mg-glow-blur,0px));
   transform:translate(var(--mg-glow-shift,0px 0px)); }}
 /* 底板本体：四边羽化由 mask 给（两段 linear-gradient 取交集，带子是定宽像素，
-   所以在板边界上 alpha 恰好归零——没有任何一条边是被硬切的）；磨砂由 backdrop-filter 给 */
-.mgplate > .mp-surf {{ position:absolute; inset:0; background:var(--surface-scrim);
+   所以在板边界上 alpha 恰好归零——没有任何一条边是被硬切的）；磨砂由 backdrop-filter 给。
+   T-042 三层：① --mg-tint（逐卡算出来的底片平均色温，focus_blur 用，见 card_layout.plate_tint）
+   ② --surface-light（包的纵向光线：顶部窄亮带 + 底部轻沉）③ --surface-scrim（包的遮罩）。
+   顺序不能反：色温在最下、光在中、遮罩在上，否则暖底会把顶部亮带吃掉。 */
+.mgplate > .mp-surf {{ position:absolute; inset:0;
+  background-image:var(--mg-tint,none), var(--surface-light,none), var(--surface-scrim);
   -webkit-mask-image:var(--mg-plate-mask,none); mask-image:var(--mg-plate-mask,none);
   -webkit-mask-composite:source-in; mask-composite:intersect; }}
 /* 景深退后：只对这块底板做背景模糊，画面其余部分保持清晰 */
@@ -1172,7 +1176,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
    再叠包自己的遮罩。只铺 ground 一层会把整屏压成近黑（实测 L≈0.10，被 blackdetect 判成黑帧），
    底板色那一层既保住语域，也把亮度拉回 0.2 以上——切出的是「品牌底板」，不是「黑屏」。 */
 .mgplate.mg-cut > .mp-surf {{ background-color:var(--ground);
-  background-image:linear-gradient(var(--surface-plate), var(--surface-plate)),
+  background-image:var(--mg-tint,none), var(--surface-plate), var(--surface-light,none),
     var(--surface-scrim); }}
 .mg {{ position:absolute; inset:0;
   display:flex; flex-direction:column; justify-content:center;
@@ -1570,8 +1574,14 @@ def _mg_html(c: dict, i: int, style: dict | None = None,
                     f"--mg-glow:{g_col};--mg-glow-blur:{g_blur:g}px;"
                     f"--mg-glow-shift:{g_dx:g}px {g_dy:g}px;"
                     f"--mg-glow-spread:{(-g_sp if g_sp else 0.0):g}px;")
+        # 底衬色温跟着底片走（T-042）：卡片拿到的 `plate_tint` 是 card_layout.plate_tint()
+        # 从这一格中点帧实测出来的平均值，暖就暖、冷就冷。只有 focus_blur 用——
+        # 那一种态「底片退后、板子承光」，色温不跟就会在两个语域之间各错一次。
+        # 变量里要放 <image>：渲器把它当前面一层叠在光线与 scrim 之下。
+        _tint = str(lay.get("plate_tint") or "") if mode == "focus_blur" else ""
+        tint_css = (f"--mg-tint:linear-gradient({_tint},{_tint});" if _tint else "")
         plate_style = (f"left:{px_}px;top:{py_}px;width:{pw_}px;height:{ph_}px;"
-                       f"--mg-plate-mask:{mask};{glow_css}")
+                       f"--mg-plate-mask:{mask};{glow_css}{tint_css}")
         box_style = (f"left:{bx}px;top:{by}px;right:auto;bottom:auto;"
                      f"width:{nw}px;height:{nh}px;"
                      f"transform:scale({lay.get('scale')});transform-origin:top left;")
@@ -1649,7 +1659,15 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     # 被压成生冷灰暗色（T-018 事故）。现在只认包装包；包没写就退成**中性**深灰黑——
     # 渲染器不许再自己选语域，中性色至少不会替谁表态。
     _surf = _tk.get("surface") or {}
-    _plate = str(_surf.get("plate") or "rgba(0,0,0,.62)")
+    # 底板可以是一条**纵向光线渐变**（T-042），也可以是老包那种单色。单色必须先包成
+    # 同色渐变再往下走：`background-image` 的层只吃 <image>，一个裸颜色会让整层被丢弃
+    # （`.mgplate.mg-cut > .mp-surf` 就是叠层的写法），而 `background:` 简写两种都吃。
+    # 所以变量里**永远是 <image>**，单色 = 一段「两端同色」的渐变，像素差别为零。
+    def _grad(v: str) -> str:
+        s = str(v or "").strip()
+        return s if "gradient(" in s else f"linear-gradient(180deg, {s}, {s})"
+
+    _plate = _grad(_surf.get("plate") or "rgba(0,0,0,.62)")
     _border = str(_surf.get("border") or "rgba(255,255,255,.14)")
     _scrim = str(_surf.get("scrim") or
                  "radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.78) 0%, "
@@ -1667,6 +1685,18 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     # 「浮起」也是语域的一部分：一块板子压在食物上，没投影就像贴纸。
     # 缺省 none，即不收这一行——老包（P1/P2/P3）像素一个不动。
     _shadow = str(_surf.get("shadow") or "none")
+    # 内侧 1px 倒角（T-042）：[顶光, 底暗]。它必须和 shadow **分开写**——
+    # plate_glow() 是从 shadow 里挑「模糊最大的外投影」去做底板光晕的，倒角混进去
+    # 会让两个用途抢同一个字段。缺字段就不加这两行（单值回退）。
+    _edge = _surf.get("edge")
+    _edge_css = (f"inset 0 1px 0 {_edge[0]}, inset 0 -1px 0 {_edge[1]}"
+                 if isinstance(_edge, (list, tuple)) and len(_edge) == 2
+                 and all(str(x or "").strip() for x in _edge) else "")
+    _shadow_css = ", ".join(x for x in (_shadow if _shadow.strip().lower() != "none" else "",
+                                        _edge_css) if x) or "none"
+    # 底板（.mgplate > .mp-surf）的光线层：只加光，不另外压暗。缺字段 = none（不收这一层）。
+    _light = str(_surf.get("light") or "").strip()
+    _light_css = _light if "gradient(" in _light else "none"
     # 词条卡自己的内边距与行间：去掉的是「第二层框」，不是面板的呼吸。
     # 缺省值就是旧硬编码值（30/26 与 22），所以不写 = 视觉不变。
     _pxv = lambda v: max(12, int(round(float(v) * (W / 1080.0))))          # noqa: E731
@@ -1685,7 +1715,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f"--radius:{int(_tk.get('radius') or 18)}px;",
         f"--stroke:{max(1, int(_tk.get('stroke') or 2))}px;",
         f"--surface-plate:{_plate};",
-        f"--surface-plate-term:{_surf.get('plate_term') or _plate};",
+        f"--surface-plate-term:{_grad(_surf.get('plate_term') or _plate)};",
         f"--surface-border:{_border};",
         f"--surface-border-term:{_surf.get('border_term') or _border};",
         f"--surface-scrim:{_scrim};",
@@ -1693,7 +1723,8 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f"--surface-ink-rgb:{_srgb};",
         # blur_ness=0 → none：等于不收这一行，老包的像素一个都不动
         f"--surface-blur:{'none' if _blur <= 0 else f'blur({_blur:g}px)'};",
-        f"--surface-shadow:{_shadow};",
+        f"--surface-shadow:{_shadow_css};",
+        f"--surface-light:{_light_css};",
         f"--surface-term-pad:{_tpad_css};",
         f"--surface-term-gap:{_tgap_css};",
     ])

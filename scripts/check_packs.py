@@ -61,7 +61,11 @@ HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # 背景：MG 卡底板曾经写死在 render_hf.py 的 CSS 里（冷黑蓝弹窗底 + 90% 全屏黑遮罩），
 # 换包换不掉；拿它去包广式早茶，虾饺被压成生冷灰暗色（2026-11-13 T-018 事故）。
 # 这里两道闸：① 每个包必须把 surface 交代清楚；② 渲染器源码不许再写回那套冷黑蓝。
-SURFACE_REQUIRED = ("plate", "scrim", "border", "blur_ness")
+SURFACE_REQUIRED = ("plate", "scrim", "border", "blur_ness", "edge", "light")
+# T-042 补的两个字段：
+#   edge   = [顶光, 底暗] 面板内侧 1px 倒角——「厚度」由这两条线读出来
+#   light  = 底板（.mgplate）那一层纵向光线——「受光面」由这层读出来
+# 两者都不写也能渲（渲器有单值回退），但四个包必须交代：一套面板光不能只有某个包有。
 # 可选键：词条卡要更实的底/描边（字多面积小）、卡面字色（深色纸底包不能跟 palette.ink）、
 # 面板的「浮起」（阴影）与词条卡的呼吸（内边距 / 行间）——不写就等于没这一层
 SURFACE_OPTIONAL = ("plate_term", "border_term", "ink", "shadow", "term_pad", "term_gap")
@@ -104,6 +108,28 @@ def check_surface(pack: dict) -> tuple[list[str], list[str]]:
     scr = str(surf.get("scrim") or "")
     if scr and "gradient(" not in scr:
         warn.append(f"tokens.surface.scrim 不是 gradient：{scr[:40]}（平板遮罩就是全屏压暗）")
+    # plate 从 T-042 起可以是纵向光线渐变。单色仍然收（老包兼容，渲器会包成同色渐变），
+    # 但要提一句：一块平涂色就是「贴纸」的病根。
+    pl = str(surf.get("plate") or "")
+    if pl and "gradient(" not in pl:
+        warn.append(f"tokens.surface.plate 是单色：{pl[:40]}"
+                    f"（平涂底板没有受光面，读起来是贴纸——T-042 建议写成纵向光线渐变）")
+    # light：底板光线层，要么不写，要么是一条 gradient（裸颜色不能当背景层叠上去）
+    lg = surf.get("light")
+    if lg is not None:
+        if not str(lg).strip():
+            err.append("tokens.surface.light 是空的")
+        elif "gradient(" not in str(lg):
+            err.append(f"tokens.surface.light 不是 gradient：{str(lg)[:40]}"
+                       f"（它要叠在 scrim 之上，只能是 <image>）")
+    # edge：[顶, 底] 两条 1px 内侧倒角，颜色必须是颜色
+    eg = surf.get("edge")
+    if eg is not None:
+        ok_eg = (isinstance(eg, (list, tuple)) and len(eg) == 2
+                 and all(re.match(r"^(#[0-9A-Fa-f]{6}|rgba?\([^)]*\)|hsla?\([^)]*\))$",
+                                  str(x).strip()) for x in eg))
+        if not ok_eg:
+            err.append(f"tokens.surface.edge 要写 [顶光色, 底暗色] 两个颜色：{eg}")
     bl = surf.get("blur_ness", 0)
     try:
         bl = float(bl)
