@@ -62,8 +62,9 @@ HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # 换包换不掉；拿它去包广式早茶，虾饺被压成生冷灰暗色（2026-11-13 T-018 事故）。
 # 这里两道闸：① 每个包必须把 surface 交代清楚；② 渲染器源码不许再写回那套冷黑蓝。
 SURFACE_REQUIRED = ("plate", "scrim", "border", "blur_ness")
-# 可选键：词条卡要更实的底/描边（字多面积小），卡面字色（深色纸底包不能跟 palette.ink）
-SURFACE_OPTIONAL = ("plate_term", "border_term", "ink")
+# 可选键：词条卡要更实的底/描边（字多面积小）、卡面字色（深色纸底包不能跟 palette.ink）、
+# 面板的「浮起」（阴影）与词条卡的呼吸（内边距 / 行间）——不写就等于没这一层
+SURFACE_OPTIONAL = ("plate_term", "border_term", "ink", "shadow", "term_pad", "term_gap")
 BLUR_MAX = 40          # 超过这个数就不叫「柔化」了，叫把底片糊成一片
 
 RENDERER = ROOT / "scripts" / "render_hf.py"
@@ -115,6 +116,20 @@ def check_surface(pack: dict) -> tuple[list[str], list[str]]:
     ink = surf.get("ink")
     if ink is not None and not HEX_RE.match(str(ink)):
         err.append(f"tokens.surface.ink 不是 #RRGGBB：{ink}")
+    # shadow：要么 none，要么是一串能生效的 CSS 阴影（含 px 半径）；「0 0 0 #000」这种硬边也算写了
+    sh = surf.get("shadow")
+    if sh is not None and str(sh).strip().lower() != "none" and "px" not in str(sh):
+        err.append(f"tokens.surface.shadow 不像 CSS 阴影：{sh}")
+    # term_pad：[上下, 左右] 两个数字（像素）；只写一个数会让上下左右挤成一圈字
+    tp = surf.get("term_pad")
+    if tp is not None:
+        ok_tp = (isinstance(tp, (list, tuple)) and len(tp) == 2
+                 and all(isinstance(v, (int, float)) and v >= 0 for v in tp))
+        if not ok_tp:
+            err.append(f"tokens.surface.term_pad 要写 [上下, 左右] 两个非负数：{tp}")
+    tg = surf.get("term_gap")
+    if tg is not None and not (isinstance(tg, (int, float)) and tg >= 0):
+        err.append(f"tokens.surface.term_gap 要是非负数（px）：{tg}")
     return err, warn
 
 

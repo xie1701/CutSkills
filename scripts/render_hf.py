@@ -1157,10 +1157,12 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   color:rgba(var(--surface-ink-rgb),.94); line-height:1.3; }}
 /* versus：两栏面板 + 圆形 VS 徽标。徽标是「这是对立」的唯一视觉信号 */
 .mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:{mg_gap2}px; width:100%; }}
+/* 面板要能「浮起来」，不能只是「画在背景上的一块色」：外投影 + 较亮的底 + 一根亮边。
+   三样都走 tokens.surface（shadow / plate / border），老包不写就是 none，像素不动。 */
 .mg-versus .side {{ flex:1; display:flex; flex-direction:column; gap:{mg_gap2}px;
   padding:{mg_pan}px {mg_pad2}px; border-radius:{mg_rad}px;
   background:var(--surface-plate); border:1px solid var(--surface-border);
-  backdrop-filter:var(--surface-blur); }}
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow); }}
 .mg-versus .side b {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_vh}px;
   color:var(--surface-ink); }}
 .mg-versus .side span {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_vs}px;
@@ -1174,7 +1176,8 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 /* term 是一张「词条卡」，要有一块自己的面板——白字直接压在杂树/浅墙上必糊
    （srt-motion-cards 的 term-card 就是一块 .84 的深底，这层别省；具体什么色归包管） */
 .mg-term {{ background:var(--surface-plate-term); border:1px solid var(--surface-border-term);
-  border-radius:{mg_rad}px; padding:{mg_pan}px {mg_pad2}px; text-align:left;
+  border-radius:{mg_rad}px; padding:var(--surface-term-pad); text-align:left;
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow);
   align-items:flex-start !important; display:flex; flex-direction:column; }}
 /* 词头**不能**再叫 .mg-term：外层定位容器就是 `mg mg-term`，内外同名时同一个
    `.mg-term` 选择器同时命中两层，卡片被套上一个同样的深框——「黑框套黑框」
@@ -1183,7 +1186,8 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   color:var(--surface-ink); line-height:1.04; letter-spacing:-.02em; }}
 /* 不加左侧竖条：它只对着释义，看着像列表符号，把版面切散（srt 的 term-card 也没有） */
 .mg-term .mg-def {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_step}px;
-  color:rgba(var(--surface-ink-rgb),.95); margin-top:{mg_gap}px; line-height:1.42; text-align:left;
+  color:rgba(var(--surface-ink-rgb),.95); margin-top:var(--surface-term-gap);
+  line-height:1.42; text-align:left;
   text-shadow:0 2px 10px rgba(0,0,0,.9); }}
 {gen_css}
 </style>
@@ -1528,6 +1532,19 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         _blur = float(_surf.get("blur_ness") or 0)
     except (TypeError, ValueError):
         _blur = 0.0
+    # 「浮起」也是语域的一部分：一块板子压在食物上，没投影就像贴纸。
+    # 缺省 none，即不收这一行——老包（P1/P2/P3）像素一个不动。
+    _shadow = str(_surf.get("shadow") or "none")
+    # 词条卡自己的内边距与行间：去掉的是「第二层框」，不是面板的呼吸。
+    # 缺省值就是旧硬编码值（30/26 与 22），所以不写 = 视觉不变。
+    _pxv = lambda v: max(12, int(round(float(v) * (W / 1080.0))))          # noqa: E731
+    _tpad = _surf.get("term_pad")
+    _tpad_css = (f"{_pxv(_tpad[0])}px {_pxv(_tpad[1])}px"
+                 if isinstance(_tpad, (list, tuple)) and len(_tpad) == 2
+                 else f"{_pxv(30)}px {_pxv(26)}px")                        # 旧值：mg_pan / mg_pad2
+    _tgap = _surf.get("term_gap")
+    _tgap_css = (f"{_pxv(_tgap)}px" if isinstance(_tgap, (int, float))
+                 else f"{_pxv(22)}px")                                     # 旧值：mg_gap
     pack_vars = " ".join([
         f"--ground:{_pal.get('ground') or '#1A1410'};",
         f"--ink:{_pal.get('ink') or '#FFFFFF'};",
@@ -1544,6 +1561,9 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f"--surface-ink-rgb:{_srgb};",
         # blur_ness=0 → none：等于不收这一行，老包的像素一个都不动
         f"--surface-blur:{'none' if _blur <= 0 else f'blur({_blur:g}px)'};",
+        f"--surface-shadow:{_shadow};",
+        f"--surface-term-pad:{_tpad_css};",
+        f"--surface-term-gap:{_tgap_css};",
     ])
     # MG 卡的上沿：默认 0.21H，压在字幕带之上；pack 可用 card.mg_top_h 调
     mg_top = round(float((style.get("card") or {}).get("mg_top_h") or 0.21) * 100, 2)
