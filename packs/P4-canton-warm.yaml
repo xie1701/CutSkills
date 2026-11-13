@@ -1,0 +1,113 @@
+# 包装包 · 五子系统（subtitle / mg / fx / frame / look）+ tokens
+# 换包装只换这个文件，不许动 plans/ 与 timeline 的时间。
+#
+# P4-canton-warm · 暖食烟火（餐饮 / 茶楼 / 烘焙 / 本地探店）
+# 为什么单开一包：冷黑蓝半透明卡 + 90% 全屏黑遮罩套在蒸笼、虾饺、烧味上，等于给食物
+# 盖一层灰纱——观众本能觉得「凉了、不新鲜」（references/editorial-packaging-principles.md 原则 B6）。
+# 这一包只换「穿什么」：底板走琥珀深茶棕，遮罩只做局部柔化不压灰，强调色走暖金 + 朱砂。
+# 其余子系统（字幕 / 字重 / 句法 / 卡种 / 音效 / 画幅）照抄 P1-warm，切点与时长一个不动。
+name: P4-canton-warm
+label: 暖食烟火（广式茶楼 / 餐饮）
+canvas:
+  width: 1080
+  height: 1920
+  fps: 30
+# 沿用 P1 的调色链：餐饮素材靠饱和度说话，压暗降饱和就是把食材做旧
+grade: warm_high_sat
+subtitle:
+  font: 得意黑
+  size_px: 80
+  weight: ExtraBold
+  color: '#FFF6EA'          # 暖米白：纯白压在烧味油光上偏冷，米白跟食物同一个色温
+  shadow: 0 3px 8px rgba(28,12,4,.78), 0 1px 2px rgba(28,12,4,.92)
+  stroke: '2px rgba(34,18,10,0.38)'   # 描边也走茶棕，不走中性黑——否则白字边上挂一圈冷边
+  center_y_px: 1294
+  safe_bottom_px: 300
+  max_chars_per_line: 10
+  hold_min_s: 0.8
+  hold_max_s: 3.2
+  density_per_min:
+  - 45
+  - 58
+  entry: hard_cut
+  colorize_emphasis: false
+emphasis:
+  font: NotoSansSC-Black
+  grammars:
+  - big_keyword
+  - strikethrough
+  - quote
+  keyword_color: '#E5A93C'  # 暖金
+  negation_color: '#B8332A' # 广式朱砂
+  big_keyword_px:
+  - 133
+  - 304
+  fit_width: 0.7
+  top_h: 0.3
+  max_one_action_per_caption: true
+shots:
+  talking_median_s: 2.4
+  max_single_shot_s: 12
+  medium_change_within_s: 40
+sfx:
+  density_per_min:
+  - 3
+  - 7
+  placement: on_cut_only
+  tolerance_frames: 2
+  bgm: none_or_very_low
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  cut_fade_ms: 30
+  duck_db: 12
+card:
+  bottom_edge_max_px: 1080
+  mg_top_h: 0.21            # MG 卡上沿（画幅高度比例）
+tokens:
+  palette:
+    ground: '#241812'       # 茶楼木色：比 P1 的 #1A1410 更暖一档
+    ink: '#FFF6EA'          # 暖米白
+    accent: '#E5A93C'       # 暖金（不是荧光柠檬黄——那个在食物上像警示色）
+    accent2: '#B8332A'      # 朱砂
+  # 卡面底板 / 遮罩 / 描边 / 字色（T-018 抽出来的那一层，这包是它的第一个用户）
+  surface:
+    plate: 'rgba(34,18,10,.78)'          # 琥珀深茶棕
+    border: 'rgba(229,169,60,.30)'       # 细金框：茶楼点心纸垫的描边感
+    # 遮罩只**局部**柔化：中心 .52 是暖茶棕、到边缘直接归零，
+    # 不再用 90% 黑遮住整屏——食材被黑遮罩压过一遍就是「隔夜菜」的颜色（原则 B10）
+    scrim: 'radial-gradient(64% 46% at 50% 40%, rgba(28,14,6,.52) 0%, rgba(28,14,6,.38) 52%, rgba(28,14,6,.12) 84%, rgba(28,14,6,0) 100%)'
+    ink: '#FFF6EA'
+    # 12px 磨砂：卡底后面那块画面柔化但不发灰，等于把「压暗」换成「虚焦」
+    blur_ness: 12
+  type:
+    display: NotoSansSC-Black
+    body: NotoSansSC-SemiBold
+  radius: 18
+  stroke: 0
+  shadow: soft-down
+mg:
+  # MG = 代码画的动效卡。选哪张由**内容形态**决定，不由风格决定；
+  # 风格只决定它长什么样（色、字、圆角、描边全走 tokens）。
+  library:
+  - keyword-big      # 一句话结论 / 强断言（现有大字，含脑后模式）
+  - stat             # 数字、规模、时长、比例 —— 必须有出处或标示意
+  - steps            # 两到三步的流程、并列条件
+  - versus           # 两个方案 / 两个时段 / 两边的对比
+  - term             # 名词解释（行话、方言词、品类词）
+  rules:
+  - 一批片子里同一个卡型不重复超过 2 次
+  - 每条片至少一张内容专属卡：有数字就用 stat，有对比就用 versus，有流程就用 steps
+  - MG 卡不许压字幕带，不许压人脸；餐饮题材额外一条：不许压在菜盘正中
+  - 卡上的话必须是台词里的原词，不许另写宣传语
+fx:
+- hard_cut
+- nudge_in
+- cover_fg
+frame:
+  id: full
+  desc: 全屏口播，卡在上三分之一
+subtitle_system:
+  id: single-line
+  desc: 单行 80px、无标点、硬切
+look_notes: 暖食烟火语域：琥珀深茶棕卡底 + 局部暖棕柔化（不压灰食材）+ 暖金/朱砂强调 + 暖米白字。取自广式茶楼点心纸与烧味油光的观感——暖、亮、有食欲；严禁冷黑蓝弹窗底、严禁全屏黑遮罩、严禁冷荧光黄。

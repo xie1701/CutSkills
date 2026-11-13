@@ -216,6 +216,42 @@
       "caveat": "最冒险的一套：没有字幕层，读不清就全盘失守；观众静音看会很吃力",
       "preview": "styles/previews/P3-dark.jpg",
       "status": "planned"
+    },
+    {
+      "id": "P4-canton-warm",
+      "name": "暖食烟火",
+      "one_line": "琥珀深茶棕卡面 + 暖金朱砂，遮罩只局部柔化——不把食材压灰",
+      "subtitle_system": {
+        "id": "single-line",
+        "desc": "单行 80px 暖米白，硬切，描边走茶棕"
+      },
+      "mg_library": "cards-18",
+      "fx": [
+        "硬切",
+        "轻推",
+        "抠像压人后"
+      ],
+      "frame": "full",
+      "look": {
+        "palette": {
+          "ground": "#241812",
+          "ink": "#FFF6EA",
+          "accent": "#E5A93C",
+          "accent2": "#B8332A"
+        },
+        "type": {
+          "display": "NotoSansSC-Black",
+          "body": "NotoSansSC-SemiBold"
+        },
+        "radius": 18,
+        "stroke": 0,
+        "shadow": "soft-down"
+      },
+      "suits": "餐饮、茶楼、烘焙、本地探店；任何要靠「看着就好吃」卖东西的片子",
+      "needs": "食材要有亮部（全暗的素材套暖板也救不回来）；口播字幕要单行",
+      "caveat": "遮罩比科技包弱，卡面后面的画面若过于花乱（杂树、人堆）字会吃不消，得挑挂角或退后",
+      "preview": "styles/previews/P4-canton-warm.jpg",
+      "status": "ready"
     }
   ]
 }

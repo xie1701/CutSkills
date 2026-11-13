@@ -15,11 +15,21 @@
 
 用法：
   render_style_preview.py --pack P1-warm [--pack P3-dark ...] [--out <目录>]
+  render_style_preview.py --pack P4-canton-warm --mg      # 三张 MG 卡真渲（stat/term/versus）
+
+`--mg` 与上面四帧不冲突，回答的是另一个问题：样张是 token 画的，证不了「卡上屏之后
+底襯/遮罩到底压没压灰食材」。所以它把三张卡拼成一条 10.8s 的合成时间轴，走
+render_hf 的真 HTML + hyperframes 截图——像素就是浏览器里那像素（背板是合成渐变，
+不是实拍，只为看清楚卡面与底片的关系）。
 """
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -209,10 +219,107 @@ def sheet(frames: list[Image.Image], dst: Path) -> Path:
     return dst
 
 
+# ------------------------------------------------------------------ MG 卡真渲
+# 为什么不用样张那四帧回答「卡」的问题：那四帧是 Pillow 画的口径，只验色调与版式；
+# 底板不透明、遮罩浓度、描边这些要真上浏览器才算数（T-018 的「框套框」
+# 在 Pillow 里根本现不了身：它是 CSS 选择器双重命中）。
+# 合成背板：一块暖色的「菜盘 + 台面」渐变。它不冒充实拍，只提供一个
+# 亮部（食材/点心）与暗部（桌面），让人一眼看出遮罩有没有把亮部压灰。
+MG_BACKDROP = ("background:"
+               "radial-gradient(46% 26% at 50% 46%, #E8D3AF 0%, #C79A62 62%, rgba(199,154,98,0) 100%),"
+               "linear-gradient(180deg, #6B432A 0%, #4A2A17 52%, #241209 100%);")
+MG_TOTAL = 10.8
+MG_CARDS = [
+    {"kind": "stat", "start": 0.4, "end": 3.4, "text": "两百平",
+     "data": {"value": "200", "unit": "㎡",
+              "label": "厨房占咗全店三分之一，钱花在看不见嘅地方", "source": "牛哥口述 · 2026-10-22"}},
+    {"kind": "term", "start": 3.8, "end": 6.8, "text": "吊水鱼",
+     "data": {"term": "吊水鱼", "def": "瘦身去泥味嘅活鱼，肉紧唔腥"}},
+    {"kind": "versus", "start": 7.2, "end": 10.6, "text": "两种做法",
+     "data": {"left": {"head": "冰鲜直送", "body": "拆箱即蒸，赢在快"},
+              "right": {"head": "吊水瘦身", "body": "去泥味再上台，赢在味"},
+              "tail": "差价就压在这一步"}},
+]
+MG_AT = [2.0, 5.4, 9.2]          # 各卡中段：入场已经做完，看的才是稳态
+
+
+def _hf_bin() -> str:
+    for c in (Path.home() / ".cutskills/npm/node_modules/.bin/hyperframes",
+              Path("/opt/homebrew/bin/hyperframes")):
+        if c.exists():
+            return str(c)
+    return "hyperframes"
+
+
+def _gsap() -> Path | None:
+    """gsap 只为了「入场已做完」的稳态帧；本机 vendor 路径被挪过，就退到仓库里的副本。"""
+    for c in (Path("/Users/jerry/.agents/skills/talking-head-recut/assets/vendor/gsap.min.js"),
+              ROOT / "demo" / "pack-micro" / "hf" / "assets" / "gsap.min.js"):
+        if c.exists():
+            return c
+    return None
+
+
+def mg_page(pack_id: str, work: Path) -> Path:
+    """把三张卡拼成一个最小 hyperframes 合成（无视频、无字幕，只剩卡）。"""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import render_hf as rh  # noqa: PLC0415  —— 只在真渲时引入，样张路径不接重依赖
+
+    pack = yaml.safe_load((ROOT / "packs" / f"{pack_id}.yaml").read_text())
+    (work / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
+    fonts = {}
+    for key, nm in (("sub", (pack.get("subtitle") or {}).get("font")),
+                    ("big", (pack.get("emphasis") or {}).get("font"))):
+        f = rh.find_font(nm)
+        if f is None:
+            raise SystemExit(f"字体不在盘上：{nm}")
+        shutil.copy2(f, work / "assets" / "fonts" / f.name)
+        fonts[key] = f.name
+    g = _gsap()
+    if g:
+        shutil.copy2(g, work / "assets" / "gsap.min.js")
+    cards = [dict(c, seg=i + 1) for i, c in enumerate(MG_CARDS)]
+    html = rh.build_html(slug=f"mg-{pack_id}", W=W, H=H, FPS=30, total=MG_TOTAL,
+                         videos=[], caps=[], cards=cards, style=pack, fonts=fonts,
+                         grade=MG_BACKDROP)
+    (work / "index.html").write_text(html)
+    (work / "meta.json").write_text(json.dumps(
+        {"style": pack_id, "total_s": MG_TOTAL, "cards": len(cards),
+         "captions": 0, "engine": "hyperframes", "note": "MG 卡真渲合成页"},
+        ensure_ascii=False, indent=1))
+    return work / "index.html"
+
+
+def render_mg(pack_id: str, outdir: Path) -> list[Path]:
+    # 合成页与截图都落在临时目录：它们是可重建的中间物，不进仓（样片预览才进）
+    tmp = Path(tempfile.mkdtemp(prefix=f"cutskills-mg-{pack_id}-"))
+    work = tmp / "page"
+    work.mkdir()
+    mg_page(pack_id, work)
+    raw = tmp / "shots"
+    cmd = [_hf_bin(), "snapshot", str(work), "-o", str(raw),
+           "--at", ",".join(f"{t:g}" for t in MG_AT), "--no-end", "--keep"]
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(work))
+    if r.returncode != 0:
+        raise SystemExit("hyperframes snapshot 失败：\n"
+                         + "\n".join(((r.stdout or "") + (r.stderr or "")).splitlines()[-15:]))
+    shots = sorted(raw.glob("*.png"))
+    if len(shots) != len(MG_AT):
+        raise SystemExit(f"期望 {len(MG_AT)} 张截图，实际 {len(shots)}：{[p.name for p in shots]}")
+    made = []
+    for card, src in zip(MG_CARDS, shots):   # snapshot 按时间顺序命名，卡也按时间排
+        dst = outdir / f"{pack_id}-mg-{card['kind']}.png"
+        shutil.copy2(src, dst)
+        made.append(dst)
+    return made
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pack", nargs="+", required=True)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--mg", action="store_true",
+                    help="另外真渲三张 MG 卡（stat/term/versus），需要 hyperframes")
     a = ap.parse_args()
     outdir = Path(a.out).expanduser() if a.out else ROOT / "styles" / "previews"
     made = []
@@ -228,13 +335,16 @@ def main() -> int:
         print(f"样张：{s}")
         # 同时落一张单人帧，细节可查
         frames[1].convert("RGB").save(outdir / f"{pid}-card.png")
-    # 把 preview 写回目录
+        if a.mg:
+            for p in render_mg(pid, outdir):
+                print(f"MG 真渲：{p}")
+    # 把 preview 写回目录（只回写仓内的样片：--out 到仓外时路径属于别人，不该记进目录）
     cat_p = ROOT / "styles" / "catalog.json"
     cat = json.loads(cat_p.read_text())
     for pk in cat["packs"]:
         f = outdir / f"{pk['id']}.jpg"
-        if f.exists():
-            pk["preview"] = str(f.relative_to(ROOT))
+        if f.exists() and f.resolve().is_relative_to(ROOT):
+            pk["preview"] = str(f.resolve().relative_to(ROOT))
             pk["status"] = "ready" if pk.get("status") != "planned" else "planned"
     cat_p.write_text(json.dumps(cat, ensure_ascii=False, indent=2))
     return 0

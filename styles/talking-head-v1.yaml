@@ -88,6 +88,16 @@ tokens:
     ink: "#FFFFFF"
     accent: "#F6EB34"
     accent2: "#C1121F"
+  # T-018：MG 底板/遮罩从渲染器搬到包里。这份是老样式包（golden 三支旧样片走的是它），
+  # 必须逐字照旧写死的那几个值——旧片验收的数字一条都不许动。
+  surface:
+    plate: "rgba(10,13,19,.76)"
+    plate_term: "rgba(12,15,21,.84)"
+    border: "rgba(255,255,255,.16)"
+    border_term: "rgba(255,255,255,.14)"
+    scrim: "radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%)"
+    ink: "#FFFFFF"
+    blur_ness: 0
   type:
     display: NotoSansSC-Black
     body: NotoSansSC-SemiBold

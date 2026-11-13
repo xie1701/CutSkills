@@ -66,6 +66,16 @@ tokens:
     ink: '#1F1B16'
     accent: '#B4552D'
     accent2: '#4A6B57'
+  # 卡面底板 / 遮罩 / 描边 / 字色（T-018）：从 render_hf.py 里抽出来，一个值不改——
+  # 这套包今天的样片长什么样，抽完之后还得一模一样。
+  surface:
+    plate: 'rgba(10,13,19,.76)'
+    plate_term: 'rgba(12,15,21,.84)'
+    border: 'rgba(255,255,255,.16)'
+    border_term: 'rgba(255,255,255,.14)'
+    scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%)'
+    ink: '#FFFFFF'          # 纸底是浅的，卡面板却是深的：卡面字仍用白，不跟 palette.ink 走
+    blur_ness: 0
   type:
     display: NotoSerifSC-Bold
     body: NotoSerifSC-Regular

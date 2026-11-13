@@ -732,6 +732,7 @@
 |---|---|
 | `--pack` | **必填** |
 | `--out` | — |
+| `--mg` | 另外真渲三张 MG 卡（stat/term/versus），需要 hyperframes |
 
 ### `review_sheet.py`
 *CutSkills · 目判工具：把成片拆成「能看的一页」，逼人（和我）真的看图。*
