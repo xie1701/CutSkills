@@ -63,6 +63,19 @@ tokens:
     ink: '#FFFFFF'
     accent: '#F6EB34'
     accent2: '#C1121F'
+  # 卡面底板 / 遮罩 / 描边 / 字色（T-018）：以前写死在 render_hf.py 的 CSS 里，
+  # 换包换不掉。现在归包管——工程手艺语域用暖炭灰，不是冷黑蓝弹窗底。
+  # 改这一块只改「卡长什么样」，切点、时长一个不动。
+  surface:
+    plate: 'rgba(30,27,24,.78)'            # 卡面板底：暖炭灰 #1E1B18
+    plate_term: 'rgba(30,27,24,.86)'       # 词条卡字多面积小，再实一成
+    border: 'rgba(255,241,224,.16)'        # 描边走暖白，不走中性白
+    border_term: 'rgba(255,241,224,.14)'
+    # 全屏暗场只换色温、不换浓度（.90/.76/.38/.12 与旧值一致）：
+    # 浓度是「字读不读得出来」的账，换语域没资格动它
+    scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(20,18,16,.90) 0%, rgba(20,18,16,.76) 46%, rgba(20,18,16,.38) 82%, rgba(20,18,16,.12) 100%)'
+    ink: '#FFFFFF'                         # 卡面字色：暖炭灰底上仍用纯白（对比度优先）
+    blur_ness: 0                           # 0 = 不磨砂，现有样片像素不动
   type:
     display: NotoSansSC-Black
     body: NotoSansSC-SemiBold

@@ -62,6 +62,17 @@ tokens:
     ink: '#F5F7FA'
     accent: '#39D0C4'
     accent2: '#FF6B4A'
+  # 卡面底板 / 遮罩 / 描边 / 字色（T-018）：**深色科技语域就归这套包**——
+  # 原来写死在 render_hf.py 里的冷黑蓝底板与 90% 黑遮罩，原封不动接在这里。
+  # 其它包想用它们得自己写，写不出就是「语域选错了」，而不是默认值。
+  surface:
+    plate: 'rgba(10,13,19,.76)'
+    plate_term: 'rgba(12,15,21,.84)'
+    border: 'rgba(255,255,255,.16)'
+    border_term: 'rgba(255,255,255,.14)'
+    scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%)'
+    ink: '#FFFFFF'
+    blur_ness: 0
   type:
     display: NotoSansSC-Black
     body: NotoSansSC-Regular

@@ -1116,29 +1116,32 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
    暗场里，字号撑开，读起来是「这一幕在讲这个数」。位置限制在字幕带之上（18%–62%H），
    不压人脸上半张。class 名沿用旧的，GSAP 的入场不用改。 */
 /* 整屏暗场 + 内容限制在字幕带之上：srt-motion-cards 的 scrim 就是铺满整个画面的，
-   只在卡片那一小块压暗，等于没压——字照样会跟背景糊在一起（2026-11-12 实测）。 */
+   只在卡片那一小块压暗，等于没压——字照样会跟背景糊在一起（2026-11-12 实测）。
+   遮罩**长什么样**归包管（tokens.surface.scrim）：这里以前写死 90% 黑遮罩，
+   餐饮素材被压成生冷灰暗色，换包也换不掉（T-018 事故）。 */
 .mgwrap {{ position:absolute; inset:0; }}
 .mgwrap::before {{ content:""; position:absolute; inset:0;
-  background:radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%); }}
+  background:var(--surface-scrim); }}
 .mg {{ position:absolute; left:{mg_pad}px; right:{mg_pad}px; top:{mg_lo}%; bottom:{mg_hi}%;
   display:flex; flex-direction:column; justify-content:center;
   align-items:center; text-align:center; }}
 .mg-stat .mg-kick {{ text-shadow:0 2px 10px rgba(0,0,0,.85);
   font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
-  letter-spacing:.16em; color:rgba(255,255,255,.6); margin-bottom:{mg_gap}px; }}
+  letter-spacing:.16em; color:rgba(var(--surface-ink-rgb),.6); margin-bottom:{mg_gap}px; }}
 .mg .mg-title {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_h}px;
-  color:#fff; letter-spacing:.01em; margin-bottom:{mg_gap}px; text-align:center; }}
+  color:var(--surface-ink); letter-spacing:.01em; margin-bottom:{mg_gap}px; text-align:center; }}
 /* stat：kicker → 巨数字 → 说明 → 出处，四行都是居中 */
 .mg-stat .mg-hero {{ display:flex; align-items:baseline; justify-content:center; gap:{mg_gap2}px; }}
 .mg-stat .num {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_num}px;
-  line-height:.94; color:#fff; letter-spacing:-.035em; text-shadow:0 16px 54px rgba(0,0,0,.65); }}
+  line-height:.94; color:var(--surface-ink); letter-spacing:-.035em;
+  text-shadow:0 16px 54px rgba(0,0,0,.65); }}
 .mg-stat .unit {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_unit}px;
   color:var(--accent); }}
 .mg-stat .mg-label {{ font-family:"SC-Sub"; font-weight:700; font-size:{mg_label}px;
-  color:#fff; opacity:1; margin-top:{mg_gap}px; line-height:1.32;
+  color:var(--surface-ink); opacity:1; margin-top:{mg_gap}px; line-height:1.32;
   text-shadow:0 2px 6px rgba(0,0,0,.9), 0 6px 22px rgba(0,0,0,.7); }}
 .mg-stat .mg-src {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_src}px;
-  color:#fff; opacity:.86; margin-top:{mg_gap2}px; letter-spacing:.06em;
+  color:var(--surface-ink); opacity:.86; margin-top:{mg_gap2}px; letter-spacing:.06em;
   text-shadow:0 2px 10px rgba(0,0,0,.95); }}
 /* steps：序号是实心圆点，条目左对齐——「先后」靠上下排，不靠居中对齐 */
 .mg-steps {{ align-items:stretch !important; text-align:left; }}
@@ -1151,31 +1154,40 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   background:var(--accent); width:{mg_dot_w}px; height:{mg_dot_w}px; border-radius:50%;
   display:flex; align-items:center; justify-content:center; flex:0 0 auto; margin-top:{mg_dot_t}px; }}
 .mg-steps li span {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
-  color:rgba(255,255,255,.94); line-height:1.3; }}
+  color:rgba(var(--surface-ink-rgb),.94); line-height:1.3; }}
 /* versus：两栏面板 + 圆形 VS 徽标。徽标是「这是对立」的唯一视觉信号 */
 .mg-versus .mg-ver {{ display:flex; align-items:stretch; gap:{mg_gap2}px; width:100%; }}
+/* 面板要能「浮起来」，不能只是「画在背景上的一块色」：外投影 + 较亮的底 + 一根亮边。
+   三样都走 tokens.surface（shadow / plate / border），老包不写就是 none，像素不动。 */
 .mg-versus .side {{ flex:1; display:flex; flex-direction:column; gap:{mg_gap2}px;
   padding:{mg_pan}px {mg_pad2}px; border-radius:{mg_rad}px;
-  background:rgba(10,13,19,.76); border:1px solid rgba(255,255,255,.16); }}
-.mg-versus .side b {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_vh}px; color:#fff; }}
+  background:var(--surface-plate); border:1px solid var(--surface-border);
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow); }}
+.mg-versus .side b {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_vh}px;
+  color:var(--surface-ink); }}
 .mg-versus .side span {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_vs}px;
-  color:rgba(255,255,255,.78); line-height:1.32; }}
+  color:rgba(var(--surface-ink-rgb),.78); line-height:1.32; }}
 .mg-versus .vs {{ align-self:center; flex:0 0 auto; width:{mg_badge}px; height:{mg_badge}px;
   border-radius:50%; display:grid; place-items:center; font-family:"SC-Big"; font-weight:900;
   font-size:{mg_badge_t}px; color:#0b0d11; background:var(--accent); }}
 .mg-versus .mg-tail {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
-  color:rgba(255,255,255,.88); margin-top:{mg_gap}px; }}
+  color:rgba(var(--surface-ink-rgb),.88); margin-top:{mg_gap}px; }}
 /* term：像一张词条卡，左边一条 accent 竖条把「词」和「释义」分开 */
 /* term 是一张「词条卡」，要有一块自己的面板——白字直接压在杂树/浅墙上必糊
-   （srt-motion-cards 的 term-card 就是 rgba(12,15,21,.84) 的底，这层别省） */
-.mg-term {{ background:rgba(12,15,21,.84); border:1px solid rgba(255,255,255,.14);
-  border-radius:{mg_rad}px; padding:{mg_pan}px {mg_pad2}px; text-align:left;
+   （srt-motion-cards 的 term-card 就是一块 .84 的深底，这层别省；具体什么色归包管） */
+.mg-term {{ background:var(--surface-plate-term); border:1px solid var(--surface-border-term);
+  border-radius:{mg_rad}px; padding:var(--surface-term-pad); text-align:left;
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow);
   align-items:flex-start !important; display:flex; flex-direction:column; }}
-.mg-term .mg-term {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_term}px;
-  color:#fff; line-height:1.04; letter-spacing:-.02em; }}
+/* 词头**不能**再叫 .mg-term：外层定位容器就是 `mg mg-term`，内外同名时同一个
+   `.mg-term` 选择器同时命中两层，卡片被套上一个同样的深框——「黑框套黑框」
+   （2026-11-13 T-018 事故：dianzan-b 的 term 卡）。内层一律用 mg-word。 */
+.mg-term .mg-word {{ font-family:"SC-Big"; font-weight:900; font-size:{mg_term}px;
+  color:var(--surface-ink); line-height:1.04; letter-spacing:-.02em; }}
 /* 不加左侧竖条：它只对着释义，看着像列表符号，把版面切散（srt 的 term-card 也没有） */
 .mg-term .mg-def {{ font-family:"SC-Sub"; font-weight:500; font-size:{mg_step}px;
-  color:rgba(255,255,255,.95); margin-top:{mg_gap}px; line-height:1.42; text-align:left;
+  color:rgba(var(--surface-ink-rgb),.95); margin-top:var(--surface-term-gap);
+  line-height:1.42; text-align:left;
   text-shadow:0 2px 10px rgba(0,0,0,.9); }}
 {gen_css}
 </style>
@@ -1436,7 +1448,8 @@ def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
             body += f'\n      <div class="mg-tail">{esc(str(d["tail"]))}</div>'
     else:  # term
         term = str(d.get("term") or c.get("text") or "")
-        body = (f'      <div class="mg-term">{esc(term)}</div>'
+        # 内层词头叫 mg-word：外层容器就是 mg mg-term，同名会让 `.mg-term` 同时命中两层（框套框）
+        body = (f'      <div class="mg-word">{esc(term)}</div>'
                 f'\n      <div class="mg-def">{esc(str(d.get("def") or ""))}</div>')
     # 外面裹一层定位层：卡在「字幕带之上」的一块暗场里垂直居中，
     # 不是贴在屏幕顶部当便签（2026-11-12 Jerry：MG 美观度太差，改用 srt-motion-cards 的卡）。
@@ -1499,6 +1512,39 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     # 包装 token → CSS 变量串。缺省值取 warming 那套（P1），所以老样式包不写 tokens 也照跑。
     _tk = style.get("tokens") or {}
     _pal = _tk.get("palette") or {}
+    # 卡面底板 / 遮罩 / 描边 / 字色（tokens.surface）：以前写死在下面这坨 CSS 里——
+    # 冷黑蓝弹窗底（#0A0D13 / #0C0F15）加 90% 全屏黑遮罩，换包换不掉，餐饮素材
+    # 被压成生冷灰暗色（T-018 事故）。现在只认包装包；包没写就退成**中性**深灰黑——
+    # 渲染器不许再自己选语域，中性色至少不会替谁表态。
+    _surf = _tk.get("surface") or {}
+    _plate = str(_surf.get("plate") or "rgba(0,0,0,.62)")
+    _border = str(_surf.get("border") or "rgba(255,255,255,.14)")
+    _scrim = str(_surf.get("scrim") or
+                 "radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.78) 0%, "
+                 "rgba(0,0,0,.62) 46%, rgba(0,0,0,.28) 82%, rgba(0,0,0,.08) 100%)")
+    _sink = str(_surf.get("ink") or "#FFFFFF")
+    # rgba(var(--surface-ink-rgb),.78) 靠它推导次要字色
+    try:
+        _srgb = f"{int(_sink[1:3], 16)},{int(_sink[3:5], 16)},{int(_sink[5:7], 16)}"
+    except (ValueError, IndexError):
+        _sink, _srgb = "#FFFFFF", "255,255,255"
+    try:
+        _blur = float(_surf.get("blur_ness") or 0)
+    except (TypeError, ValueError):
+        _blur = 0.0
+    # 「浮起」也是语域的一部分：一块板子压在食物上，没投影就像贴纸。
+    # 缺省 none，即不收这一行——老包（P1/P2/P3）像素一个不动。
+    _shadow = str(_surf.get("shadow") or "none")
+    # 词条卡自己的内边距与行间：去掉的是「第二层框」，不是面板的呼吸。
+    # 缺省值就是旧硬编码值（30/26 与 22），所以不写 = 视觉不变。
+    _pxv = lambda v: max(12, int(round(float(v) * (W / 1080.0))))          # noqa: E731
+    _tpad = _surf.get("term_pad")
+    _tpad_css = (f"{_pxv(_tpad[0])}px {_pxv(_tpad[1])}px"
+                 if isinstance(_tpad, (list, tuple)) and len(_tpad) == 2
+                 else f"{_pxv(30)}px {_pxv(26)}px")                        # 旧值：mg_pan / mg_pad2
+    _tgap = _surf.get("term_gap")
+    _tgap_css = (f"{_pxv(_tgap)}px" if isinstance(_tgap, (int, float))
+                 else f"{_pxv(22)}px")                                     # 旧值：mg_gap
     pack_vars = " ".join([
         f"--ground:{_pal.get('ground') or '#1A1410'};",
         f"--ink:{_pal.get('ink') or '#FFFFFF'};",
@@ -1506,6 +1552,18 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f"--accent2:{_pal.get('accent2') or '#C1121F'};",
         f"--radius:{int(_tk.get('radius') or 18)}px;",
         f"--stroke:{max(1, int(_tk.get('stroke') or 2))}px;",
+        f"--surface-plate:{_plate};",
+        f"--surface-plate-term:{_surf.get('plate_term') or _plate};",
+        f"--surface-border:{_border};",
+        f"--surface-border-term:{_surf.get('border_term') or _border};",
+        f"--surface-scrim:{_scrim};",
+        f"--surface-ink:{_sink};",
+        f"--surface-ink-rgb:{_srgb};",
+        # blur_ness=0 → none：等于不收这一行，老包的像素一个都不动
+        f"--surface-blur:{'none' if _blur <= 0 else f'blur({_blur:g}px)'};",
+        f"--surface-shadow:{_shadow};",
+        f"--surface-term-pad:{_tpad_css};",
+        f"--surface-term-gap:{_tgap_css};",
     ])
     # MG 卡的上沿：默认 0.21H，压在字幕带之上；pack 可用 card.mg_top_h 调
     mg_top = round(float((style.get("card") or {}).get("mg_top_h") or 0.21) * 100, 2)
