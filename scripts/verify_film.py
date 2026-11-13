@@ -357,7 +357,21 @@ def main() -> int:
     band = subs0.get("band") or style["subtitle"].get("center_y_px")
     if cues0 and _has_subs and isinstance(band, list) and len(band) == 2:
         y0, y1 = int(band[0]), int(band[1])
-        picks = [c for c in cues0 if c["end"] - c["start"] > 0.8][:40]
+        picks = [c for c in cues0 if c["end"] - c["start"] > 0.8]
+        # 被重卡挂起的字幕（B9）在这一屏本来就不该有字：拿它去判「字幕色在不在画面上」
+        # 必然假红。按 subs.json 的 suppressed 窗口把它们排掉。
+        _sup = subs0.get("suppressed")
+        _supw = []
+        if isinstance(_sup, list):
+            for s_ in _sup:
+                cu = (s_ or {}).get("cue") or {}
+                if cu.get("start") is not None:
+                    _supw.append((float(cu["start"]), float(cu["end"])))
+        if _supw:
+            picks = [c for c in picks
+                     if not any(abs(float(c["start"]) - a0) <= 0.02
+                                for a0, _b0 in _supw)]
+        picks = picks[:40]
         picks = picks[:: max(1, len(picks) // 3)][:3] if picks else []
         fracs = []
         for i, c in enumerate(picks):
@@ -516,6 +530,16 @@ def main() -> int:
             if im is None:
                 continue
             kind = str(c.get("kind") or "card")
+            # 卡在哪里量：以**这张卡实际落在的框**为准（cards.json 的 layout.box_px，
+            # 由 scripts/card_layout.py 算出来）。以前这里写死 (0.19H–0.62H) 那条带——
+            # 卡一旦按「避脸」挪到下半屏，判据就会在旧位置上找不到字，把「卡没上去」误报。
+            _box = None
+            _lay = c.get("layout") or {}
+            if _lay.get("box_px"):
+                _bx, _by, _bw, _bh = _lay["box_px"]
+                _m = 24
+                _box = (max(0, _bx - _m), max(0, _by - _m),
+                        min(W, _bx + _bw + _m), min(H, _by + _bh + _m))
             if kind in ("keyword", "behind", "cutout"):
                 # 只在窗口中点取一帧会撞上入场动画的半路（擦显才到一半、字刚出来三分一），
                 # 实测同一块字中点 0.02%、往后 0.1s 就 0.13%——一帧定生死会寃红。
@@ -548,11 +572,11 @@ def main() -> int:
                     im_ = frame_at(tt, f"mg{c.get('el')}{frac}", "RGB")
                     if im_ is None:
                         continue
-                    _box = (0, int(H * 0.19), W, int(H * 0.62))
+                    _box_mg = _box or (0, int(H * 0.19), W, int(H * 0.62))
                     if kind == "term":
-                        share = max(share, color_share(im_, "#FFFFFF", _box, tol=46))
+                        share = max(share, color_share(im_, "#FFFFFF", _box_mg, tol=46))
                     else:
-                        share = max(share, kw_share(im_, _box))
+                        share = max(share, kw_share(im_, _box_mg))
                 # term 卡的特征不是 accent：词和释义都是白字，accent 只有释义左边一条 4px 细线，
                 # 拿 accent 占比判它必然报红（2026-11-12 实测 0.02%）。这是判据选错了特征，
                 # 不是卡没上去——所以 term 改判白字占比，其余三种照旧判 accent。
@@ -578,6 +602,30 @@ def main() -> int:
                 add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
                     "green" if dark > 0.12 else "red", "")
         cards_meta = {"_done": []}          # 下面按 EDL 的那段不再重复判
+
+    # 叠加态（B7 图底主权 / B9 双通道去重）。这一项是 2026-11-13 第五轮审查的头号硬伤：
+    # 卡压在主讲人鼻梁上、把脸压成黑板、把菜盘盖住，而 8 道脚本当时全绿——
+    # 因为没有任何一道判据知道人脸在哪。现在由 check_overlay.py 重算（不采信渲染器写的数）。
+    try:
+        import check_overlay as _co
+        _orows = _co.audit(proj)
+        _oe = [m for lv, m in _orows if lv == "error"]
+        _ow = [m for lv, m in _orows if lv == "warning"]
+        _modes: dict[str, int] = {}
+        for _c in (json.loads((proj / "out" / "cards.json").read_text()).get("cards") or []
+                   if (proj / "out" / "cards.json").exists() else []):
+            _md = str((_c.get("layout") or {}).get("mode") or "legacy")
+            _modes[_md] = _modes.get(_md, 0) + 1
+        _val = " · ".join(f"{k} {v}" for k, v in sorted(_modes.items())) or "无卡"
+        if _oe:
+            add("叠加态", _val, "red", _oe[0])
+        elif _ow:
+            add("叠加态", _val, "yellow", _ow[0])
+        else:
+            add("叠加态", _val, "green",
+                "卡全避脸（IoU<2%）· 露脸格无整屏暗场 · 重卡均退字幕")
+    except Exception as _e:                      # 判据本身坏了也要说出来
+        add("叠加态", "判据跑不动", "yellow", str(_e)[:60])
 
     t0 = 0.0
     for s in fin.get("segments") or []:

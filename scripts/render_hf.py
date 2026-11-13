@@ -26,6 +26,7 @@ from make_edl import resolve_lib                      # noqa: E402
 import lock as lockmod                                 # noqa: E402
 import lexicon                                        # noqa: E402
 import subs                                            # noqa: E402
+import card_layout                                     # noqa: E402  B7 叠加态布局（T-019）
 from render_film import load_chars                    # noqa: E402
 
 SKILL = Path(__file__).resolve().parent.parent
@@ -1141,14 +1142,28 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
    自造那版是「顶部一小块 78% 黑底」，看着像贴了个便签；这一版把卡放进画面中段的一块
    暗场里，字号撑开，读起来是「这一幕在讲这个数」。位置限制在字幕带之上（18%–62%H），
    不压人脸上半张。class 名沿用旧的，GSAP 的入场不用改。 */
-/* 整屏暗场 + 内容限制在字幕带之上：srt-motion-cards 的 scrim 就是铺满整个画面的，
-   只在卡片那一小块压暗，等于没压——字照样会跟背景糊在一起（2026-11-12 实测）。
-   遮罩**长什么样**归包管（tokens.surface.scrim）：这里以前写死 90% 黑遮罩，
-   餐饮素材被压成生冷灰暗色，换包也换不掉（T-018 事故）。 */
+/* 叠加态（T-019，原则 B7 图底主权 / B10 局部底衬）：
+   卡放在哪、底片让不让位，不再由一条写死的百分比带决定，也不再有「整屏 90% 暗场」。
+   scripts/card_layout.py 逐卡算出三种合法态之一（corner / focus_blur / cutaway），
+   这里只负责把结果画上去：
+     .mgbox   —— 卡本体放在哪、缩多少（承载位置与 scale）
+     .mgplate —— **跟着卡走的那一块**底衬（羽化边），不再是全屏
+     .mg      —— 卡片本体，GSAP 的入场目标（类名与动画都不动） */
 .mgwrap {{ position:absolute; inset:0; }}
-.mgwrap::before {{ content:""; position:absolute; inset:0;
-  background:var(--surface-scrim); }}
-.mg {{ position:absolute; left:{mg_pad}px; right:{mg_pad}px; top:{mg_lo}%; bottom:{mg_hi}%;
+.mgbox {{ position:absolute; left:{mg_pad}px; right:{mg_pad}px; top:{mg_lo}%; bottom:{mg_hi}%; }}
+.mgplate {{ position:absolute; pointer-events:none; background:var(--surface-scrim);
+  -webkit-mask-image:var(--mg-plate-mask,none); mask-image:var(--mg-plate-mask,none); }}
+/* 景深退后：只对这块底板做背景模糊，画面其余部分保持清晰 */
+.mgplate.mg-blur {{ backdrop-filter:blur({mg_blur}px) saturate(.92);
+  -webkit-backdrop-filter:blur({mg_blur}px) saturate(.92); }}
+/* 整屏纯底切出（B7 第三种态）：底衬换成包的不透明语域底，不靠半透明板子「差不多盖住」
+   ——那是糊，不是切走。两层叠上去：底板色（tokens.surface.plate）压在 palette.ground 上，
+   再叠包自己的遮罩。只铺 ground 一层会把整屏压成近黑（实测 L≈0.10，被 blackdetect 判成黑帧），
+   底板色那一层既保住语域，也把亮度拉回 0.2 以上——切出的是「品牌底板」，不是「黑屏」。 */
+.mgplate.mg-cut {{ background-color:var(--ground);
+  background-image:linear-gradient(var(--surface-plate), var(--surface-plate)),
+    var(--surface-scrim); }}
+.mg {{ position:absolute; inset:0;
   display:flex; flex-direction:column; justify-content:center;
   align-items:center; text-align:center; }}
 .mg-stat .mg-kick {{ text-shadow:0 2px 10px rgba(0,0,0,.85);
@@ -1477,11 +1492,37 @@ def _mg_html(c: dict, i: int, style: dict | None = None) -> str:
         # 内层词头叫 mg-word：外层容器就是 mg mg-term，同名会让 `.mg-term` 同时命中两层（框套框）
         body = (f'      <div class="mg-word">{esc(term)}</div>'
                 f'\n      <div class="mg-def">{esc(str(d.get("def") or ""))}</div>')
-    # 外面裹一层定位层：卡在「字幕带之上」的一块暗场里垂直居中，
-    # 不是贴在屏幕顶部当便签（2026-11-12 Jerry：MG 美观度太差，改用 srt-motion-cards 的卡）。
+    # 外面裹一层定位层：位置与缩放来自 card_layout.py 算出的叠加态（T-019）。
+    # 旧版是「一条固定百分比带」（21%–62%H）+ 整屏暗场——那条带落在口播近景上
+    # 正好压在眼睛与鼻梁之间，第五轮审查就是拿这个打回的。没算过布局时
+    # （老项目 / 兜底路径）仍退回 CSS 里那条带，行为与以前一致，不静默改变。
+    lay = c.get("layout") or {}
+    if lay.get("plate_px"):
+        px_, py_, pw_, ph_ = lay["plate_px"]
+        bx, by = (lay.get("box_px") or [0, 0])[:2]
+        nw, nh = lay.get("box_nat_px") or [0, 0]
+        mode = str(lay.get("mode") or "corner")
+        mask = ("none" if mode == "cutaway" else
+                "linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 18%, #000 82%, "
+                "rgba(0,0,0,0) 100%)" if mode == "focus_blur" else
+                "radial-gradient(72% 66% at 50% 50%, #000 58%, rgba(0,0,0,0) 100%)")
+        plate_style = (f"left:{px_}px;top:{py_}px;width:{pw_}px;height:{ph_}px;"
+                       f"--mg-plate-mask:{mask};")
+        box_style = (f"left:{bx}px;top:{by}px;right:auto;bottom:auto;"
+                     f"width:{nw}px;height:{nh}px;"
+                     f"transform:scale({lay.get('scale')});transform-origin:top left;")
+        blur_cls = (" mg-blur" if lay.get("blur_px") else "") + \
+                   (" mg-cut" if mode == "cutaway" else "")
+    else:
+        plate_style = "left:0;top:0;width:100%;height:100%;--mg-plate-mask:none;"
+        box_style, blur_cls, mode = "", "", "legacy"
     return (f'    <div id="mg-{i:02d}" class="clip mgwrap" '
-            f'data-start="{c["start"]}" data-duration="{dur}">\n'
-            f'      <div class="mg mg-{kind}">\n{body}\n      </div>\n    </div>')
+            f'data-start="{c["start"]}" data-duration="{dur}" data-layout="{mode}">\n'
+            f'      <div class="mgplate{blur_cls}" style="{plate_style}"></div>\n'
+            f'      <div class="mgbox" style="{box_style}">\n'
+            f'        <div class="mg mg-{kind}">\n{body}\n        </div>\n'
+            f'      </div>\n'
+            f'    </div>')
 
 
 def esc(t: str) -> str:
@@ -1753,6 +1794,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         cap_em=sub.get("em_color") or (emph.get("keyword_color") or "#FFD400"),
         kw_top=kw_top, kw_px=kw_px, kwb_top=kwb_top, kwb_px=kwb_px, mg_top=mg_top,
         mg_lo=mg_lo, mg_hi=mg_hi, mg_pad=mg_pad, mg_pad2=mg_pad2, mg_gap=mg_gap,
+        mg_blur=card_layout.BLUR_PX,
         mg_gap2=mg_gap2, mg_num=mg_num, mg_unit=mg_unit, mg_label=mg_label,
         mg_src=mg_src, mg_h=mg_h, mg_step=mg_step, mg_term=mg_term, mg_vh=mg_vh,
         mg_vs=mg_vs, mg_badge=mg_badge, mg_badge_t=mg_badge_t, mg_rad=mg_rad,
@@ -2434,6 +2476,63 @@ def main():
     # 卡能跨格活着，但不能和 overlay 生成物同屏抢位（同屏只讲一件事）。
     cards = [c for c in cards
              if not any(c["start"] < b0 - 0.05 and c["end"] > a0 + 0.05 for a0, b0 in ov_win)]
+    for _i, _c in enumerate(cards, 1):
+        _c["mg"] = f"mg-{_i:02d}"          # 卡的稳定 id：闸门报错、退字幕留痕都认它
+
+    # 叠加态（T-019 / B7）：卡放哪、底片让不让位，逐卡算。
+    # 以前这里只有一种态——整屏暗场 + 卡钉在 21%–62%H，口播近景上正好压在鼻梁。
+    _med_of = {int(s["n"]): str(s.get("medium") or "") for s in segs}
+    _ov_map = {str(s.get("n")): (s.get("card") or {}).get("layout")
+               for s in segs if (s.get("card") or {}).get("layout")}
+    _sctr = float(sub.get("center_y_px") or H * 0.674)
+    _band_n = (round(max(0.0, (_sctr - 180) / H), 4), round(min(1.0, 360 / H), 4))
+    if cards:
+        cards = card_layout.layout_cards(cards, proj=proj, videos=videos, style=style,
+                                        W=W, H=H, sub_band=_band_n, subs_on=False,
+                                        media_of=lambda n: _med_of.get(int(n), ""),
+                                        overrides=_ov_map)
+        for _c in cards:
+            _ly = _c.get("layout")
+            if not _ly:
+                continue
+            print(f"  {_c['mg']} {_c['kind']:<7} {_c['start']:.2f}–{_c['end']:.2f}s · "
+                  f"{_ly['mode']:<10} 框 {_ly['box_px']} · 人脸 IoU {_ly['face_iou'] * 100:.2f}%"
+                  f" · {_ly['why']}", file=sys.stderr)
+
+    # 双通道去重（B9）：重型 MG 卡在场期间，底部同期声字幕自动挂起。
+    # 一屏只留一处文字焦点——卡上已经有数字/两栏/三步，底下再跳一句字幕，眼睛上下撕裂。
+    # 挂起要留痕（subs.json 的 suppressed 列表）：不记就变成「悄悄漏字幕」，
+    # 而它本来该是「 chars 说了但这一屏故意不写」。
+    _suppressed: list[dict] = []
+    if caps and ss_id != "none":
+        _keep = []
+        for _c in caps:
+            _hit = None
+            for _k in cards:
+                _ly = _k.get("layout") or {}
+                if _k.get("kind") not in card_layout.HEAVY_KINDS or not _ly:
+                    continue
+                _ov = min(float(_c["end"]), float(_k["end"])) - \
+                    max(float(_c["start"]), float(_k["start"]))
+                if _ov >= 0.15:
+                    _hit = (_k, _ov)
+                    break
+            if _hit is None:
+                _keep.append(_c)
+                continue
+            _k, _ov = _hit
+            _suppressed.append({
+                "card": _k.get("mg"), "kind": _k["kind"],
+                "card_window": [round(_k["start"], 3), round(_k["end"], 3)],
+                "cue": {"start": round(_c["start"], 3), "end": round(_c["end"], 3),
+                        "text": _c.get("text")},
+                "overlap_s": round(_ov, 3),
+                "reason": "重型 MG 卡在场，同期声字幕挂起（B9 同屏单焦点）",
+            })
+        caps = _keep
+        if _suppressed:
+            print(f"  重卡退字幕：{len(_suppressed)} 条挂起（记入 out/subs.json 的 suppressed）",
+                  file=sys.stderr)
 
     # 大字放人物背后：给这些段做一层带 alpha 的人像，叠在卡上面、字幕下面。
     # 层级：底(全画幅) → 卡 → 人像(透明背景) → 字幕。
@@ -2475,7 +2574,11 @@ def main():
     ctr = float(sub.get("center_y_px") or H * 0.674)
     (proj / "out" / "subs.json").write_text(json.dumps({
         "cues": caps_json,
-        "suppressed": caps_suppressed,
+        # suppressed 是**列表**：被重卡挂起的那几条字幕（含卡的 id 与理由）。
+        # B9 要求「记入 suppressed 留痕」——留痕的是「哪一条、被哪张卡压住、为什么」，
+        # 而不是一个布尔。整层字幕关掉（subtitle_system: none）单列 subtitle_suppressed。
+        "suppressed": _suppressed,
+        "subtitle_suppressed": caps_suppressed,
         "subtitle_system": ss_id,
         "band": [max(0, int(ctr) - 260), min(H, int(ctr) + 260)],
         "font": fonts_hint(style), "size": int(sub.get("size_px") or 0),
@@ -2520,6 +2623,22 @@ def main():
         except Exception as _e:                                    # noqa: BLE001
             print(f"！卡准入检查没跑起来：{_e}", file=sys.stderr)
             return 6
+
+    # 叠加态（B7 / B9）：卡压脸、口播格整屏暗场、重卡与字幕同屏，三件都不许进片。
+    # 退出码 7：和 5（声音在前）、6（卡准入）分开，看日志就知道卡在哪一道。
+    if not getattr(a, "force", False):
+        try:
+            import check_overlay as _co
+            _ov_ = [(lv, m) for lv, m in _co.audit(proj) if lv == "error"]
+            if _ov_:
+                print("！叠加态没过（压脸 / 口播整屏暗场 / 重卡撞字幕），拒绝渲染：",
+                      file=sys.stderr)
+                for _lv, m in _ov_[:8]:
+                    print(f"   · {m}", file=sys.stderr)
+                return 7
+        except Exception as _e:                                    # noqa: BLE001
+            print(f"！叠加态检查没跑起来：{_e}", file=sys.stderr)
+            return 7
 
     # 1b) 逐镜校对亮度与白平衡（整片一个平均值不够——口播段和工地段差一倍）
     if a.shot_match > 0 and videos:
