@@ -4,7 +4,7 @@
  "elements": 14,
  "clips": 14,
  "gen": 0,
- "total_s": 79.055,
+ "total_s": 78.709,
  "captions": 37,
  "cards": 6,
  "pips": [],
@@ -14,8 +14,8 @@
   "big": "NotoSansSC-Black.ttf"
  },
  "engine": "hyperframes",
- "duration_s": 79.06,
- "lufs": -14.18,
+ "duration_s": 78.71,
+ "lufs": -14.19,
  "true_peak": -1.9,
- "bytes": 128386584
+ "bytes": 127753683
 }
