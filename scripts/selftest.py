@@ -339,6 +339,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_edge_audit.py")])
     must("孤立提示词判据回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("⑰ 口令查表口径回归（T-038：手写词优先 / 两套键 / 切片偏移 / 缺真值不静默）")
+    r = sh([PY, str(ROOT / "scripts" / "test_cue_guard.py")])
+    must("口令查表口径回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:

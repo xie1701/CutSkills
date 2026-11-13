@@ -404,9 +404,16 @@ def main() -> int:
     # 音频窗口一旦套住口令，剪辑方案就已经错了，后面渲得再好也是错的。
     try:
         import cue_guard
-        by_id = {x.get("id"): x for x in (index.get("assets") if isinstance(index, dict) else []) or []}
-        if not by_id and isinstance(index, list):
-            by_id = {x.get("id"): x for x in index}
+        by_id: dict = {}
+        if isinstance(index, dict):
+            # `load_index` 交上来的是 {id: 记录}，不是 {"assets": [...]}——老代码只认后者，
+            # 于是 by_id 永远空、这一整段口令拦截对每一格都 `continue` 掉了（T-038）。
+            by_id.update({k: v for k, v in index.items() if isinstance(v, dict)})
+            for x in index.get("assets") or []:
+                if isinstance(x, dict) and x.get("id"):
+                    by_id[x["id"]] = x
+        elif isinstance(index, list):
+            by_id.update({x.get("id"): x for x in index if isinstance(x, dict) and x.get("id")})
         root = lib
         for el in tl.get("elements") or []:
             au = el.get("audio") or {}
@@ -414,7 +421,13 @@ def main() -> int:
             rec = by_id.get(aid)
             if not rec:
                 continue
-            ws = cue_guard.words_of(rec, root)
+            ws, src = cue_guard.words_and_source(rec, root)
+            if src != "word" or not ws:
+                # 没有词级真值 = 这一格的口令拦截没跑。句级真值没有逐字时间，拿它猜
+                # 口令会把「三二一组」整句判成口令，也会把真口令放过——所以只能说「判不了」。
+                probs.append(("warning", f"#{el.get('n')} 该段没有词级真值，口令判不了"
+                                         f"（{aid}）——「别人的话不许进片」这一条对它是空跑的"))
+                continue
             cues = cue_guard.find_cues(ws)
             if not cues:
                 continue
