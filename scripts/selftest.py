@@ -351,7 +351,7 @@ def main() -> int:
     print("⑳ behind 大字取样带回归（T-041：人脑后大字被 keyword 的带子量空 → 假红）")
     r = sh([PY, str(ROOT / "scripts" / "test_behind_band.py")])
     must("behind 取样带回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
-    print("㉑ keyword 大字回归（T-045：压脸 / 可读性 ΔL / 单排宽度，三条都给负样本）")
+    print("㉑ keyword 大字回归（T-045：压脸 / 可读性 ΔL / 单排宽度；T-046：字号按 em 宽反算、behind 量在渲器落点含顶部渐变）")
     r = sh([PY, str(ROOT / "scripts" / "test_keyword_text.py")])
     must("keyword 大字回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 

@@ -225,6 +225,37 @@ def readable_dl(frame: np.ndarray, ink: np.ndarray, box, ink_l: float) -> dict:
             "dl_med": round(float(np.median(a)), 1), "n": len(dl)}
 
 
+def clip_at(videos: list[dict], t: float):
+    return next((v for v in videos
+                 if v["start"] - 1e-6 <= t <= v["start"] + v["dur"] + 1e-6), None)
+
+
+def place_of(proj: Path, card: dict, style: dict, W: int, H: int, videos: list[dict]):
+    """这张大字**到底被画在哪** → (top_h, 要不要算顶部渐变, 一句话说明)。
+
+    渲器的优先级必须照抄，包括「放不到脑后 → 头顶大字」那条 override：
+    `card_layout.kw_top_of` 的 ① 优先级就是渲器算出来的 `kw_top_override`，它**压在
+    `card.top_h` 之上**。判据只按 timeline 的 top_h / 包的默认值量，就会去量一张卡根本
+    没出现的位置——`qizao-ground-01` 那张 behind 实际画在 **5.5%H**（`cards.json` 的
+    `kw_top_h` 与成片墨迹都在那里），判据却在 28.5%H 量到 11.2 报红（T-046 实测）。
+
+    顺带把「头顶大字自带顶部渐变」带回来：那一层渲器画了，判据量可读性就得合上去，
+    否则量的是没上屏的中间态。
+    """
+    kind = str(card.get("kind") or "")
+    if kind in ("behind", "cutout"):
+        v = clip_at(videos, float(card.get("start") or 0.0))
+        if v is not None and v["clip"].exists():
+            from render_hf import mask_stats, behind_ok      # 渲器的判定，不另写一份
+            st = mask_stats(proj / "hf" / "work" / "mask" / v["clip"].stem, W, H)
+            if not behind_ok(st):
+                return (CL.kw_head_override(st), True,
+                        f"头顶大字（放不到脑后：头顶 {float((st or {}).get('head_top') or 0) * 100:.0f}%H、"
+                        f"人占 {float((st or {}).get('face_w') or 0) * 100:.0f}%W），自带顶部渐变")
+    top, scrim, own = CL.kw_top_of(card, style, W, H)
+    return top, bool(scrim), ("卡自己定的 top_h" if own else "包默认上沿")
+
+
 def face_hits(proj: Path, win, videos: list[dict], box_n) -> list[dict]:
     """卡窗内每一采样帧里，与字框真重叠（面积 > 0）的每一张脸。
 
@@ -305,7 +336,8 @@ def audit(proj: Path, film: Path | None = None,
         kind = str(c.get("kind") or "")
         text = str(c.get("text") or "")
         win = (float(c["start"]), float(c["end"]))
-        top_h, _scrim, _own = CL.kw_top_of(c, style, W, H)
+        top_h, want_scrim, place = place_of(proj, c, style, W, H, videos)
+        scrim_a = CL.kw_scrim_alpha(W, H, top_h) if want_scrim else None
         box = CL.kw_ink_box(text, style, W, H, top_h)
         if box is None:
             rows.append(("error", f"{mg}（{kind} {win[0]:.2f}–{win[1]:.2f}s）"
@@ -331,7 +363,7 @@ def audit(proj: Path, film: Path | None = None,
                          f"字号 {box['font_px']}px）"))
         else:
             rows.append(("info", f"{mg}「{text}」字框 {box['px']} = {bw * 100:.1f}%W"
-                                 f"（字号 {box['font_px']}px，上沿 {top_h:.0%}H"
+                                 f"（字号 {box['font_px']}px，上沿 {top_h * 100:.1f}%H·{place}"
                                  f"{'，隔离层 ' + iso['rgba'] if iso else ''}）"))
 
         # ① 压脸
@@ -392,6 +424,8 @@ def audit(proj: Path, film: Path | None = None,
                                                       r2["dl_p10"] < worst_dl["dl_p10"])) else worst_dl
                 continue
             f2 = fr.astype(np.float32)
+            if scrim_a is not None:                # 头顶大字自带的那层顶部渐变（渲器画的）
+                f2 = f2 * (1.0 - scrim_a[..., None])
             if pod is not None:                    # 隔离层：先压暗，再量「字底下的那几行像素」
                 a = pod[..., None]
                 f2 = f2 * (1.0 - a) + np.array(iso["rgb"], dtype=np.float32) * a

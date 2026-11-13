@@ -1129,7 +1129,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 /* 强调：数字与否定/对比词。只染这两类，别的一个字都不动 */
 .cap .em {{ color:{cap_em}; font-weight:800; }}
 .scrim {{ position:absolute; left:0; right:0; top:0; pointer-events:none;
-         background:linear-gradient(to bottom, rgba(0,0,0,.58), rgba(0,0,0,0)); }}
+         background:linear-gradient(to bottom, rgba(0,0,0,{scrim_a}), rgba(0,0,0,0)); }}
 .kw {{ position:absolute; left:0; right:0; top:{kw_top}%; display:flex; justify-content:center;
        padding:0 {cap_pad}px; }}
 /* behind：字压在人物脑袋后面，露一半。位置按样式的 top_h，字更大一号，
@@ -1869,7 +1869,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
                 if _want_scrim:
                     card_html.append(
                         f'    <div class="scrim" data-start="{c["start"]}" data-duration="{d}"'
-                        f' style="height:{min(0.30, _top_h + 0.14) * 100:.1f}%"></div>')
+                        f' style="height:{card_layout.kw_scrim_h(_top_h) * 100:.1f}%"></div>')
             else:
                 _inline = ""
             # 大字隔离层（T-045）：字压在杂乱背景上时，得有一层把「字底下的那几行像素」
@@ -1927,6 +1927,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         mg_pan=mg_pan, mg_dot=mg_dot, mg_dot_w=mg_dot_w, mg_dot_r=mg_dot_r,
         mg_dot_t=mg_dot_t,
         kw_color=emph.get("keyword_color") or "#FFD400",
+        scrim_a=card_layout.KW_SCRIM_ALPHA,
         kw_extra=("background:linear-gradient(180deg,%s 0%%,%s 100%%);"
                   "-webkit-background-clip:text;color:transparent;" %
                   tuple((emph.get("gradient") or ["#FFE53B", "#FFB000"])[:2])
@@ -2684,8 +2685,7 @@ def main():
                 # 放脑后做不到干净，就走「头顶大字」：字底压在头顶上方 1.5%H，
                 # 顶部加渐变压暗。这是实测过的路子——不加渐变的话，画面
                 # 顶部那些梁柱管道会从字缝里透出来。
-                head = (st or {}).get("head_top") or 0.15
-                kw_top_override[n_] = max(0.055, head - 0.095)
+                kw_top_override[n_] = card_layout.kw_head_override(st)
                 print(f"  · 段 {n_} 人像占 {((st or {}).get('face_w') or 0):.0%}W、"
                       f"头顶 {(st or {}).get('head_top', 0):.0%}H → 不放脑后，改头顶大字", file=sys.stderr)
 
