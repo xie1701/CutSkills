@@ -327,6 +327,10 @@ def main() -> int:
          f"{len(bad)} 个 tracked 文件在 references/**/work/：" + "、".join(bad[:3])
          if bad else (r.stderr or r.stdout).strip()[-160:])
 
+    print("⑮ 声/画双评级门禁回归（T-015：audio_only 挂 talking 必红，改 broll 留声放行）")
+    r = sh([PY, str(ROOT / "scripts" / "test_visual_grade.py")])
+    must("声/画双评级门禁回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     secs = time.time() - t0
     print()
     if fails:

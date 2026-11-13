@@ -445,6 +445,9 @@ def main() -> int:
         probs.append(("error", f"边界审计没跑起来（{exc}）——不许静默跳过"))
     except Exception as exc:                      # noqa: BLE001
         probs.append(("warning", f"边界审计出错：{type(exc).__name__}: {exc}"))
+    # 声/画双评级（T-015 · 原则 A2）：露脸格引用了「画不能露」的窗口＝穿帮；B-roll 留声是正解，不拦。
+    import visual_grade
+    probs.extend(visual_grade.gate(tl.get("elements") or [], lib))
     errs = [m for lv, m in probs if lv == "error"]
     warns = [m for lv, m in probs if lv == "warning"]
     s = summary(tl)
