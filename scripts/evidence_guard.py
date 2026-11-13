@@ -62,6 +62,86 @@ def pinyin_of(ch: str) -> str:
         return ch
 
 
+# ---- 同音放行：字幕/台词两边共用的一份（T-040）----------------------------
+#
+# ASR 听错字是**音**搭错（声母/韵母），不是语义相近。所以放行只许在音节层面判：
+# 先比整个音节，再退到声母、韵母各有一截对得上——不许拿「相似度够了」顶替（那是语义猜测）。
+INITIALS = ("zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l",
+            "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w")
+
+# 人称代词不参与同音放行。「我」听成「你」不是错一个字，是把话说给谁听反了——
+# 本文件自己的判据里人称错位也是唯一判 error 的一条，两边口径一致。
+PRONOUN = set("我你您佢他她牠它哋们俺咱")
+
+
+def sound_of(ch: str) -> tuple[str, str]:
+    """单字 → (声母, 韵母)。缺 pypinyin 时退化成 (字, 字)：放行变严，但不会崩。"""
+    py = pinyin_of(ch)
+    if py == ch:
+        return ch, ch
+    for ini in INITIALS:
+        if py.startswith(ini):
+            return ini, py[len(ini):]
+    return "", py
+
+
+def homophone(a: str, b: str) -> bool:
+    """两个字是不是同一个音：同音节，或声母、韵母各有一截对得上。"""
+    if a == b or pinyin_of(a) == pinyin_of(b):
+        return True
+    (ia, fa), (ib, fb) = sound_of(a), sound_of(b)
+    return (bool(ia) and ia == ib) or (bool(fa) and fa == fb)
+
+
+def _pair_off(ts: list[tuple[str, str]],
+              es: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+    """把两边对不上的字按同音配掉，剩下的是各自多出来的字。配不上的不会消失。"""
+    used = [False] * len(ts)
+    ev_extra: list[str] = []
+    for ch, _py in es:
+        hit = next((k for k in range(len(ts)) if not used[k] and homophone(ch, ts[k][0])), None)
+        if hit is None:
+            ev_extra.append(ch)
+        else:
+            used[hit] = True
+    return [c for k, (c, _p) in enumerate(ts) if not used[k]], ev_extra
+
+
+def two_sided(truth: str, evidence: str) -> tuple[list[str], list[str]]:
+    """双向对账：**(真值里对不上的实词, 字幕里对不上的实词)**，两边都过同一套同音放行。
+
+    为什么必须双向：ASR 不是「只多写」，是「一串字换成另一串字」，丢字和多字同时发生。
+    只数字幕这边多出来的字，就把「两个字被听成三个音」判成凭空编造——naming-01 的
+    「什么」/「为我没有」就是这么误报的（对账结果：字幕这边多「什么漆」、音频这边多
+    「为我没有」，两边都多，账是平的）。单边净多出才是编造。
+
+    段落切开的方式跟 `invented` 同一个思路：一串字换一串字（两边都 ≥2 字、整体像）
+    整段放行，不拆成逐个字判。
+    """
+    T, E = core(truth), core(evidence)
+    if not E:
+        return [c for c, _ in T], []
+    if not T:
+        return [], [c for c, _ in E]
+    blocks = SequenceMatcher(None, [c for c, _ in T], [c for c, _ in E],
+                             autojunk=False).get_matching_blocks()
+    tr_extra: list[str] = []
+    ev_extra: list[str] = []
+    ti = ei = 0
+    for blk in blocks:
+        t_part, e_part = T[ti:blk.a], E[ei:blk.b]
+        a, b = [c for c, _ in t_part], [c for c, _ in e_part]
+        if len(a) >= 2 and len(b) >= 2 and SequenceMatcher(
+                None, a, b, autojunk=False).ratio() >= 0.45:
+            pass                       # 整截被听错，不是编造
+        else:
+            t_left, e_left = _pair_off(t_part, e_part)
+            tr_extra += t_left
+            ev_extra += e_left
+        ti, ei = blk.a + blk.size, blk.b + blk.size
+    return tr_extra, ev_extra
+
+
 WORD = "word"            # 词级真值：每个字带时间，能判「这个字在哪一秒被说出来」
 SENTENCE = "sentence"    # 句级真值：只有整句文本，判不了逐字时机
 NONE = "none"            # 一级都没有

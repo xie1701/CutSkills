@@ -51,13 +51,14 @@ Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](r
 python3 scripts/evidence_guard.py --project <项目>      # evidence 必须是说过的话
 python3 scripts/speech_hygiene.py --project <项目>      # 口水 / 半句起头 / 接缝重复
 python3 scripts/silence.py <素材> <in> <out>            # 量一段窗口里真有多长的静音（相对阈值，底噪高也量得出）
-python3 scripts/check_timing.py   --project <项目>      # 卡比锚词晚 0.15s、字幕不早于语音
+python3 scripts/check_timing.py   --project <项目>      # 卡比锚词晚 0.15s、字幕不早于语音、字幕不许编造（双向同音对账）
 python3 scripts/pick_take.py --library <素材库> --about 关键词   # 同一个论点选哪个 take（--for talking 挑露脸 / --for vo 只挑声）
 python3 scripts/stability.py                            # 画面稳定度曲线（跳切切点避开转头挥手）
 python3 scripts/test_av_lock.py                         # 口播段音画同源（画面起点被清零＝嘴形全错）
 python3 scripts/test_visual_grade.py                    # 声/画双评级：audio_only（拿稿/看场外）挂 talking 必红，改 broll 留声放行（T-015）
 python3 scripts/edge_audit.py --project <项目>          # 提词半截词 / 尾巴挂下一句 / 话停了画面还在演（并列列举、单字虚词、句内排比不判）
 python3 scripts/test_edge_audit.py                      # 孤立提示词正负样本：并列列举不红 / 重起句必红（T-037）
+python3 scripts/test_timing_subs.py                     # 字幕后置判据正负样本：同音/丢字不误杀，凭空加实词与人称错位照红（T-040）
 python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）
 python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
