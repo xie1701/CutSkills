@@ -300,7 +300,13 @@ index_assets.py --library "<库>" --stage finish --merge-l2 # 重算分级 + 出
 2. 你（大模型）读语料手册 + 那几行上下文，把决定写进 `_cutskills/lexicon.json`：`terms`（错写→正确写法）、`protect`（必须写对的专名，不参与替换）。**判断必须带背景**——读 `柒造品牌语料手册-v1.2.md` 这种库内语料，别凭空猜。标了「待人工」的条目（「大咧」可能是「大家」也可能是「大间」）必须有人读上下文再拍板。
 3. `index_assets.py --stage rephrase`：按词表在字级时间轴上做最长匹配替换，秒级，不重跑 ASR。
 
-**词表守卫（T-017）**：写进 `terms` 不等于能落地。等长且不碰否定字的自动应用；**不等长**的要条目自己标 `{"to": "…", "unsafe": true}`，调用方还要显式允许；**增删否定字**（不/没/别/未/唔/冇）的一律硬拦（会静默反转句意）。被拦的条目不会静默消失——`python3 scripts/lexicon.py --library "<库>"` 逐条列出来并给出可粘贴的修正 JSON；单条候选用 `--term "错写=>建议词"` 先问机器，`--allow-unsafe` / `--allow-negation-edit` 就是那两道人工闸。
+**词表守卫（T-017）：判「谁写的」，不是只判「等不等长」。**
+
+- `_cutskills/lexicon.json` 里的条目**是人写定的**，写下去那一次就是显式批准——不等长也照旧应用，只在报告里以 info 点名「字宽会被均摊、时间戳按新字数重分布」。`python3 scripts/lexicon.py --library "<库>"` 把这类逐条列出来（已应用的也列，别让它悄悄发生）。
+- **机器扫出来的建议**（`scripts/data/suspect-words.txt`、`--term` 候选）没这个待遇：不等长必须条目自己标 `{"to": "…", "unsafe": true}`，调用方再显式 `--allow-unsafe` 才落地。
+- 两条路一样：**增删否定字**（不/没/别/未/唔/冇）一律硬拦，人写的也不放过（会静默反转句意），只有读过上下文、显式 `--allow-negation-edit` 才放。
+
+被拦的条目不会静默消失：`lexicon.py --library` 与 `_cutskills/transcript-fix.md` 会把它们连原因一起列出来。
 
 判据全在数据里，不写死在逻辑里：残词表 `scripts/data/suspect-words.txt`（`错词<TAB>建议词<TAB>等长|不等长<TAB>备注[<TAB>排除后接]`）、量级表 `scripts/data/abnormal-magnitudes.json`（长度/重量的合理量级，分「荒谬」与「可疑」两档）。上屏前 `check_subs.py` 拿同一份表再做一道闸：命中的残词、口吃重尾、荒谬量级一律 error（「可疑」量级只提示，不判红——「三十米高的中庭」是真话）。
 

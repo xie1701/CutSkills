@@ -173,53 +173,86 @@ def _neg_delta(bad: str, good: str) -> str:
     return "、".join(out)
 
 
-def guard(bad: str, good: str, meta: dict | None = None, *,
-          allow_unsafe: bool = False, allow_negation_edit: bool = False) -> tuple[bool, str]:
-    """这一条替换能不能直接落地。返回 `(放行?, 拦下的原因)`。
+def plan(bad: str, good: str, meta: dict | None = None, *, human: bool = False,
+         allow_unsafe: bool = False, allow_negation_edit: bool = False) -> dict:
+    """这一条替换该怎么处理。返回 `{"apply": bool, "why": str, "info": str}`。
 
-    三条闸，从高到低，**默认全关**（准绳 A5 第 2 条）：
-      1. 增删否定字 → 硬拦。它会把句意反过来，而字幕和声音反而对不上，
-         这是「比错字更难查」的错，只有人读过上下文、显式 `--allow-negation-edit` 才放；
-      2. 不等长 → 拦。字数一变，字符时间戳就要按比例摊（见 `replace_chars`），
-         整条 cue 的字幕跟嘴形都会漂；条目必须自己标 `unsafe: true`，且调用方再显式允许；
-      3. 其余（等长、不碰否定字）→ 放行。
+    判「谁写的」比判「等不等长」更要紧——准绳 A5 第 2 条防的是**机器自作主张**，不是防人：
+
+      · `human=True`：人写进 `<库>/_cutskills/lexicon.json` 的条目。写下去那一次就是
+        显式批准，不等长照旧应用；只在报告里以 info 点名（字宽均摊、时间戳按新字数
+        重分布）。把这类一并拦下是改错了方向：那是已经上过片的修正，静默失效比错字更难查
+        （2026-11-13 复核实证：柒造 naming 片的「物为不叫造为→物，为什么不叫造漆」被拦后退回原样，
+        golden 也抓不到，因为 golden 验的是已渲成片、不重算字幕）。
+      · `human=False`：工具扫出来的建议（`scripts/data/suspect-words.txt` 这一路）。
+        机器没资格替人拍板：不等长必须条目自己标 `unsafe: true`，且调用方再显式允许
+        （`--allow-unsafe`）才落地。
+
+    两条路一样：**增删否定字（不/没/别/未/唔/冇）一律硬拦**，人写的也不放过——
+    它会把句意静默反转，只有读过上下文、显式 `--allow-negation-edit` 才放。
     """
     meta = meta or {}
     if not bad or not good or bad == good:
-        return False, "错写与建议相同（空替换）"
+        return {"apply": False, "why": "错写与建议相同（空替换）", "info": ""}
     neg = _neg_delta(bad, good)
     if neg and not allow_negation_edit:
-        return False, (f"会增删否定字（{neg}）——句子意思会被静默反转，"
-                       "必须人读上下文后显式 --allow-negation-edit")
-    if len(bad) != len(good):
-        if not meta.get("unsafe"):
-            return False, (f"不等长（{len(bad)}→{len(good)} 字）且未标 unsafe——"
-                           "字宽会被均摊、时间戳会漂，默认拒绝应用")
-        if not allow_unsafe:
-            return False, (f"不等长（{len(bad)}→{len(good)} 字）已标 unsafe，"
-                           "但调用方没有显式允许（--allow-unsafe）")
-    return True, ""
+        return {"apply": False, "info": "",
+                "why": (f"会增删否定字（{neg}）——句子意思会被静默反转，"
+                        "必须人读上下文后显式 --allow-negation-edit")}
+    if len(bad) == len(good):
+        return {"apply": True, "why": "", "info": ""}
+    long_note = (f"不等长（{len(bad)}→{len(good)} 字）：字宽会被均摊、"
+                 "时间戳按新字数重分布")
+    if human:
+        return {"apply": True, "why": "",
+                "info": long_note + "——库词表条目由人写定，视为已批准"}
+    if not meta.get("unsafe"):
+        return {"apply": False, "info": "",
+                "why": long_note + "——机器建议且未标 unsafe，默认拒绝应用"}
+    if not allow_unsafe:
+        return {"apply": False, "info": "",
+                "why": long_note + "——已标 unsafe，但调用方没有显式允许（--allow-unsafe）"}
+    return {"apply": True, "why": "", "info": long_note}
+
+
+def guard(bad: str, good: str, meta: dict | None = None, *,
+          allow_unsafe: bool = False, allow_negation_edit: bool = False) -> tuple[bool, str]:
+    """**机器建议**这一路过闸：返回 `(放行?, 拦下的原因)`。
+
+    只给「脚本自己扫出来的候选」用（`suspect-words.txt` / `--term`）。库词表不要走这里，
+    它走 `plan(..., human=True)`：人写下去就是批准，不等长只当 info 报出来。
+    """
+    v = plan(bad, good, meta, human=False, allow_unsafe=allow_unsafe,
+             allow_negation_edit=allow_negation_edit)
+    return v["apply"], v["why"]
 
 
 def term_entries(lex: dict, *, allow_unsafe: bool = False,
                  allow_negation_edit: bool = False) -> tuple[list[tuple[str, str]], list[dict]]:
-    """把 `terms` 归一成 `[(错写, 正确写法)]`，顺手把守卫不放行的挑出来。
+    """把**库词表** `terms` 归一成 `[(错写, 正确写法)]`，顺手报出被拦的与要点名的。
 
-    被拦下的**不许静默丢**：词表里有一条人被拒绝，上层必须看得见（`lexicon.py --audit`
-    与 `lint_transcript.py` 都会把它列出来），否则「我修好了」和「其实没修」长得一样。
+    `<库>/_cutskills/lexicon.json` 是人写的（`seed_template()` 里就写着「每条都是一个人
+    做过的判断」），所以走 `human=True`：不等长条目照旧应用，只以 `level: "info"` 提醒；
+    增删否定字的条目仍然 `level: "block"`。
+
+    两种都不许静默丢：`lexicon.py --library` 与 `lint_transcript.py` 会把它们列出来。
+    返回值第二项是 `[{from, to, why, level, marked}]`，`level` 为 `block` 或 `info`。
     """
     ok: list[tuple[str, str]] = []
-    blocked: list[dict] = []
+    notes: list[dict] = []
     for k, v in (lex.get("terms") or {}).items():
         good, meta = _term_value(v)
-        passed, why = guard(k, good, meta, allow_unsafe=allow_unsafe,
-                            allow_negation_edit=allow_negation_edit)
-        if passed:
+        verdict = plan(k, good, meta, human=True, allow_unsafe=allow_unsafe,
+                       allow_negation_edit=allow_negation_edit)
+        if verdict["apply"]:
             ok.append((k, good))
+            if verdict["info"]:
+                notes.append({"from": k, "to": good, "why": verdict["info"],
+                              "level": "info", "marked": bool(meta.get("unsafe"))})
         else:
-            blocked.append({"from": k, "to": good, "why": why,
-                            "marked": bool(meta.get("unsafe"))})
-    return ok, blocked
+            notes.append({"from": k, "to": good, "why": verdict["why"],
+                          "level": "block", "marked": bool(meta.get("unsafe"))})
+    return ok, notes
 
 
 def load(sysdir: Path) -> dict:
@@ -266,14 +299,16 @@ def replace_chars(chars: list[list], lex: dict, *, allow_unsafe: bool = False,
     哨兵把词劈成两半，词表就静默不生效，字幕上照样印着「涂料吧油漆」。
     命中区间内的哨兵一并丢掉（替换文本里已经带了该有的断句）。
 
-    守卫（T-017）：词表条目先过 `guard()`，不等长 / 动否定字的一律拦下，除非条目显式
-    标了 `unsafe` 且调用方也显式允许。拦下的条目**不会静默消失**——传 `blocked` 这个
-    list 进来就能拿到（`lexicon.py --audit`、`lint_transcript.py` 都靠它报出来）。
+    守卫（T-017）：词表条目分两路——人的判断（库词表 `lexicon.json`）照旧应用，
+    不等长的只当 info 点名（字宽均摊、时间戳重分布）；机器扫出来的建议（`suspect-words.txt`）
+    不等长就默认拒绝。两条路都一样：增删否定字硬拦。没落地的条目**不会静默消失**——
+    传 `blocked` 这个 list 进来就能拿到（`lexicon.py --library`、`lint_transcript.py` 靠它报）。
     """
-    terms, stopped = term_entries(lex, allow_unsafe=allow_unsafe,
-                                  allow_negation_edit=allow_negation_edit)
+    terms, notes = term_entries(lex, allow_unsafe=allow_unsafe,
+                                allow_negation_edit=allow_negation_edit)
     if blocked is not None:
-        blocked.extend(stopped)
+        # 只把「真的没落地」的交上去；info 是「落了，但我要你看见它是不等长」
+        blocked.extend(n for n in notes if n["level"] == "block")
     if not terms or not chars:
         return [list(c) for c in chars], []
     terms.sort(key=lambda kv: -len(kv[0]))
@@ -411,24 +446,23 @@ def seed_template() -> dict:
 # ---------------------------------------------------------------- 守卫自检（T-017）
 
 def audit_library(lib: Path) -> list[dict]:
-    """把库里词表逐条过一遍守卫，报「默认能不能落地」。
+    """把库里词表逐条过一遍闸，报「默认会不会落地」。
 
-    为什么要这个：守卫默认拒绝之后，一条被人做过的判断可能悄无声息地失效。
-    脚本入口得能让人一眼看到「哪一条被拦了、拦在哪、怎么标才放行」，
-    否则下一个人会以为是代码坏了，把闸拆了。
+    为什么必须先分清「谁写的」：库词表是人写的（`seed_template()` 的 why 就写着那句话），
+    不等长照旧应用，只当 info 点名；只有机器建议才需要 `unsafe` 签名。
+    这个入口的职责是让人一眼看到「哪条没落地、为什么」，而不是把人写的东西变成可疑对象。
     """
     lex = load(Path(lib) / "_cutskills")
     rows: list[dict] = []
     for k, v in (lex.get("terms") or {}).items():
         good, meta = _term_value(v)
-        ok_default, why = guard(k, good, meta)
-        ok_unsafe, why_unsafe = guard(k, good, meta, allow_unsafe=True)
-        ok_all, _ = guard(k, good, meta, allow_unsafe=True, allow_negation_edit=True)
+        v_default = plan(k, good, meta, human=True)
+        v_neg = plan(k, good, meta, human=True, allow_negation_edit=True)
         rows.append({"from": k, "to": good, "same_len": len(k) == len(good),
                      "marked": bool(meta.get("unsafe")),
-                     "default": ok_default, "why": why,
-                     "with_unsafe": ok_unsafe, "why_unsafe": why_unsafe,
-                     "all_flags": ok_all})
+                     "default": v_default["apply"], "why": v_default["why"],
+                     "info": v_default["info"],
+                     "with_negation": v_neg["apply"]})
     return rows
 
 
@@ -447,8 +481,8 @@ def _cli_judge(bad: str, good: str, *, allow_unsafe: bool, allow_negation_edit: 
 def main() -> int:
     """词表守卫的两个只读入口。
 
-      --library <库>              把库里词表逐条过闸（默认 / 标 unsafe / 全放行 三档）
-      --term "错写=>建议词"       判一条候选替换（配合两个开关看“放行后会怎样”）
+      --library <库>              把库里词表逐条过闸（人写的＝已批准，只把不等长当 info 点名）
+      --term "错写=>建议词"       判一条**机器候选**替换（严格口径：不等长需 unsafe + 显式允许）
 
     为什么是只读：词表是人做过的判断（`seed_template()` 里写着），脚本不代写。
     """
@@ -470,13 +504,12 @@ def main() -> int:
             print(f"词表 {len(rows)} 条：默认放行 {sum(1 for r in rows if r['default'])} · "
                   f"被拦 {sum(1 for r in rows if not r['default'])}")
             for r in rows:
-                if r["default"]:
+                if r["default"] and not r["info"]:
                     continue
-                print(f"  ✗ `{r['from']}` → `{r['to']}`：{r['why']}")
-                if r["with_unsafe"] and not r["marked"]:
-                    fix = json.dumps({r["from"]: {"to": r["to"], "unsafe": True}},
-                                     ensure_ascii=False)
-                    print(f"    可修：`{fix}`")
+                mark = "i" if r["default"] else "✗"
+                print(f"  {mark} `{r['from']}` → `{r['to']}`：{r['info'] or r['why']}")
+                if not r["default"] and r["with_negation"]:
+                    print("    这条只差否定字一道闸：人读过上下文后可加 --allow-negation-edit")
     if a.term:
         bad, _, good = a.term.partition("=>")
         if not good:

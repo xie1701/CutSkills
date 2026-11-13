@@ -323,8 +323,11 @@ def main() -> int:
     mag_rules = load_magnitude_rules(Path(a.magnitudes).expanduser() if a.magnitudes else None)
     suspects = lexicon.load_suspects(Path(a.suspects).expanduser() if a.suspects else None)
     sem = semantic_scan(sents, mag_rules, suspects)
-    # 词表里被守卫拦下的条目：不报出来就等于静默失效（见 lexicon.guard）
-    blocked_terms = lexicon.term_entries(lex)[1]
+    # 词表条目分两路：人写的（库词表）照旧应用，不等长只当 info 点名；机器建议不等长则拒绝。
+    # 两种都要报出来：不报就等于静默失效（见 lexicon.plan）。
+    term_notes = lexicon.term_entries(lex)[1]
+    blocked_terms = [n for n in term_notes if n["level"] == "block"]
+    info_terms = [n for n in term_notes if n["level"] == "info"]
     # 可直接落地的等长替换（工单主体）+ 必须人拍板的（待人工 / 不等长）
     proposed = {s["hit"]: s["suggest"] for s in sem["suspects"]
                 if s["same_len"] and not s["needs_human"]}
@@ -389,10 +392,17 @@ def main() -> int:
             L.append(f"- `{s['hit']}` → `{s['suggest']}`（{why}）{s['note']}")
         L.append("")
     if blocked_terms:
-        L += ["### 1.5 词表里被守卫拦下的条目", "",
-              "`lexicon.py` 的守卫会拒掉「不等长」「动否定字」的替换。下面这些写在词表里，",
-              "但**当前不会落地**——要么补签名，要么人拍板：", ""]
+        L += ["### 1.5 词表里被拦下的条目（没落地）", "",
+              "库词表是人写的，不等长照旧应用；**只有增删否定字**的条目会被拦下——",
+              "它会把句意静默反转，必须人读上下文后显式 `--allow-negation-edit`：", ""]
         for b in blocked_terms:
+            L.append(f"- `{b['from']}` → `{b['to']}`：{b['why']}")
+        L.append("")
+    if info_terms:
+        L += ["### 1.6 词表已应用的「不等长」条目（只是让你看见）", "",
+              "这些是库词表里人写定的替换，**照旧生效**；但字数变了，字宽会被均摊、",
+              "时间戳按新字数重分布，所以在此点名：", ""]
+        for b in info_terms:
             L.append(f"- `{b['from']}` → `{b['to']}`：{b['why']}")
         L.append("")
 
@@ -404,6 +414,7 @@ def main() -> int:
         "magnitudes": sem["magnitudes"], "suspects": sem["suspects"],
         "stutters": sem["stutters"], "proposed_terms": proposed,
         "needs_human": hold, "blocked_terms": blocked_terms,
+        "info_terms": info_terms,
     }, ensure_ascii=False, indent=1), encoding="utf-8")
 
     # ---- 1 关注词表（lexicon.protect）的同音竞争

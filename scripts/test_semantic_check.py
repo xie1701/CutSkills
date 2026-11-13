@@ -115,29 +115,45 @@ def main() -> int:
         left = [h for h in s["suspect"] if h["hit"] != "讲下下"]
         must(f"{k} 四处错字清零", not left, f"{[h['hit'] for h in left]}")
         must(f"{k} 荒谬量级清零", not s["magnitude_bad"], f"{[m['hit'] for m in s['magnitude_bad']]}")
-    # 口吃重尾不是错字，是删字：字数变了，只能走「条目标 unsafe + 调用方显式允许」。
+    # 口吃重尾不是错字，是删字（字数变了）。机器建议口径仍严：要 unsafe + 显式允许；
+    # 人把它写进库词表就是批准，直接落地（只在报告里 info 点名“不等长”）。
     t = [c["text"] for c in films["dianzan-a"] if c["text"].endswith("讲下下")][0]
+    must("口吃重尾（机器建议口径）：不等长默认拒绝",
+         not lexicon.plan("讲下下", "讲下", human=False)["apply"])
+    must("口吃重尾（机器建议口径）：标 unsafe + 显式允许才放",
+         lexicon.plan("讲下下", "讲下", {"unsafe": True},
+                      human=False, allow_unsafe=True)["apply"])
     unsafe_lex = {"terms": {"讲下下": {"to": "讲下", "unsafe": True}}}
-    must("口吃重尾：默认拒绝（不等长）", lexicon.fix_text(t, unsafe_lex) == t)
-    must("口吃重尾：显式 --allow-unsafe 才落地",
-         lexicon.fix_text(t, unsafe_lex, allow_unsafe=True) == t.replace("讲下下", "讲下"))
+    must("口吃重尾：写进库词表即落地（人已批准）",
+         lexicon.fix_text(t, unsafe_lex) == t.replace("讲下下", "讲下"))
     stut_fixed = [dict(c) for c in fixed["dianzan-a"]]
     for c in stut_fixed:
-        c["text"] = lexicon.fix_text(str(c.get("text") or ""), unsafe_lex, allow_unsafe=True)
+        c["text"] = lexicon.fix_text(str(c.get("text") or ""), unsafe_lex)
     s_after = check_subs.semantic_judge(stut_fixed)
     must("dianzan-a 残词全部清零（含口吃重尾）", not s_after["suspect"],
          f"{[h['hit'] for h in s_after['suspect']]}")
     must("dianzan-a 口吃重尾清零", not s_after["stutter"])
 
-    # ---- ③ 守卫：不等长 / 否定字
-    print("③ 守卫（等长替换与否定字）")
+    # ---- ③ 守卫："谁写的"决定口径
+    print("③ 守卫（人写的照旧应用 / 机器建议才要签名 / 否定字一律硬拦）")
     must("等长、不碰否定字 → 放行",
          lexicon.guard("十万米", "十几米")[0])
+    # 库词表里的条目＝人写下的，写下去那一次就是显式批准：不等长也照旧应用
+    human_lex = {"terms": {"物为不叫造为": "物，为什么不叫造漆"}}
+    must("库词表不等长条目默认应用（人写的，不再要 unsafe）",
+         lexicon.fix_text("物为不叫造为", human_lex) == "物，为什么不叫造漆")
+    # 但增删否定字仍硬拦：人写的也不放过（会静默反转句意）
+    human_neg = {"terms": {"唔好": "太好"}}
+    must("库词表里的条目改否定字仍被硬拦",
+         lexicon.fix_text("唔好嘅", human_neg) == "唔好嘅")
+    must("库词表否定字条目：显式 --allow-negation-edit 才落地",
+         lexicon.fix_text("唔好嘅", human_neg, allow_negation_edit=True) == "太好嘅")
+    # 机器扫出来的建议（`suspect-words.txt` 这一路）→ 严格口径不变
     blocked, why = lexicon.guard("讲下下", "讲下")
-    must("不等长未标 unsafe → 拦", not blocked and "不等长" in why, why)
+    must("机器建议：不等长未标 unsafe → 拦", not blocked and "不等长" in why, why)
     blocked, why = lexicon.guard("讲下下", "讲下", {"unsafe": True})
-    must("不等长已标 unsafe 但没显式允许 → 仍拦", not blocked and "allow-unsafe" in why, why)
-    must("不等长已标 unsafe + 显式允许 → 放行",
+    must("机器建议：已标 unsafe 但没显式允许 → 仍拦", not blocked and "allow-unsafe" in why, why)
+    must("机器建议：已标 unsafe + 显式允许 → 放行",
          lexicon.guard("讲下下", "讲下", {"unsafe": True}, allow_unsafe=True)[0])
     blocked, why = lexicon.guard("唔好", "太好")
     must("等长但删掉否定字「唔」→ 硬拦", not blocked and "否定字" in why, why)
