@@ -47,7 +47,7 @@ CARD_HOLD_MIN = 2.6       # 读完一张**信息卡**的下限（秒）
 KEYWORD_HOLD_MIN = 0.9    # 大字只有四五个字，读得快；但也不能闪一下就过
 KEYWORD_HOLD_MAX = 2.4
 CARD_HOLD_MAX = 4.5       # 再长就是赖着不走
-MG_KINDS_CHK = {"stat", "steps", "versus", "term"}
+MG_KINDS_CHK = {"stat", "steps", "versus", "term", "proportion", "day-night", "chips"}
 CARD_GAP = 0.20           # 相邻两张卡之间的空档
 MIN_LEAD = 0.12           # 卡不许早于它锚定的词（声音在前）
 SCREEN_SHARE = 0.25       # 卡在场时间占全片的上限
@@ -220,6 +220,30 @@ def card_texts(c: dict) -> dict[str, list[str]]:
     elif kind == "term":
         out["term"] = [str(d.get("term") or "")]
         out["def"] = [str(d.get("def") or "")]
+    elif kind == "proportion":
+        out["value"] = [str(d.get("value") or "")]
+        out["total"] = [str(d.get("total") or "")]
+        out["ratio"] = [str(d.get("ratio") or "")]
+        out["part_label"] = [str(d.get("part_label") or "")]
+        out["total_label"] = [str(d.get("total_label") or "")]
+        out["label"] = [str(d.get("label") or c.get("text") or "")]
+    elif kind == "day-night":
+        for side in ("day", "night"):
+            s = d.get(side) or {}
+            out[side] = [str(s.get("head") or ""), str(s.get("body") or ""), str(s.get("sub") or "")]
+        if d.get("tail"):
+            out["tail"] = [str(d.get("tail") or "")]
+    elif kind == "chips":
+        out["title"] = [str(d.get("title") or c.get("text") or "")]
+        items = []
+        for x in (d.get("items") or []):
+            if isinstance(x, dict):
+                items.append(str(x.get("name") or ""))
+            else:
+                items.append(str(x))
+        out["items"] = items
+        if d.get("tail"):
+            out["tail"] = [str(d.get("tail") or "")]
     elif kind in ("keyword", "behind", "cutout"):
         out["text"] = [str(c.get("text") or "")]
     return out
@@ -364,6 +388,29 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
                     if rs and not any("".join(rs[:2]) in text or rs[0] in text for _ in [0]):
                         v.append(("error", f"{name} versus 的{label}边「{s}」口播里没说过——"
                                            "对比是编的，观众会觉得字和话不是一回事"))
+            # 修辞误用检查（只加 warning，不许把 error 阈值放宽）：
+            # 1) 互补时段误用 versus：自家互补业态画成死敌擂台
+            d = c.get("data") or {}
+            L = d.get("left") or {}
+            R = d.get("right") or {}
+            l_txt = str(L.get("head") or "") + str(L.get("body") or "")
+            r_txt = str(R.get("head") or "") + str(R.get("body") or "")
+            MORNING_WORDS = ("早", "朝早", "早上", "早茶", "早市", "晨", "白天", "上午")
+            NIGHT_WORDS = ("晚", "晚上", "晚市", "夜", "夜市", "桑拿鸡", "夜宵", "下午")
+            is_morn_l = any(w in l_txt for w in MORNING_WORDS)
+            is_night_r = any(w in r_txt for w in NIGHT_WORDS)
+            is_morn_r = any(w in r_txt for w in MORNING_WORDS)
+            is_night_l = any(w in l_txt for w in NIGHT_WORDS)
+            if (is_morn_l and is_night_r) or (is_morn_r and is_night_l):
+                v.append(("warning", f"{name} 左右两边为互补时段（早市/晚市），"
+                                     "严禁误用带 VS 圆章的 versus 卡把自家互补业态画成死敌 PK——应选用 day-night 时段接力卡"))
+            # 2) 并列关系/清单误用 versus：并列名牌而非真假优劣对立
+            PARALLEL_SIGNALS = ("同埋", "还有", "以及", "四大天王", "四样", "三样", "两样", "点心")
+            CONTRAST_SIGNALS = ("比", "相比", "旧", "新", "传统", "现代", "假", "真", "劣", "优", "错", "对", "不如", "胜过", "起壳", "打磨")
+            has_par = any(w in text for w in PARALLEL_SIGNALS)
+            has_ctr = any(w in text or w in (l_txt + r_txt) for w in CONTRAST_SIGNALS)
+            if has_par and not has_ctr:
+                v.append(("warning", f"{name} 左右两边为并列清单关系而非真假优劣对立——并列招牌应选用 chips 名牌卡，死敌对立才用 versus"))
         elif c.get("kind") == "steps":
             for it in chunks.get("items") or []:
                 rs = real_chars(it)
@@ -412,6 +459,55 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
                     v.append(("error", f"{name} 卡的说明里的数字 {n} 算不出来"
                                        "——口播的这句话里没有它，也推不出来"))
                     break
+        elif c.get("kind") == "proportion":
+            d = c.get("data") or {}
+            val = str(d.get("value") or "")
+            tot = str(d.get("total") or "")
+            part_label = str(d.get("part_label") or "")
+            if val and not has_number(text, val) and not any(ch in film for ch in real_chars(val)):
+                v.append(("error", f"{name} 比例局部数值「{val}」口播里没说过"))
+            if tot and not has_number(text, tot) and not any(ch in film for ch in real_chars(tot)):
+                v.append(("error", f"{name} 比例总数「{tot}」口播里没说过"))
+            if part_label:
+                rs = real_chars(part_label)
+                if rs and not any(ch in text or ch in film for ch in rs):
+                    v.append(("error", f"{name} 比例局部说明「{part_label}」在台词里没有着落"))
+            label = (chunks.get("label") or [""])[0]
+            for bad in FORBIDDEN_CLAIM:
+                if bad in label and bad not in text:
+                    v.append(("error", f"{name} 卡的说明里写了「{bad}」——这句口播里没有这句话，"
+                                       "片子的素材里也没有这回事"))
+            for n in _nums(label):
+                if not derivable(n, text):
+                    v.append(("error", f"{name} 卡的说明里的数字 {n} 算不出来"
+                                       "——口播的这句话里没有它，也推不出来"))
+                    break
+        elif c.get("kind") == "day-night":
+            d = c.get("data") or {}
+            day = d.get("day") or {}
+            night = d.get("night") or {}
+            d_chars = real_chars(str(day.get("head") or "") + str(day.get("body") or ""))
+            n_chars = real_chars(str(night.get("head") or "") + str(night.get("body") or ""))
+            if d_chars and not any(ch in text or ch in film for ch in d_chars):
+                v.append(("error", f"{name} 早市时段内容「{day.get('body') or day.get('head')}」口播里没说过——时段接力是编的"))
+            if n_chars and not any(ch in text or ch in film for ch in n_chars):
+                v.append(("error", f"{name} 晚市时段内容「{night.get('body') or night.get('head')}」口播里没说过——时段接力是编的"))
+            # 修辞误用检查：互斥优劣对比误用 day-night → warning
+            all_dn_text = str(day.get("head") or "") + str(day.get("body") or "") + str(night.get("head") or "") + str(night.get("body") or "")
+            ADVERSARIAL_WORDS = ("旧做法", "新做法", "起壳", "打磨", "传统", "现代", "假", "真", "劣", "优", "错", "对", "淘汰", "升级")
+            TIME_WORDS = ("早", "晚", "朝早", "昼", "夜", "晨", "暮", "白天", "晚上", "上午", "下午", "中午", "早茶", "早市", "晚市", "夜市", "全时段", "时段")
+            has_adv = any(w in all_dn_text for w in ADVERSARIAL_WORDS)
+            has_time = any(w in all_dn_text for w in TIME_WORDS)
+            if has_adv and not has_time:
+                v.append(("warning", f"{name} 属于互斥优劣对比而非时段接力——互斥对立应选用 versus 卡，时段互补才用 day-night"))
+        elif c.get("kind") == "chips":
+            items = chunks.get("items") or []
+            if not (2 <= len(items) <= 4):
+                v.append(("warning", f"{name} chips 名牌数量为 {len(items)} 枚，建议 2–4 枚以保准点亮节奏与视觉平衡"))
+            for it in items:
+                rs = real_chars(it)
+                if rs and not any(ch in text or ch in film for ch in rs):
+                    v.append(("error", f"{name} chips 名牌「{it}」整部片子里没说过——招牌是编的"))
     return v
 
 

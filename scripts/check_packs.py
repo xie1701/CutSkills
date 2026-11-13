@@ -34,7 +34,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 SUBTITLE_SYSTEMS = {"single-line", "bilingual", "none"}
 # MG 库：包里声明「这套衣服允许用哪几种动效卡」。不认识的 kind 直接判红——
 # 声明了却渲不出来，是最难查的一类：方案卡上写着有卡，画面上什么都没有。
-KNOWN_MG = {"keyword-big", "stat", "steps", "versus", "term"}
+KNOWN_MG = {"keyword-big", "stat", "steps", "versus", "term", "proportion", "day-night", "chips"}
 KNOWN_FX = {
     "hard_cut", "nudge_in", "cover_fg", "page_turn", "note_drop", "wipe",
     "type_on", "count_up", "draw_line", "blur_in", "shake", "none",

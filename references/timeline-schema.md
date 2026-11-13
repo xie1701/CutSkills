@@ -62,7 +62,7 @@ v2 的 `edl.json` 是一条**镜头列表**——它默认片子是「从库里�
 | `why` | ✓ | 这一格推进了什么。套话判 error |
 | `beat` / `role` | 强烈建议 | 同 v2：`setup/claim/evidence/warrant/turn/payoff` |
 | `audio` | B-roll 必填 | `{asset, in, out}`：画面换掉、声音继续走原口播 |
-| `card` | 否 | 贴在 clip 上的叠加层。`kind` 取 `behind` / `cutout` / `plain`（都是大字），或 MG 卡型 `stat` / `steps` / `versus` / `term`；MG 卡另带 `data`，见 [mg-library.md](mg-library.md) |
+| `card` | 否 | 贴在 clip 上的叠加层。`kind` 取 `behind` / `cutout` / `plain`（都是大字），或 MG 卡型 `stat` / `steps` / `versus` / `term` / `proportion` / `day-night` / `chips`；MG 卡另带 `data`，见 [mg-library.md](mg-library.md) |
 | `third_party_action` | 否 | 画面中出现第三方品牌字样时的处置标记：`keep`（施工实拍真实工具/场景无需避开，保留出镜） / `crop`（裁切避开） / `blur`（打码） / `acknowledged`（已核验）。标注后 `check_timeline` 自动核销告警 |
 
 ### card 字段
@@ -76,7 +76,7 @@ v2 的 `edl.json` 是一条**镜头列表**——它默认片子是「从库里�
 | `on` | 强烈建议 | 锚词：卡要晚于它发音 +0.10s 出现 |
 | `dur` | 否 | 卡停多久，缺省夹在 `emphasis.hold_s` |
 
-MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `data`。
+MG 卡（`stat` / `steps` / `versus` / `term` / `proportion` / `day-night` / `chips`）：除 `on` 外，内容全放 `data`。
 
 | 卡型 | `data` |
 | --- | --- |
@@ -84,6 +84,9 @@ MG 卡（`stat` / `steps` / `versus` / `term`）：除 `on` 外，内容全放 `
 | `steps` | `title`；`items`（2–3 条） |
 | `versus` | `left{head,body}` `right{head,body}`；可选 `tail` |
 | `term` | `term` `def` |
+| `proportion` | `value` `total`（或 `ratio`）`label`；可选 `unit` `part_label` `total_label` `kicker` `percent` |
+| `day-night` | `day{tag,head,body,sub}` `night{tag,head,body,sub}`；可选 `relay` `tail` `title` |
+| `chips` | `items`（2–4 枚，支持字符串或 `{name, tag}`）；可选 `title` `tail` |
 
 规矩：同一卡型一条片里不重复超过 2 次；每条片至少一张内容专属卡（有数字用 `stat`，
 有对比用 `versus`，有流程用 `steps`）。数字没有出处就必须 `approx: true`。

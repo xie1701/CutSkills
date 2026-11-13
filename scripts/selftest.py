@@ -359,6 +359,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_anchor_miss.py")])
     must("锚词对不上判据", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("㉔ 信息修辞同构卡型（T-020：proportion / day-night / chips 结构与词证/修辞误用）")
+    r = sh([PY, str(ROOT / "scripts" / "test_mg_kinds.py")])
+    must("信息修辞同构卡型判据", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+
     print("㉕ dianzan-a/b/c 旧版 NG 回归负样本（逐案调用现行判据，漏放即失败）")
     r = sh([PY, str(ROOT / "scripts" / "test_regression_ng.py")])
     must("dianzan 旧版 NG 全部判红", r.returncode == 0, (r.stderr or r.stdout).strip()[-500:])
