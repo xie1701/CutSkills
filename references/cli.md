@@ -576,6 +576,15 @@
 | `--size` | — |
 | `--width` | （默认 1080） |
 
+### `gate.py`
+*CutSkills 项目总门禁：集中运行现有检查器并汇总 error / warning。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | 素材库根；默认从项目祖先找 _cutskills/index.json |
+| `--projects` | broll_split 互斥检查的同组项目目录；dianzan-* 默认自动发现同组 |
+
 ### `gen_boroll.py`
 *CutSkills · B-roll 图形卡生成器：三种可参数化的图形卡 → 透明 PNG 叠加层。*
 
@@ -794,18 +803,12 @@
 | `--mg` | 另外真渲三张 MG 卡（stat/term/versus），需要 hyperframes |
 
 ### `review_sheet.py`
-*CutSkills · 目判工具：把成片拆成「能看的一页」，逼人（和我）真的看图。*
+*生成逐格 IN/MID/OUT 审片接触表与卡片原像素裁图。*
 
 | 参数 | 说明 |
 |---|---|
-| `--project` | **必填** |
-| `--film` | — |
-| `--all` | 一次出全套：总览 + 全片 24 帧 + 两版变体 |
-| `--sheet` | 全片均匀 N 帧拼一张 |
-| `--stills` | 原尺寸帧时刻 |
-| `--motion` | 转场区间 t0 t1 |
-| `--variants` | mute,subs-only |
-| `--cols` | （默认 5） |
+| `--project` | **必填**　项目目录，只读时间轴与已渲产物 |
+| `--force` | 更新已有 review/sheet.html 与同名生成帧 |
 
 ### `schema_upgrade.py`
 *CutSkills · timeline.json v4 → v5 迁移。*
@@ -990,6 +993,11 @@
 
 ### `test_pip_judge.py`
 *T-012 回归：PiP 判据的三层负样本必须红（缺键 / 贴回失败 / 数量不足）。*
+
+（无参数）
+
+### `test_regression_ng.py`
+*旧版 dianzan-a/b/c 硬伤回归负样本。*
 
 （无参数）
 
