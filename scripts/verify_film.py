@@ -119,6 +119,311 @@ def text_band(kind: str, box, W: int, H: int) -> tuple[int, int, int, int]:
     return (0, int(H * 0.28), W, int(H * 0.76))
 
 
+# ------------------------------------------------- 大字墨迹：字形掩膜 × 帧差（T-044）
+# 旧口径「数接近 accent 色的像素占多少」有两个量不出来的地方（T-041 挂出）：
+#   ① 半透明大字渲出来是淡黄 #F2E98F，与包里的 #F6EB34 差 91 个蓝阶，颜色测试根本看不见；
+#   ② 暖色镜头（木色/陶罐/招牌）在 tol=64 下自带 0.07–2.5% 的「假同色」，把带子填满时
+#      净墨迹不可判。
+# 新口径不猜颜色，拿**这张字自己的字形掩膜**（PIL 同字体/同字号/同位置栅格化）当探针，
+# 量「卡在时 vs 卡不在时」的帧差：
+#   ink     = 掩膜内的笔画像素；
+#   control = 同一卡框内、笔画之外（背景/框内留白）。
+# 同一个镜头里两边承受的背景运动近似，字是**只加在 ink 上**的那部分。判据：
+#   R_add = median|Δ|(ink) / median|Δ|(control) ≥ INK_DIFF_K 且 median|Δ|(ink) ≥ 地板。
+# 半透明字把背景运动挡掉，帧差比会掉到 1 以下，但它同时留下另一个证据：
+# **静态叠加层**——三张卡内帧上 ink 的时间标准差远小于 control。两条都量，任一成立即绿；
+# 一条都不成立才红。这样「淡黄字压暖底」与「暖底上本来就没人写字」才分得开。
+INK_DIFF_K = 1.4          # ink 帧差 ≥ K × control（正样本最低 1.63：ground-01「售楼部 · 酒店」）
+INK_DIFF_FLOOR = 8.0      # ink 帧差绝对地板（灰阶 0–255）；负样本实测 1–19
+INK_OCC_K = 0.55          # ink 时间标准差 ≤ K × control（正样本 ≤0.28，负样本 ≥0.75）
+INK_OCC_CTL_STD = 1.5     # control 必须真的在动，静态叠加这条才有信息量
+INK_OCC_INK_STD = 2.0     # ink 自身必须稳（移动物体的 std 是 15–40）
+INK_MOTION_BLOB = 0.8     # ink 动得比 control 还厉害 = 移动物体，不是字（正样本 ≤0.5，负样本 ≥1.25）
+INK_FPS = 10              # 帧差取样帧率；10fps 下 0.1s 间隔足够避开压缩噪声
+INK_PAD = 24              # 卡框外扩（与旧取样带同口径）
+INK_ERODE = 2             # 笔画内缩 2px：抗字形预测的 ±1–4px 偏差
+INK_CTRL_GAP = 12         # control 与笔画之间留 12px：把投影/抗锯齿边排除掉
+INK_CUT_GUARD = 60.0      # 全帧中位帧差超过大概率是切点（快速摇镜能到 50，底线留 60）
+
+
+def _mask_morph(mask, radius: int, grow: bool):
+    """二值掩膜的膨胀/腐蚀（PIL MaxFilter/MinFilter，正圆核近似方核）。"""
+    from PIL import Image, ImageFilter
+    im = Image.fromarray((mask * 255).astype("uint8"))
+    im = im.filter(ImageFilter.MaxFilter(2 * radius + 1) if grow
+                   else ImageFilter.MinFilter(2 * radius + 1))
+    import numpy as np
+    return np.asarray(im) > 128
+
+
+def glyph_ink_mask(card: dict, style: dict, W: int, H: int):
+    """这张大字卡**本该占的**字形掩膜与墨迹框。渲器与判据同一份几何。
+
+    位置优先读渲器落盘的 `kw_top_h`（画字与记框是同一次调用）；老项目没有这个字段，
+    退回 `card_layout.kw_top_of(card, style, W, H)`——与渲染器同一条优先级。
+    返回 (mask, box_px, top_h) 或 (None, None, None)。
+    """
+    try:
+        import card_layout
+    except Exception:
+        return None, None, None
+    text = str(card.get("text") or "")
+    if not text:
+        return None, None, None
+    th = card.get("kw_top_h")
+    if th is None:
+        try:
+            th = card_layout.kw_top_of(card, style, W, H)[0]
+        except Exception:
+            th = None
+    try:
+        mask, kbox = card_layout.ink_mask(text, style, W, H, None if th is None else float(th))
+    except Exception:
+        return None, None, None
+    if mask is None or kbox is None:
+        return None, None, None
+    return mask, kbox["px"], float(kbox["top_h"])
+
+
+def _gray_window(film: Path, t0: float, dur: float, W: int, H: int):
+    """取一段灰度帧（rawvideo，无 JPEG 压缩）。返回 (frames[n,H,W], t0)。量不到返回 (None, t0)。"""
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.3f}",
+                        "-i", str(film), "-t", f"{max(0.04, dur):.3f}",
+                        "-vf", f"fps={INK_FPS},scale={W}:{H}",
+                        "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                       capture_output=True)
+    if r.returncode != 0 or not r.stdout:
+        return None, t0
+    a = np.frombuffer(r.stdout, np.uint8)
+    n = a.size // (W * H)
+    if n < 1:
+        return None, t0
+    return a[: n * W * H].reshape(n, H, W).astype("float32"), t0
+
+
+def _rgb_frame(film: Path, t: float, W: int, H: int):
+    """单帧 RGB（rawvideo）。量不到返回 None。"""
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.3f}",
+                        "-i", str(film), "-frames:v", "1",
+                        "-vf", f"scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                       capture_output=True)
+    if r.returncode != 0 or len(r.stdout) < W * H * 3:
+        return None
+    return np.frombuffer(r.stdout[: W * H * 3], np.uint8).reshape(H, W, 3).astype("float32")
+
+
+def _hex_rgb(s: str):
+    h = str(s or "").lstrip("#")
+    if len(h) != 6:
+        return None
+    try:
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return None
+
+
+def film_cut_times(fin: dict, proj: Path) -> list[float]:
+    """成片里的硬切点（秒）。取自 `out/shots.json`（渲器落盘的镜头表，时间相对段内）。
+
+    为什么需要它：卡窗两侧 ±1.5s 里可能有一刀。跨过切点的两帧不是同一镜头，
+    拿它们做帧差会把「换镜」当成「字加了一笔墨」。只看全帧中位帧差不够——
+    快速摇镜的中位差同样能到 50，会把同镜头的好基线也误杀（proj79 48.5s 实测）。
+    """
+    sp = proj / "out" / "shots.json"
+    if not sp.exists():
+        return []
+    try:
+        shots = json.loads(sp.read_text()) or []
+    except json.JSONDecodeError:
+        return []
+    starts, t = {}, 0.0
+    for s in fin.get("segments") or []:
+        if s.get("kind") == "overlay" or s.get("_overlay"):
+            continue
+        n = int(s.get("n") or 0)
+        starts[n] = t
+        d = (round(float(s["out"]) - float(s["in"]), 3)
+             if s.get("kind") == "clip" else float(s.get("dur") or 0))
+        t = round(t + d, 3)
+    cuts = []
+    for sh in shots:
+        try:
+            n = int(sh.get("seg"))
+            out = float(sh["out"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if n not in starts:
+            continue
+        ft = round(starts[n] + out, 3)
+        if t - 0.04 > ft > 0.04:
+            cuts.append(ft)
+    return sorted(set(cuts))
+
+
+def ink_diff_stats(film: Path, card: dict, style: dict, W: int, H: int, dur: float,
+                   all_cards: list[dict] | None = None,
+                   cuts: list[float] | None = None) -> dict:
+    """量一张大字卡的墨迹（字形掩膜 × 卡前/卡后帧差）。
+
+    返回 dict：
+      level       green / red；量不出来（无掩膜 / 无干净基线）时**不含 level**，调用方走旧口径兜底
+      ink_delta / ctl_delta / ratio      帧差中位与比值（判据主体）
+      ink_std / ctl_std / occ_ratio      卡内三帧的时间标准差（静态叠加证据）
+      alpha / color / base_color         反混合估计与实测典型色
+    任何一项量不出来都如实写进 note，不假装通过。
+    """
+    import numpy as np
+    a_, b_ = float(card["start"]), float(card["end"])
+    mask, box_px, top_h = glyph_ink_mask(card, style, W, H)
+    if mask is None:
+        return {"error": "字形掩膜建不出来（字体文件缺失或文本为空）"}
+    x, y, bw, bh = box_px
+    box = (max(0, x - INK_PAD), max(0, y - INK_PAD),
+           min(W, x + bw + INK_PAD), min(H, y + bh + INK_PAD))
+    ink = _mask_morph(mask, INK_ERODE, grow=False)
+    ctl = np.zeros_like(mask)
+    ctl[box[1]:box[3], box[0]:box[2]] = True
+    ctl &= ~_mask_morph(mask, INK_CTRL_GAP, grow=True)
+    if ink.sum() < 50 or ctl.sum() < 500:
+        return {"error": f"字形掩膜太小（ink {int(ink.sum())}px / control {int(ctl.sum())}px）"}
+
+    t0 = max(0.0, a_ - 1.5)
+    t1 = min(dur, b_ + 1.5)
+    frames, t00 = _gray_window(film, t0, t1 - t0, W, H)
+    if frames is None or frames.shape[0] < 3:
+        return {"error": "取不到卡窗内的帧"}
+    times = t00 + np.arange(frames.shape[0]) / INK_FPS
+
+    def at(t):
+        return int(np.argmin(np.abs(times - t)))
+
+    # 取样避开入场/出场动画：0.85 落在卡尾 0.15s 处，实测 proj79「都有偏颇」在 16.15s
+    # 已在位移动画里（同一掩膜的帧差中位 33）——那是字在动，不是背景在动，会把
+    # ink σ 抬到 15。0.45/0.6/0.75 全部落在稳态。
+    fracs = [f for f in (0.45, 0.6, 0.75)]
+    idx_card = sorted({at(a_ + (b_ - a_) * f) for f in fracs})
+    if len(idx_card) < 2:
+        return {"error": "卡窗太短，取不到两帧"}
+
+    # 干净基线：卡窗之外、不被任何别的卡占住、且中间没有切点（全帧中位帧差 < 26）。
+    other = []
+    for c2 in (all_cards or []):
+        if c2 is card or c2 is None:
+            continue
+        try:
+            other.append((float(c2["start"]), float(c2["end"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    def blocked(t):
+        return any(s0 - 0.08 <= t <= e0 + 0.08 for s0, e0 in other)
+
+    def crosses_cut(t, edge):
+        lo, hi = sorted((t, edge))
+        return any(lo + 0.02 < c < hi - 0.02 for c in (cuts or []))
+
+    mid = at((a_ + b_) / 2)
+    cands = []
+    for here, step in ((a_, -1), (b_, 1)):
+        for k in range(1, 16):
+            t = here + step * 0.1 * k
+            if t < 0 or t > dur or t > times[-1] or blocked(t):
+                continue
+            if cuts and crosses_cut(t, here):
+                continue        # 中间有一刀，这一对不是同一镜头
+            i = at(t)
+            if float(np.median(np.abs(frames[mid] - frames[i]))) >= INK_CUT_GUARD:
+                continue        # shots.json 没覆盖到时的最后一道切点防线
+            cands.append((abs(step * 0.1 * k), t, i))
+    cands.sort()
+    bases = []
+    for _, bt, i in cands:
+        if all(abs(bt - x[1]) > 0.05 for x in bases):
+            bases.append((abs(bt - a_ if bt < a_ else bt - b_), bt, i))
+        if len(bases) >= 2:
+            break
+    if not bases:
+        return {"error": "卡前/卡后找不到干净基线帧（被别的卡占住或中间有切点）"}
+
+    pairs = []
+    for i0 in idx_card:
+        for _, bt, i1 in bases:
+            d = np.abs(frames[i0] - frames[i1])
+            ik = float(np.median(d[ink]))
+            ct = float(np.median(d[ctl]))
+            pairs.append((ik, ct, ik / max(0.5, ct), bt))
+    ink_delta = float(np.median([p[0] for p in pairs]))
+    ctl_delta = float(np.median([p[1] for p in pairs]))
+    ratio = float(np.median([p[2] for p in pairs]))
+
+    occ_ratio = ink_std = ctl_std = None
+    if len(idx_card) >= 2:
+        stack = frames[idx_card]
+        s = stack.std(axis=0)
+        ink_std = float(np.median(s[ink]))
+        ctl_std = float(np.median(s[ctl]))
+        occ_ratio = ink_std / max(0.2, ctl_std)
+
+    # 反混合：alpha ≈ (实测色 − 底片色) / (accent 色 − 底片色)，逐像素投影后取中位。
+    color = base_color = None
+    alpha = alpha_resid = None
+    icol = int(np.median(idx_card))
+    f_card = _rgb_frame(film, float(times[icol]), W, H)
+    f_base = _rgb_frame(film, float(bases[0][1]), W, H)
+    if f_card is not None and f_base is not None:
+        p0 = f_card[ink]
+        p1 = f_base[ink]
+        color = tuple(int(v) for v in np.median(p0, axis=0))
+        base_color = tuple(int(v) for v in np.median(p1, axis=0))
+        emph = style.get("emphasis") or {}
+        acc = (_hex_rgb(emph.get("keyword_color"))
+               or _hex_rgb(((style.get("tokens") or {}).get("palette") or {}).get("accent")))
+        if acc is not None:
+            acc_v = np.array(acc, dtype="float32")
+            den = acc_v - p1
+            num = p0 - p1
+            good = np.abs(den).max(axis=1) > 25
+            if int(good.sum()) >= 30:
+                al = (num[good] * den[good]).sum(axis=1) / (den[good] * den[good]).sum(axis=1)
+                alpha = float(np.median(al))
+                alpha_resid = float(np.median(np.abs(num[good] - alpha * den[good]).mean(axis=1)))
+                # 实测色不在 accent 连线上（深红棕/青绿字压暖底）→ alpha 不可解释，别硬报一个数
+                if alpha < -0.15 or alpha > 1.3 or (alpha_resid is not None and alpha_resid > 28):
+                    alpha = None
+
+    # 移动物体：ink 区域动得比 control 还厉害，而且 control 真的在动。
+    # ground-01 29.6s 那颗人头就从字形位置穿过去（ink σ 40 / control σ 7.6），
+    # 帧差比 3.5–5.7 与真卡重叠——只有这条把它挡下来。control 太静时这个比值
+    # 没有信息量（分母接近噪声，'都有偏颇' 背景平得很，occ_ratio 4.7 是假的），不参与判定。
+    motion_blob = (occ_ratio is not None and ctl_std is not None
+                   and ctl_std >= INK_OCC_CTL_STD and occ_ratio >= INK_MOTION_BLOB)
+    add_ok = (ratio >= INK_DIFF_K and ink_delta >= INK_DIFF_FLOOR and not motion_blob)
+    occ_ok = (occ_ratio is not None and occ_ratio <= INK_OCC_K
+              and (ctl_std or 0.0) >= INK_OCC_CTL_STD
+              and (ink_std or 0.0) <= INK_OCC_INK_STD)
+    level = "green" if (add_ok or occ_ok) else "red"
+
+    bits = [f"字形帧差 ink {ink_delta:.1f} / control {ctl_delta:.1f} = {ratio:.2f}"]
+    bits.append(f"地板 {INK_DIFF_FLOOR:g} × 比值线 {INK_DIFF_K:g}")
+    if occ_ratio is not None:
+        bits.append(f"静态叠加 ink/control σ {ink_std:.1f}/{ctl_std:.1f} = {occ_ratio:.2f}"
+                    f"（线 {INK_OCC_K:g}）")
+    if color is not None:
+        bits.append(f"实测色 {color} / 底片 {base_color}")
+    if alpha is not None:
+        bits.append(f"估计 alpha {alpha:.2f}")
+    elif color is not None:
+        bits.append("alpha 不适用（实测色不在 accent 连线上）")
+    return {"level": level, "ink_delta": ink_delta, "ctl_delta": ctl_delta,
+            "ratio": ratio, "occ_ratio": occ_ratio, "ink_std": ink_std, "ctl_std": ctl_std,
+            "alpha": alpha, "color": color, "base_color": base_color,
+            "top_h": top_h, "box": box, "ink_px": int(ink.sum()),
+            "add_ok": add_ok, "occ_ok": occ_ok,
+            "note": " · ".join(bits)}
+
+
 def subtitle_density(cues: list[dict], dur: float, lo, hi) -> tuple[str, str, str] | None:
     """字幕密度：实测与期望**都按整片分钟**算，跟参考片的 45–58 条/分钟同口径。
 
@@ -628,7 +933,9 @@ def main() -> int:
         return max(color_share(im, h, box) for h in _kw_list)
 
     if cards_meta:
-        for c in [x for v in cards_meta.values() for x in v]:
+        _all_cards = [x for v in cards_meta.values() for x in v]
+        _cuts = film_cut_times(fin, proj)
+        for c in _all_cards:
             a_, b_ = float(c["start"]), float(c["end"])
             if a_ >= dur:
                 continue
@@ -656,47 +963,61 @@ def main() -> int:
                 # 是把带子对齐到字真正在的地方。老项目没这个字段 → 仍是固定带（不退步）。
                 _box = kw_box_px(c, W, H)
             if kind in ("keyword", "behind", "cutout"):
-                # 只在窗口中点取一帧会撞上入场动画的半路（擦显才到一半、字刚出来三分一），
-                # 实测同一块字中点 0.02%、往后 0.1s 就 0.13%——一帧定生死会寃红。
-                # 取窗口内的三帧取最大值：只要曾经完整上过屏，就算它上了。
-                _band = text_band(kind, _box, W, H)
-                share = 0.0
-                for frac in (0.35, 0.6, 0.85):
-                    tt = min(dur - 0.05, a_ + (b_ - a_) * frac)
-                    im_ = frame_at(tt, f"card{c.get('el')}{frac}", "RGB")
+                # T-044：默认走字形掩膜 × 卡前/卡后帧差。旧的颜色占比只当兜底——
+                # 掩膜建不出来（字体缺失）或卡前后没有干净基线时，才退回旧口径，
+                # 并把「为什么退回」写进判据文案，不许静默换算法。
+                _label = ("大字烧进画面（可见部分）" if kind in ("behind", "cutout")
+                          else "大字烧进画面")
+                _st, _err = None, ""
+                try:
+                    _st = ink_diff_stats(film, c, style, W, H, dur, _all_cards, cuts=_cuts)
+                except Exception as _e:          # 判据自己坏了也要说出来，不许静默
+                    _err = f"新判据跑不动：{str(_e)[:80]}"
+                if _st and _st.get("level"):
+                    add(_label, f"{mid:.1f}s 处{_st['note']}", _st["level"],
+                        "" if _st["level"] == "green" else
+                        f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s：字形掩膜里量不到"
+                        f"这张卡加的墨（{_st['note']}）")
+                else:
+                    if not _err and _st:
+                        _err = str(_st.get("error") or "量不出来")
+                    # ---- 旧口径兜底（颜色占比 + 净墨迹）----
+                    # 只在上面量不出来时跑。它量不到半透明淡黄，但它不会把「没量到」
+                    # 说成「没问题」：退回的这条判据在文案里写明原因。
+                    _band = text_band(kind, _box, W, H)
+                    share = 0.0
+                    for frac in (0.35, 0.6, 0.85):
+                        tt = min(dur - 0.05, a_ + (b_ - a_) * frac)
+                        im_ = frame_at(tt, f"card{c.get('el')}{frac}", "RGB")
+                        if im_ is None:
+                            continue
+                        share = max(share, kw_share(im_, _band))
                     if im_ is None:
                         continue
-                    share = max(share, kw_share(im_, _band))
-                if im_ is None:
-                    continue
-                # 基线：卡前 / 卡后各一帧，同一带子量到的「本来就有的黄」。
-                # 不减掉它，一张「字没上屏」的帧会被背景黄抬过 behind 的墨迹下限。
-                _bases = []
-                for _tt, _tag in ((a_ - 0.35, "pre"), (b_ + 0.35, "post")):
-                    if not (0.0 <= _tt <= dur - 0.05):
-                        continue
-                    _im_b = frame_at(_tt, f"card{c.get('el')}{_tag}", "RGB")
-                    if _im_b is not None:
-                        _bases.append(kw_share(_im_b, _band))
-                _base = min(_bases) if _bases else None
-                # behind 卡是故意被人挡住的，可见墨迹天然远少于 keyword：
-                # 实测同一块字，keyword 在 0.4% 上下、behind 只剩 0.13%（人挡住大半），
-                # 两字小卡「柒造」实测 0.17%。拿 keyword 的门槛要求 behind 只会永远报红；
-                # 这里只判「这张卡确实加了一笔墨在画面上」，遮挡多少交给成片看。
-                level, ink = kw_ink_level(share, _base, kind)
-                floor = KW_FLOOR_BEHIND if kind in ("behind", "cutout") else KW_FLOOR_KEYWORD
-                label = "大字烧进画面（可见部分）" if floor < KW_FLOOR_KEYWORD else "大字烧进画面"
-                if _base is None:
-                    _bt = ""
-                elif share > 0 and _base >= 0.5 * share:
-                    _bt = (f"（卡不在时同带 {_base * 100:.2f}%——带子被画面同色占满，"
-                           f"净墨迹不可判，按带内墨迹总量判）")
-                else:
-                    _bt = f"（卡不在时同带 {_base * 100:.2f}%，净 {ink * 100:.2f}%）"
-                add(label, f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%{_bt}",
-                    level,
-                    "" if level == "green" else
-                    f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
+                    _bases = []
+                    for _tt, _tag in ((a_ - 0.35, "pre"), (b_ + 0.35, "post")):
+                        if not (0.0 <= _tt <= dur - 0.05):
+                            continue
+                        _im_b = frame_at(_tt, f"card{c.get('el')}{_tag}", "RGB")
+                        if _im_b is not None:
+                            _bases.append(kw_share(_im_b, _band))
+                    _base = min(_bases) if _bases else None
+                    level, ink = kw_ink_level(share, _base, kind)
+                    floor = KW_FLOOR_BEHIND if kind in ("behind", "cutout") else KW_FLOOR_KEYWORD
+                    label = "大字烧进画面（可见部分）" if floor < KW_FLOOR_KEYWORD else "大字烧进画面"
+                    if _base is None:
+                        _bt = ""
+                    elif share > 0 and _base >= 0.5 * share:
+                        _bt = (f"（卡不在时同带 {_base * 100:.2f}%——带子被画面同色占满，"
+                               f"净墨迹不可判，按带内墨迹总量判）")
+                    else:
+                        _bt = f"（卡不在时同带 {_base * 100:.2f}%，净 {ink * 100:.2f}%）"
+                    add(label,
+                        f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%{_bt}；"
+                        f"退回旧口径：{_err or '字形掩膜量不出来'}",
+                        level,
+                        "" if level == "green" else
+                        f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
             elif kind in ("stat", "steps", "versus", "term"):
                 # MG 卡：底色是半透明 ground，accent 只出现在数字/标题/序号上，面积天然很小。
                 # 量「accent 一丁点都没有」这件事就够了——它零，说明这一格根本没画上去。
@@ -761,6 +1082,19 @@ def main() -> int:
     except Exception as _e:                      # 判据本身坏了也要说出来
         add("叠加态", "判据跑不动", "yellow", str(_e)[:60])
 
+    # EDL 路径（没有 out/cards.json 的老项目）也要知道「别的卡在哪」：基线帧不能被
+    # 另一张卡占住，否则量到的是两张卡的叠加。先把所有段上的 card 折成成片时间。
+    _edl_cards, _tacc = [], 0.0
+    _cuts = film_cut_times(fin, proj)
+    for _s in (fin.get("segments") or []):
+        _dd = round(float(_s["out"]) - float(_s["in"]), 3)
+        _cc = _s.get("card")
+        if _cc:
+            _cat = (float(_cc["at"]) if isinstance(_cc.get("at"), (int, float)) else 0.25)
+            _cdur = float(_cc.get("dur") or max(1.2, _dd - 0.6))
+            _edl_cards.append({**_cc, "start": _tacc + _cat, "end": _tacc + _cat + _cdur})
+        _tacc += _dd
+
     t0 = 0.0
     for s in fin.get("segments") or []:
         d = round(float(s["out"]) - float(s["in"]), 3)
@@ -773,8 +1107,25 @@ def main() -> int:
             if im is not None:
                 kind = str(card.get("kind") or "card")
                 if kind in ("keyword", "behind", "cutout"):
-                    # 这条兜底只在「没有 out/cards.json」的老项目上跑（渲器没机会落盘
-                    # kw_box_px），按卡型的固定带子量——旧行为，不假装知道新位置。
+                    # T-044：与 cards.json 路径同一条规则（字形掩膜 × 帧差）。老项目没有
+                    # kw_top_h，退到 `card_layout.kw_top_of`——与渲器同一条优先级。
+                    _ecard = {**card, "start": t0 + at, "end": t0 + at + cd}
+                    _st, _err = None, ""
+                    try:
+                        _st = ink_diff_stats(film, _ecard, style, W, H, dur, _edl_cards,
+                                             cuts=_cuts)
+                    except Exception as _e:
+                        _err = f"新判据跑不动：{str(_e)[:80]}"
+                    if _st and _st.get("level"):
+                        add("大字烧进画面", f"{mid:.1f}s 处{_st['note']}", _st["level"],
+                            "" if _st["level"] == "green" else
+                            f"EDL 里有大字「{card.get('text')}」，字形掩膜里量不到卡加的墨"
+                            f"（{_st['note']}）")
+                        t0 += d
+                        continue
+                    if not _err and _st:
+                        _err = str(_st.get("error") or "量不出来")
+                    # ---- 旧口径兜底（颜色占比）----
                     _band = text_band(kind, None, W, H)
                     share = kw_share(im, _band)
                     _bases = []
@@ -786,7 +1137,9 @@ def main() -> int:
                             _bases.append(kw_share(_im_b, _band))
                     _base = min(_bases) if _bases else None
                     level, ink = kw_ink_level(share, _base, kind)
-                    add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
+                    add("大字烧进画面",
+                        f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%；"
+                        f"退回旧口径：{_err or '字形掩膜量不出来'}",
                         level,
                         "" if level == "green" else
                         f"EDL 里有大字「{card.get('text')}」，画面 {kw_hex} 色几乎为零")

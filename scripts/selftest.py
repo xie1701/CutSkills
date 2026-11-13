@@ -359,6 +359,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_anchor_miss.py")])
     must("锚词对不上判据", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
+    print("㉓ 大字墨迹改「字形掩膜 vs 箱内对照」量（T-044：静字 vs 移动背景分得开、半透明字 alpha 反混合、深色字不硬报 alpha）")
+    r = sh([PY, str(ROOT / "scripts" / "test_ink_diff.py")])
+    must("大字墨迹墨迹比对", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
+
     secs = time.time() - t0
     print()
     if fails:
