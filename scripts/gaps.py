@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -51,6 +52,47 @@ def transcript_hits(lib: Path, text: str, limit: int = 4,
 
 ROLE_CN = {"setup": "交代", "claim": "主张", "evidence": "举证", "warrant": "说理",
            "turn": "转折", "payoff": "收束"}
+
+# 视觉指代缺口那一节的边界标记：整节替换靠它，不靠模糊匹配标题。
+VISUAL_GAP_BEGIN = "<!-- content_guard:visual_gap:begin -->"
+VISUAL_GAP_END = "<!-- content_guard:visual_gap:end -->"
+
+
+def append_visual_gap(proj: Path, rows: list[dict]) -> Path | None:
+    """把「台词点了图、画面没给」的缺口写进 `gap.md`（带时间戳，整节替换）。
+
+    为什么要追加进 `gap.md` 而不是另开一个文件：给人看的缺口清单只该有一张，
+    分成两张就是两张都没人看。为什么整节替换而不是每次往后堆：这道守卫每跑一次
+    都写一遍，堆下去同一格会出现十遍，人就不再看了。为什么带时间戳：它说的是
+    「跑这一版时缺什么」，补了图以后旧结论必须能作废——写成永久结论就等于冤枉素材库。
+
+    rows: `[{n: 镜号, text: 台词, word: 命中的指代词, asset: 素材 id, why: 哪条不成立}]`
+    """
+    if not rows:
+        return None
+    lines = [VISUAL_GAP_BEGIN,
+             "## 四、指代词缺画面（说了「呢张图 / 四张图 / 效果图」，画面没给）", "",
+             f"最近检查：{datetime.now():%Y-%m-%d %H:%M}（`check_timeline.py` 的视觉指代词守卫）", "",
+             "口播说了靠画面才能成立的词，画面却是别的镜头——观众会立刻看出是拿废片硬凑。"
+             "二选一：把对应的图/图纸/效果图入库并写 L2（标签要写「图纸」「效果图」这类画面词），"
+             "或改选不带指代词的 take。", "",
+             "| 镜号 | 台词 | 指代词 | 画面 | 为什么不成立 |", "|---|---|---|---|---|"]
+    for r in rows:
+        lines.append(f"| #{r.get('n')} | {str(r.get('text') or '')[:40]} | {r.get('word') or ''} | "
+                     f"{r.get('asset') or '—'} | {r.get('why') or ''} |")
+    lines += ["", VISUAL_GAP_END]
+    block = "\n".join(lines)
+
+    p = proj / "gap.md"
+    old = p.read_text(encoding="utf-8") if p.exists() else ""
+    if VISUAL_GAP_BEGIN in old and VISUAL_GAP_END in old:
+        head, _, rest = old.partition(VISUAL_GAP_BEGIN)
+        _, _, tail = rest.partition(VISUAL_GAP_END)
+        new = head + block + tail
+    else:
+        new = (old.rstrip() + "\n\n" if old.strip() else "") + block + "\n"
+    p.write_text(new, encoding="utf-8")
+    return p
 
 
 def main() -> int:

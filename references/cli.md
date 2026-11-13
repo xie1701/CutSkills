@@ -477,6 +477,16 @@
 | `--md` | 把报告写到这个 md 文件 |
 | `--json` | 开关 |
 
+### `content_guard.py`
+*CutSkills · 内容守卫：起尾余量（Handles）、视觉指代词、品类禁忌表。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--timeline` | 默认 <项目>/timeline.json |
+| `--library` | 默认从项目目录往上推三层 |
+| `--json` | 开关 |
+
 ### `cue_guard.py`
 *场记口令 / 指导语 / 重说 —— 检出并把它们挡在片子外面。*
 
@@ -860,6 +870,11 @@
 
 ### `test_brand_safety.py`
 *CutSkills · T-007 品牌安全与第三方字样处置回归测试*
+
+（无参数）
+
+### `test_content_guard.py`
+*content_guard 的合同测试：三条新判据该红时红、该绿时绿。*
 
 （无参数）
 
