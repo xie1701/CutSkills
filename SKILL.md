@@ -59,6 +59,7 @@ python3 scripts/test_visual_grade.py                    # 声/画双评级：aud
 python3 scripts/edge_audit.py --project <项目>          # 提词半截词 / 尾巴挂下一句 / 话停了画面还在演（并列列举、单字虚词、句内排比不判）
 python3 scripts/test_edge_audit.py                      # 孤立提示词正负样本：并列列举不红 / 重起句必红（T-037）
 python3 scripts/test_timing_subs.py                     # 字幕后置判据正负样本：同音/丢字不误杀，凭空加实词与人称错位照红（T-040）
+python3 scripts/test_cue_guard.py                       # 口令查表口径：手写词优先 / 两套键 / 切片偏移 / 缺真值不静默（T-038）
 python3 scripts/check_cards.py --project <项目>         # 卡：时长 / 词证 / 不复述 / 密度（渲完才跑）
 python3 scripts/check_overlay.py --project <项目>       # 叠加态：卡压脸 / 口播格整屏暗场 / 重卡撞字幕（渲前闸门，error 退出码 7）
 python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-roll 与口播不许跨片共用
@@ -66,7 +67,7 @@ python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具�
 python3 scripts/test_content_guard.py                   # 内容守卫负样本（0.00s 糊片 / 四张图配工地 / 夸赞撞生肉血水）
 ```
 
-**词级真值只有一个入口：`evidence_guard.chars_of_asset(lib, asset_id)`。** 它先按 `h12(id)` 找 ASR 缓存，找不到再按索引里的 `legacy_key`（首次建索引时的路径哈希）找——**两套键都要查**；都没有才退句级，并且把 `source="sentence"` 带回来，调用方必须打一条「该段没有词级真值，已退句级比对，可能漏判」。谁自己拼 `cache/asr/` 路径，谁就会在素材改过名之后悄悄退回句级（T-030 实测：柒造库 102/153 个素材只落在 `legacy_key` 下，四个判据全部假绿）。键的规则见 [index-schema.md](references/index-schema.md) 的「缓存命名」一节。
+**词级真值只有一个入口：`evidence_guard.chars_of_asset(lib, asset_id)`。** 它先按 `h12(id)` 找 ASR 缓存，找不到再按索引里的 `legacy_key`（首次建索引时的路径哈希）找——**两套键都要查**；都没有才退句级，并且把 `source="sentence"` 带回来，调用方必须打一条「该段没有词级真值，已退句级比对，可能漏判」。谁自己拼 `cache/asr/` 路径，谁就会在素材改过名之后悄悄退回句级（T-030 实测：柒造库 102/153 个素材只落在 `legacy_key` 下，四个判据全部假绿）。同一个坑 T-038 又踩了一次：`cue_guard.words_of` 自己拼了一遍路径、只认 `-v3c00000` 一个切片，于是「别人的话不许进片」这条拦截对四支片每一格都看到 0 个词（窗口内真值 0 → 接通后 202/228/153/50 个词）。口令这边也走同一个入口（`cue_guard.words_and_source` 只包一层：手写 `transcript.words` 优先，然后交给 `chars_of_asset`，并把「有没有词级真值」带回来）。键的规则见 [index-schema.md](references/index-schema.md) 的「缓存命名」一节。
 
 ## v4 主链路：一条命令一层
 
@@ -169,6 +170,8 @@ python3 scripts/golden.py
 「慢啲讲」）、主播自己的重说。ASR 照声音抄，按句边界切就会把它们带进片子——
 画面上是主播在听指挥。`scripts/cue_guard.py` 用词级时间戳定位，检出三类并在
 `--check` 时拦下；`--fix` 只让端点让步（口令卡在中间要拆镜或换素材，机器不自作主张）。
+词级真值走 `evidence_guard.chars_of_asset` 的同一个入口（两套缓存键 + 切片偏移），
+**没有词级真值就明说「口令判不了」**，不许把空词表当成「这段干净」（T-038）。
 
 ### 第 3 层的关键：一格可以是「造出来的」
 

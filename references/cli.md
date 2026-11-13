@@ -914,6 +914,11 @@
 
 （无参数）
 
+### `test_cue_guard.py`
+*cue_guard 查表口径的合同测试（T-038）：口令检查到底有没有真在跑。*
+
+（无参数）
+
 ### `test_edge_audit.py`
 *edge_audit ① 孤立提示词的合同测试：假红要灭，真案要留。*
 

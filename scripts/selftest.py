@@ -342,6 +342,9 @@ def main() -> int:
     print("⑰ 字幕 vs 词级真值双向对账回归（T-040：同音/丢字不误杀，编造与人称错位照红）")
     r = sh([PY, str(ROOT / "scripts" / "test_timing_subs.py")])
     must("字幕后置判据回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
+    print("⑱ 口令查表口径回归（T-038：手写词优先 / 两套键 / 切片偏移 / 缺真值不静默）")
+    r = sh([PY, str(ROOT / "scripts" / "test_cue_guard.py")])
+    must("口令查表口径回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:])
 
     secs = time.time() - t0
     print()

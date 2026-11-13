@@ -33,11 +33,15 @@ ASR 是照声音抄的，它把这些话一样写成句子，于是选句的时�
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import evidence_guard as EG  # noqa: E402  素材 → 词级真值只走它，本文件不再自己拼缓存路径
 
 # ---------------------------------------------------------------- 词表
 
@@ -71,44 +75,66 @@ RETAKE_MIN_LEN = 3          # 少于 3 个字的重说不算（「我我」这�
 RETAKE_WINDOW = 4.0         # 同一开头在 4 秒内出现两次才算重说
 
 
-def h12(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
-
-
 # ---------------------------------------------------------------- 取词级时间轴
 
-def words_of(asset: dict, root: Path | None = None) -> list[dict]:
-    """素材记录 → 词级时间轴 [{t,start,end}]。
+def _timeline_of(chars) -> list[dict]:
+    """`(词, 起点)` 序列 → `[{t,start,end}]`。
 
-    优先读索引里存的 `transcript.words`；老索引没有就回退读 ASR 缓存
-    （`<库>/_cutskills/cache/asr/<h12(id)>-v3c00000.json`）。
+    终点取下一个词的起点（封顶 0.8s），最后一个词给 0.3s——与改造前同一条口径：
+    下游（`phrase_views` 的停顿、`speech_after` 的有声时长、`trim` 的词对齐）都按 end 算。
+    """
+    seq = [(str(t), float(s)) for t, s in chars]
+    out: list[dict] = []
+    for i, (tok, st) in enumerate(seq):
+        nx = seq[i + 1][1] if i + 1 < len(seq) else st + 0.3
+        out.append({"t": tok, "start": round(st, 3), "end": round(min(nx, st + 0.8), 3)})
+    return out
+
+
+def _hand_words(ws: list) -> list[dict]:
+    """索引里手写的 `transcript.words` 归一成 `[{t,start,end}]`（缺 end 就按下一个词算）。"""
+    out: list[dict] = []
+    for i, w in enumerate(ws):
+        st = float(w.get("start") or 0.0)
+        en = w.get("end")
+        if en is None:
+            en = float(ws[i + 1].get("start") or st) if i + 1 < len(ws) else st + 0.3
+        out.append({"t": str(w.get("t") or ""), "start": round(st, 3), "end": round(float(en), 3)})
+    return out
+
+
+def words_and_source(asset: dict, root: Path | None = None) -> tuple[list[dict], str]:
+    """素材记录 → (词级时间轴, 真值等级 `word` / `sentence` / `none`)。
+
+    优先序：索引里手写的 `transcript.words`（人校对过，比 ASR 准）→ ASR 缓存。
+
+    缓存那一步**只走** `evidence_guard.chars_of_asset`：它按「新键 `h12(id)` + 索引里的
+    `legacy_key`」两套键找，并把切片 `-v3cNNNNN` 名字里的秒数拼回绝对时间。这里不再
+    自己拼缓存路径——之前自己拼的那版只认 `h12(id)` 和 `-v3c00000`，素材一改名就整库
+    静默 0 命中，「别人的话不许进片」这条拦截表面在跑、实际一条都没查（T-038）。
+
+    第二项是**必须往上传**的：返回空列表不等于「这段没有口令」，可能只是没有词级真值。
     """
     tr = asset.get("transcript") or {}
     ws = tr.get("words")
     if ws:
-        return ws
+        return _hand_words(ws), EG.WORD
     if root is None:
-        return []
+        return [], EG.NONE
     aid = asset.get("id") or asset.get("path") or ""
-    cache = Path(root) / "_cutskills" / "cache" / "asr"
-    cands = [cache / f"{h12(aid)}-v3c00000.json", cache / f"{h12(aid)}.json"]
-    for f in cands:
-        if not f.exists():
-            continue
-        try:
-            raw = json.loads(f.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        toks, stamps = raw.get("tokens") or [], raw.get("timestamps") or []
-        if not toks or len(toks) != len(stamps):
-            continue
-        out = []
-        for i, tok in enumerate(toks):
-            st = float(stamps[i])
-            nx = float(stamps[i + 1]) if i + 1 < len(stamps) else st + 0.3
-            out.append({"t": tok, "start": round(st, 3), "end": round(min(nx, st + 0.8), 3)})
-        return out
-    return []
+    truth = EG.chars_of_asset(Path(root), aid)
+    if not truth.chars:
+        return [], truth.source            # 句级或一级都没有：判不了，不许当「干净」
+    return _timeline_of(truth.chars), EG.WORD
+
+
+def words_of(asset: dict, root: Path | None = None) -> list[dict]:
+    """素材记录 → 词级时间轴 `[{t,start,end}]`。
+
+    只保留列表形态给 `find_cues` / `trim` 用；**等级在这里丢掉了**——要判「到底有没有
+    词级真值」请用 `words_and_source`。
+    """
+    return words_and_source(asset, root)[0]
 
 
 PHRASE_GAP = 0.45          # 与 L1 建句同一条：停顿超过 0.45s 就是另一句
@@ -329,11 +355,17 @@ def load_index(root: Path) -> dict:
 def scan(root: Path) -> int:
     idx = load_index(root)
     bad = 0
+    blind = 0
     for a in idx.get("assets") or []:
         tr = a.get("transcript") or {}
-        if not tr.get("phrases"):
+        ws, src = words_and_source(a, root)
+        if src != EG.WORD or not ws:
+            # 没有词级真值不等于「这段干净」：句级真值没有逐字时间，拿它猜口令
+            # 会把「三二一组」整句判成口令，也会把真口令放过。有声音的素材才计数——
+            # 照片/文档本来就没有台词，把它们算进「判不了」只会把真缺口淹掉。
+            if a.get("audio"):
+                blind += 1
             continue
-        ws = words_of(a, root)
         cues = find_cues(ws)
         if not cues:
             continue
@@ -348,6 +380,8 @@ def scan(root: Path) -> int:
                     print(f"      ⚠ 句子被污染 {p['start']:.2f}-{p['end']:.2f} {p['text']}")
                     break
     print(f"\n共 {bad} 段带口令 / 重说")
+    if blind:
+        print(f"🟡 {blind} 段没有词级真值，口令判不了（句级真值没有逐字时间，不拿它猜）")
     return 0 if bad == 0 else 1
 
 
@@ -375,7 +409,7 @@ def check(project: Path) -> int:
     idx = load_index(root)
     by_id = {a["id"]: a for a in idx.get("assets") or []}
     f, tl = _timeline(project)
-    errs, notes = [], []
+    errs, notes, blind = [], [], []
     for e in tl.get("elements") or []:
         au = e.get("audio") or {}
         aid = au.get("asset")
@@ -384,11 +418,17 @@ def check(project: Path) -> int:
         a = by_id.get(aid)
         if not a:
             continue
-        cues = find_cues(words_of(a, root))
+        ws, src = words_and_source(a, root)
+        if src != EG.WORD or not ws:
+            blind.append(f"el{e['n']} 该格没有词级真值，口令判不了（{aid}，"
+                         + ("只到句级 transcript.phrases）" if src == EG.SENTENCE
+                            else "索引和缓存都没覆盖这段）"))
+            continue
+        cues = find_cues(ws)
         if not cues:
             continue
         a0, a1 = float(au.get("in") or 0), float(au.get("out") or 0)
-        na, nb, why = trim(a0, a1, cues, words_of(a, root))
+        na, nb, why = trim(a0, a1, cues, ws)
         for c in cues:
             if na + 0.02 < c["t0"] and c["t1"] < nb - 0.02:
                 errs.append(f"el{e['n']} 窗口内夹着 {c['kind']}「{c['text']}」"
@@ -400,9 +440,11 @@ def check(project: Path) -> int:
         print(f"🔴 {m}")
     for m in notes:
         print(f"🟡 {m}")
-    if not errs and not notes:
+    for m in blind:
+        print(f"🟡 {m}")
+    if not errs and not notes and not blind:
         print("🟢 音频窗口里没有场记口令 / 指导语 / 重说")
-    return 0 if not errs and not notes else (2 if errs else 1)
+    return 0 if not errs and not notes and not blind else (2 if errs else 1)
 
 
 def fix(project: Path) -> int:
@@ -472,6 +514,11 @@ def main(argv: list[str] | None = None) -> int:
     if not rec:
         raise SystemExit(f"库里没有 {aid}")
     ws = words_of(rec, root)
+    if not ws:
+        src = words_and_source(rec, root)[1]
+        print(f"🟡 该素材没有词级真值，口令判不了（{rec.get('id')}，"
+              + ("只到句级 transcript.phrases）" if src == EG.SENTENCE else "索引和缓存都没覆盖这段）"))
+        return 1
     for w in ws:
         print(f"{w['start']:7.2f}-{w['end']:7.2f}  {w['t']}")
     for c in find_cues(ws):
