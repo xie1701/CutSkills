@@ -66,8 +66,12 @@ tokens:
   # 原来写死在 render_hf.py 里的冷黑蓝底板与 90% 黑遮罩，原封不动接在这里。
   # 其它包想用它们得自己写，写不出就是「语域选错了」，而不是默认值。
   surface:
-    plate: 'rgba(10,13,19,.76)'
-    plate_term: 'rgba(12,15,21,.84)'
+    # 卡面板底＝**纵向光线**（T-042）；黑语域用冷顶光（蓝白）抬一档，
+    # 0–2.2% 窄亮带 → 7% 回落 → 62% 中部再落 → 100% 底部沉。
+    # 中段不透明度 .76 → .68（黑底子最省不得光，亮带就是它唯一的「厚度」）。
+    plate: 'linear-gradient(180deg, rgba(80,92,108,.78) 0%, rgba(46,54,66,.78) 2.5%, rgba(20,25,32,.77) 7%, rgba(10,13,19,.72) 16%, rgba(10,13,19,.68) 62%, rgba(4,6,9,.82) 100%)'
+    plate_term: 'linear-gradient(180deg, rgba(80,92,108,.82) 0%, rgba(46,54,66,.82) 2.5%, rgba(20,25,32,.81) 7%, rgba(12,15,21,.76) 16%, rgba(12,15,21,.72) 62%, rgba(4,6,9,.84) 100%)'
+    light: 'linear-gradient(180deg, rgba(220,235,255,.12) 0%, rgba(220,235,255,.045) 2.5%, rgba(0,0,0,0) 12%, rgba(0,0,0,.12) 100%)'
     border: 'rgba(255,255,255,.16)'
     border_term: 'rgba(255,255,255,.14)'
     scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%)'
@@ -75,7 +79,11 @@ tokens:
     blur_ness: 0
     # T-019 复核②：黑语域里投影不靠色温而是靠**深度**（峰值 .46，扩得最宽 70px），
     # 否则黑底上的黑板看不出“压在上面”。卡面板 box-shadow 与底板自模糊外投影共用。
-    shadow: 'inset 0 1px 0 rgba(255,255,255,.14), 0 28px 70px rgba(0,0,0,.46), 0 8px 22px rgba(0,0,0,.28)'
+    # T-042：内侧 1px 倒角拆到 `edge`，shadow 只剩外投影。
+    shadow: '0 28px 70px rgba(0,0,0,.46), 0 8px 22px rgba(0,0,0,.28)'
+    edge:
+    - 'rgba(200,220,255,.26)'
+    - 'rgba(0,0,0,.40)'
   type:
     display: NotoSansSC-Black
     body: NotoSansSC-Regular

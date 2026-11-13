@@ -29,27 +29,49 @@ CARD = (0.6, 4.0)                        # 卡的时间窗
 
 
 def build(root: Path, *, box, mode, plate, cues, suppressed, cover=0.37,
-          medium="talking", dur=DUR) -> Path:
-    """造一个最小可判的项目：cards.json / subs.json / timeline.json / 人脸 / 遮罩。"""
+          medium="talking", dur=DUR, mask_rect=None, with_mask=True) -> Path:
+    """造一个最小可判的项目：cards.json / subs.json / timeline.json / 人脸 / 遮罩。
+
+    `mask_rect`：人物遮罩画在哪（归一化 x0,y0,x1,y1）。缺省画在底部一条带上
+    （口播近景里的「人」）。要造「卡没压主体」的对照就得把人挪开——
+    否则那个夹具本身就在压主体（T-042 新判据一上就会对它报 warning）。
+    `with_mask=False`：连 pstats 目录都不建，模拟「主体量不到」。
+    """
     from PIL import Image, ImageDraw
     (root / "out").mkdir(parents=True, exist_ok=True)
     (root / "hf" / "clips").mkdir(parents=True, exist_ok=True)
     (root / "hf" / "work" / "faces").mkdir(parents=True, exist_ok=True)
     mdir = root / "hf" / "work" / "pstats" / "clipX"
-    mdir.mkdir(parents=True, exist_ok=True)
+    if not with_mask:
+        mdir.parent.mkdir(parents=True, exist_ok=True)      # 只建 work/pstats，不建 pstats/clipX
     clip = root / "hf" / "clips" / "clipX.mp4"
     clip.write_bytes(b"\0" * 64)
     (root / "hf" / "work" / "faces" / "clipX.json").write_text(json.dumps(
         [{"t": 0.5, "x": FACE[0], "y": FACE[1], "w": FACE[2], "h": FACE[3], "conf": 0.87},
          {"t": 1.5, "x": FACE[0], "y": FACE[1], "w": FACE[2], "h": FACE[3], "conf": 0.88}]))
-    # 人物遮罩：画一块占总面积 = cover 的白，量出来的就是这个人占比
-    im = Image.new("L", (W, H), 0)
-    d = ImageDraw.Draw(im)
-    bw = int(W * 0.9)
-    bh = int((cover * W * H) / max(1, bw))
-    d.rectangle([int(W * 0.05), H - bh - 40, int(W * 0.05) + bw, H - 40], fill=255)
-    im.save(mdir / "f0000.png")
-    (mdir / "_stamp.json").write_text(json.dumps({"mtime": clip.stat().st_mtime + 60}))
+    if with_mask:
+        mdir.mkdir(parents=True, exist_ok=True)
+        im = Image.new("L", (W, H), 0)
+        d = ImageDraw.Draw(im)
+        if mask_rect:
+            x0, y0, x1, y1 = mask_rect
+            d.rectangle([int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H)], fill=255)
+        else:
+            # 人物遮罩：画一块占总面积 = cover 的白，量出来的就是这个人占比
+            bw = int(W * 0.9)
+            bh = int((cover * W * H) / max(1, bw))
+            d.rectangle([int(W * 0.05), H - bh - 40, int(W * 0.05) + bw, H - 40], fill=255)
+        # 多写几帧：person_frames 按 1/3s 步长给时间戳，只写 f0000（t=0）的话
+        # 卡窗 [0.6, 4.0] 一帧也选不进——那就变成“量 0%”，而不是“量到人”。
+        for i in range(4):
+            im.save(mdir / f"f{i:04d}.png")
+        # `bin` 必须写：person_frames 用「遮罩比编译产物新」判缓存是否还有效，
+        # 不写就是 0，它会把夹具里的遮罩当成过期、删掉重算——重算必然失败（64 字节假 mp4），
+        # 于是“缺人物遮罩”。T-042 第一次跑 D/E 就是被这个坑的（之前只测到了“量不出”分支）。
+        import card_layout as _CL
+        _bin = _CL.NATIVE.stat().st_mtime if _CL.NATIVE.exists() else 0
+        (mdir / "_stamp.json").write_text(json.dumps({"mtime": clip.stat().st_mtime + 60,
+                                                     "bin": _bin}))
 
     (root / "timeline.json").write_text(json.dumps({
         "version": 4, "pack": "P4-canton-warm", "style_pack": "P4-canton-warm",
@@ -120,9 +142,11 @@ def main() -> int:
     if rc == 0 or "退字幕" not in out:
         fails.append("C 重卡撞字幕没有判红")
 
-    # D 合法对照：右下角挂角、避脸、字幕已挂起留痕 → 必须一条 error 都没有
+    # D 合法对照：右下角挂角、避脸、字幕已挂起留痕、**人站在右边、卡压在左边**
+    # → 必须一条 error 都没有，而且也不该被「压主体」误报
     d = build(tmp / "D", box=[0.06, 0.62, 0.55, 0.24], mode="corner",
               plate=[0.04, 0.60, 0.59, 0.28], cues=[CUE],
+              mask_rect=(0.80, 0.30, 0.96, 0.90),
               suppressed=[{"card": "mg-01", "kind": "stat",
                            "cue": {"start": CUE["start"], "end": CUE["end"],
                                    "text": CUE["text"]},
@@ -132,12 +156,44 @@ def main() -> int:
     print(out.strip())
     if rc != 0 or "error 0" not in out:
         fails.append(f"D 合法卡被误杀（rc={rc}）")
+    if "压主体" in out:
+        fails.append("D 合法卡被「压主体」误报（人站在右边、卡压在左边）")
+
+    # E 压主体（T-042）：卡框正落在人身上——warning 必须有，但它不是 error：
+    # 压在腿上字仍读得出，压在脸上才是硬伤（A 才是）。所以 rc 必须仍是 0。
+    e = build(tmp / "E", box=[0.04, 0.60, 0.80, 0.30], mode="focus_blur",
+              plate=[0.0, 0.57, 0.92, 0.36], cues=[CUE],
+              suppressed=[{"card": "mg-01", "kind": "stat",
+                           "cue": {"start": CUE["start"], "end": CUE["end"],
+                                   "text": CUE["text"]}, "reason": "测试"}])
+    rc, out = run(e)
+    print("── E 压主体（warning） ──")
+    print(out.strip())
+    if "压主体" not in out:
+        fails.append("E 卡压住主体没有报出来")
+    if rc != 0:
+        fails.append(f"E「压主体」被当成 error（rc={rc}）——它是美术不达标，不是挡脸")
+
+    # F 主体量不到（T-042）：没有 pstats 遮罩时不许当「主体 = 0」放过去，
+    # 必须报「量不出来」，并且这条也不许升成 error（缺数据 ≠ 犯错）。
+    f = build(tmp / "F", box=[0.04, 0.60, 0.80, 0.30], mode="corner",
+              plate=[0.0, 0.57, 0.92, 0.36], cues=[CUE], with_mask=False,
+              suppressed=[{"card": "mg-01", "kind": "stat",
+                           "cue": {"start": CUE["start"], "end": CUE["end"],
+                                   "text": CUE["text"]}, "reason": "测试"}])
+    rc, out = run(f)
+    print("── F 主体量不到 ────────")
+    print(out.strip())
+    if "主体占比量不出来" not in out:
+        fails.append("F 缺人物遮罩时没有报「主体占比量不出来」（被当成 0 放过了）")
+    if rc != 0:
+        fails.append(f"F「量不出来」被当成 error（rc={rc}）——缺数据要报，但不是判红")
 
     if fails:
         print("❌ 叠加态判据负样本没抓住：" + "；".join(fails))
         return 1
-    print("✅ 叠加态判据：压脸 / 口播整屏暗场 / 重卡撞字幕 三红，合法卡零误杀"
-          f"（夹具 {tmp}）")
+    print("✅ 叠加态判据：压脸 / 口播整屏暗场 / 重卡撞字幕 三红，"
+          f"压主体与主体量不到两条 warning，合法卡零误杀（夹具 {tmp}）")
     return 0
 
 
