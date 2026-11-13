@@ -37,7 +37,10 @@ export NODE_PATH="$ROOT/npm/node_modules${NODE_PATH:+:$NODE_PATH}"
 if [ -x "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" ]; then
   export CUTSKILLS_FFMPEG="$ROOT/opt/ffmpeg-zimg/bin/ffmpeg"
 fi
-export PATH="${CUTSKILLS_FFMPEG:+$ROOT/opt/ffmpeg-zimg/bin:}$ROOT/npm/node_modules/.bin:$ROOT/bin:$PATH"
+# $ROOT/opt/bin 排最前：自建/抽出的 CLI（coli）只在这里，不走系统 PATH。
+# 2026-11-13 T-023：Cola 升级后 `coli` 从系统 PATH 上消失，整条转写链哑；
+# 现在 coli 是 $ROOT/opt/coli-app 里抽出的 @marswave/coli，靠 $ROOT/opt/bin 软链暴露。
+export PATH="$ROOT/opt/bin:${CUTSKILLS_FFMPEG:+$ROOT/opt/ffmpeg-zimg/bin:}$ROOT/npm/node_modules/.bin:$ROOT/bin:$PATH"
 export PYTHONPATH="$ROOT/py:$HERE/vendor${PYTHONPATH:+:$PYTHONPATH}"
 export PIP_CACHE_DIR="$ROOT/pip-cache"
 export XDG_CACHE_HOME="$ROOT/cache"
@@ -47,7 +50,7 @@ export TORCH_HOME="$ROOT/models/torch"
 export PUPPETEER_CACHE_DIR="$ROOT/cache/puppeteer"
 export PLAYWRIGHT_BROWSERS_PATH="$ROOT/cache/playwright"
 
-mkdir -p "$ROOT"/{npm,npm-cache,py,cache,models,bin,pip-cache}
+mkdir -p "$ROOT"/{npm,npm-cache,py,cache,models,bin,opt/bin,pip-cache}
 
 ensure_manifest() {
   [ -f "$ROOT/manifest.json" ] || cat > "$ROOT/manifest.json" <<'JSON'
@@ -86,7 +89,7 @@ export npm_config_prefix="$ROOT/npm"
 export npm_config_cache="$ROOT/npm-cache"
 export NODE_PATH="$ROOT/npm/node_modules"
 export CUTSKILLS_FFMPEG="${CUTSKILLS_FFMPEG:-}"
-export PATH="\${CUTSKILLS_FFMPEG:+$ROOT/opt/ffmpeg-zimg/bin:}$ROOT/npm/node_modules/.bin:$ROOT/bin:\$PATH"
+export PATH="$ROOT/opt/bin:\${CUTSKILLS_FFMPEG:+$ROOT/opt/ffmpeg-zimg/bin:}$ROOT/npm/node_modules/.bin:$ROOT/bin:\$PATH"
 export PYTHONPATH="$ROOT/py:$HERE/vendor"
 export PIP_CACHE_DIR="$ROOT/pip-cache"
 export XDG_CACHE_HOME="$ROOT/cache"
@@ -132,6 +135,53 @@ cmd_check() {
       echo "  ！跑不起来：$(echo "$out" | head -2 | tr '\n' ' ')"
       echo "    修法见 references/ffmpeg-zimg.md。没有它，HDR 素材压出来偏亮偏灰。"
     fi
+  fi
+  # 转写引擎 coli：2026-11-13 T-023 实测过一次「整个 PATH 上都没有它」——
+  # Cola 升级后不再把 @marswave/coli 暴露成系统命令，而报错只说「coli 不在 PATH」，
+  # 没人知道受害面有多大。所以 check 里单独一段，明说在哪、能不能跑、模型在不在。
+  echo "转写引擎（coli）："
+  if command -v coli >/dev/null 2>&1; then
+    coli_bin=$(command -v coli)
+    printf '  ok   %s\n' "$coli_bin"
+    # coli 自己没有 --version；版本从它旁边的 package.json 读
+    # （软链指向 .../@marswave/coli/distribution/source/cli.js）
+    coli_ver=$(python3 - "$coli_bin" <<'PY'
+import json, os, pathlib, sys
+p = pathlib.Path(os.path.realpath(sys.argv[1]))
+for parent in [p.parent] + list(p.parents):
+    pj = parent / "package.json"
+    if not pj.is_file():
+        continue
+    try:
+        d = json.loads(pj.read_text())
+    except Exception:
+        continue
+    if d.get("name"):
+        print(f"{d['name']} {d.get('version', '?')}")
+        break
+PY
+)
+    echo "       版本 ${coli_ver:-未知（不是 npm 包布局）}"
+    # 与 ffmpeg 同理：清单里写着有 ≠ 跑得起来。真跑一次 --help。
+    if out=$(coli --help 2>&1); then
+      printf '  ok   真跑一次 --help：%s\n' "$(echo "$out" | head -1 | cut -c1-56)"
+    else
+      echo "  ！跑不起来：$(echo "$out" | head -2 | tr '\n' ' ')"
+      echo "    受害面：selftest ②–⑤、test_hygiene_fixtures.py、新素材首次 ASR。"
+    fi
+    # 模型：coli 首跑会自己下 155.5 MB 到 ~/.coli/models（2026-11-13 实测断流过一次）
+    sv="$HOME/.coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+    if [ -f "$sv/model.int8.onnx" ] && [ -f "$sv/tokens.txt" ]; then
+      printf '  ok   模型 sensevoice 在位：%s\n' "$(du -sh "$sv" 2>/dev/null | cut -f1)"
+    else
+      echo "  · 模型 sensevoice 未装：首次 ASR 要下 155.5 MB（files.colaos.ai），断流会退 1"
+    fi
+  else
+    echo "  缺失 —— 整条转写链路全靠它，缺了会连带："
+    echo "    · selftest ②–⑤（预检直接退 2，不再往下假红）"
+    echo "    · scripts/test_hygiene_fixtures.py（FileNotFoundError: 'coli'）"
+    echo "    · 任何新素材库的首次 ASR（已有 ASR 缓存的素材不受影响）"
+    echo "    恢复：`python3 scripts/fetch_coli.py`（从 Cola 安装包里重抽，不联网）"
   fi
   echo "node 包："
   if [ -d "$ROOT/npm/node_modules" ]; then

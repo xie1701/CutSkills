@@ -875,12 +875,23 @@ source scripts/runtime.sh env && scripts/runtime.sh install
 | 依赖 | 用途 | 何来 |
 |---|---|---|
 | `ffmpeg` / `ffprobe` | 解码、切点、混音、规格探测 | 系统装（brew） |
-| `coli asr --model sensevoice` | 本地转写，离线、字级时间戳 | 系统命令 |
+| `coli asr --model sensevoice` | 本地转写，离线、字级时间戳 | **不是**系统命令：从 `/Applications/Cola.app/Contents/Resources/app.asar` 抽出的 `@marswave/coli 0.0.20`，在 `~/.cutskills/opt/coli-app`，由 `~/.cutskills/opt/bin/coli` 软链暴露（`runtime.sh env` 把这个目录排 PATH 最前） |
 | `python3` + `pypinyin` | 同音纠错检测 | 随包 `scripts/vendor/`（pip 走 SOCKS 代理会失败，不靠它） |
 | `node` / `hyperframes` | C 段合成 | `runtime.sh install` 装进 `~/.cutskills/npm` |
 | `sips` | HEIC 转 JPG | macOS 自带 |
 
-**转写只有一条路：`coli asr --model sensevoice`**（本地、字级时间戳、最快）。它挂了就停下来告诉用户，不要照着一条不存在的降级链去试：ElevenLabs Scribe 的 key 2026-11-06 实测 401（订阅欠费），`hyperframes transcribe` 实测 TLS 断流，两条都不能用。以后要加兜底，先把通路跑通再写进文档。
+**转写只有一条路：`coli asr --model sensevoice`**（本地、字级时间戳、最快）。它挂了就停下来告诉用户，不要照着一条不存在的降级链去试：ElevenLabs Scribe 的 key 2026-11-06 实测 401（订阅欠费）、`hyperframes transcribe` 实测 TLS 断流，两条都不能用。以后要加兜底，先把通路跑通再写进文档。
+
+**`coli` 的来路与断法**（2026-11-13 T-023）：它以前由 Cola 暴露成系统命令，Cola 升级后 `which coli` 直接为空，转写整条链一起哑。现在它是从 Cola 安装包里抽出来的：
+
+```bash
+# 先看探针：路径/版本/能不能真跑/模型在不在
+scripts/runtime.sh check
+# 缺了或 App 升级换了 asar，就从 Cola 安装包里重抽一次（只读 App，不联网）
+python3 scripts/fetch_coli.py
+```
+
+模型不在包里，首次 `coli asr` 自己下 155.5 MB 到 `~/.coli/models`；代理断流时用 `curl -C - --retry 20 --retry-all-errors` 续传到 `~/.coli/models/<dirName>.tar.bz2`，sha256 对得上再 `tar xf` 进去，coli 会认账不再下。细节见 `deps.json` 的 `system.coli` 与 `models.asr`。
 
 ## 参考文件
 
