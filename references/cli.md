@@ -1026,6 +1026,11 @@
 
 （无参数）
 
+### `test_tidy.py`
+*`tidy.py` 负样本：它必须删掉可重建的过程文件，且**一个真值源都不许碰**。*
+
+（无参数）
+
 ### `test_timing_subs.py`
 *check_timing 字幕后置判据的合同测试（T-040）：同音放行能放、编造照抓。*
 
@@ -1046,6 +1051,16 @@
 | `--init` | 开关 |
 | `--match` | 开关 |
 | `--show` | 开关 |
+
+### `tidy.py`
+*收工清理：把「能重建的过程文件」和「必须留的交付物」分开，只删前者。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 单个项目目录 |
+| `--library` | 库根（含 _cutskills/projects） |
+| `--tmp` | 只清 /tmp 残骸 |
+| `--apply` | 真删（默认演练） |
 
 ### `timeline.py`
 *CutSkills · plan.json + brief.json → timeline.json（元素时间轴 v4）。*

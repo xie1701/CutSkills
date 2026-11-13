@@ -371,6 +371,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_regression_ng.py")])
     must("dianzan 旧版 NG 全部判红", r.returncode == 0, (r.stderr or r.stdout).strip()[-500:])
 
+    print("㉖ 收工清理只删可重建物（tidy：真值源/成片/闸门证据全留，孤儿副本不敢动）")
+    r = sh([PY, str(ROOT / "scripts" / "test_tidy.py")])
+    must("收工清理不误删", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
+
     secs = time.time() - t0
     print()
     if fails:

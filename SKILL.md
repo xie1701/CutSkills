@@ -923,6 +923,40 @@ python3 <SKILL_DIR>/scripts/bench.py --library "<库>" --project <项目目录> 
 
 查完机器能查的，剩下的只能靠**一个没参加过讨论的人照文档跑一遍**：给他 SKILL.md 和一句需求，让他做到文字粗剪，只问「哪里卡住了」。这个裁判比任何自评都准——它不知道你心里那些没说出口的规矩。
 
+## 收工清理：`scripts/tidy.py`
+
+**判据只有一句话：删掉它之后，重跑哪一步能一模一样地拿回来？** 答得出来才是可删项；
+答不出来的（真值源、拍板、成片、闸门证据）一律按不可再生对待。
+
+```bash
+python3 <SKILL_DIR>/scripts/tidy.py --project <项目目录>          # 演练，只列
+python3 <SKILL_DIR>/scripts/tidy.py --project <项目目录> --apply  # 真删
+python3 <SKILL_DIR>/scripts/tidy.py --library "<库>" --apply      # 整库一遍（顺带清 `*-t042` 验证副本）
+```
+
+**删**（每一项都能靠重跑拿回来）：`out/_hf_raw.mp4` `_hf_bed.mp4` `_hf_fg.mp4`（重渲）、
+`out/film.mp4`（**仅当 `film-hf.mp4` 在**——那是旧 ffmpeg 链的残留，留着会被 `verify_film` 按 mtime 误读成成片）、
+`out/film-P*.mp4`（风格预览）、`work/`（合成中间物）、`hooks/*.mp4` 与 `hooks/cand-*/`、
+`ab/*/`（A/B 盲测片）、`review/`（审片接触表）、`bgm-previews/`、`/tmp/cutskills-selftest-*`、
+同库下正片已存在的 `*-t042` 验证副本。
+
+**一个字节都不许动**：`timeline.json` `brief.json` `intent.json` `plan.json` `thesis.json`、
+`decisions.md` `方案.md` `paper-edit.md`、`approval.json` `lock.json`、`verify-report.md`、`cover/` `board/`、
+成片 `out/film-hf.mp4`、验收读的 `out/{subs,shots,cards,sfx}.json`、
+`hf/meta.json` `hf/assets/`、`hf/work/{faces,pstats,mask}` 与 `hf/work/stab-*.json`（叠加态/大字/压脸判据的证据）、
+`hf/clips/` 与 `hf/clips/.pristine/`（渲器缓存 + `shot_match` 幂等基线——删了下次渲会把调色叠第二遍）、
+库根的 `index.json` `lexicon.json` `l2s/` `cache/asr/`（词级真值，重跑 ASR 以小时计）。
+
+**什么时候跑**：交付或判收之后、每轮重渲之后。顺序是 **渲 → 验 → 清**（`verify_film` 会往 `work/` 写抽帧，
+先清后验等于白清），清完再跑一遍 `gate` 与 `verify_film`，**读数应当一条都不变**——变了说明删错了，
+那说明 `tidy.py` 的 `KEEP` 表漏了一项，去补它，而不是把文件找回来凑合。
+
+实测（2026-11-13 首次全库清理）：回收 **5.80 GB / 241 项**——三片 `-t042` 验证副本 2.70 GB、
+三片中间层 `_hf_raw/_hf_bed/_hf_fg` 1.24 GB、柒造四片的 `work/` 与钩子/盲测候选 1.38 GB、
+`/tmp` 残骸 0.36 GB；清完 `gate`、`verify_film`、`golden`、`selftest` 读数一条没变。
+留下的最大一项是 `hf/clips/`（每片 130–730 MB），**它是故意留的**：删了渲前闸门量不到片段帧、
+重渲也变慢，属于「可重建但重建很贵」的那一档，只在收档不再改片时才动。
+
 ## 边界
 
 - **不写稿。** CutSkills 处理内容，不生产内容。一旦它开始写稿，就从"剪辑"扩成"内容工厂"，那是另一个技能。
