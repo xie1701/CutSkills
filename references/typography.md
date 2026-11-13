@@ -149,3 +149,10 @@ python3 scripts/match_font.py --video /tmp/dark_sub.png --t 0 --text "不管珠�
 复核：`check_subs.py` 量超宽 / 停留 / 助词孤行 / 重叠 / 断词，
 `verify_film.py` 另外量「字幕最宽（像素）」——用真字体 `ImageFont.getlength()` 实量，
 不用字数 × 字号估算。
+
+**产线那一侧也得同口径**（2026-11-13 T-032）：判据只能认「实量的停顿」，
+所以拆条时也先拿 `silence.py` 把字的起止从静音里拉出来（`subs.retime_off_silence()`），
+再按 `subs.BREATH_MIN = 0.30` / `subs.MAX_HOLD = 3.2` 断。
+两边同一个数：裁判量的是 0.30s，产线断的也是 0.30s。
+实现与负样本见 [subtitle-rules.md](subtitle-rules.md) 与
+[negative-samples/breath-split.md](negative-samples/breath-split.md)。

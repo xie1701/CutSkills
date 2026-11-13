@@ -891,6 +891,11 @@
 
 （无参数）
 
+### `test_breath_split.py`
+*T-032 合同测试：拆条按**实测静音**判「换没换一口气」，不是按 ASR 的词起点间隔。*
+
+（无参数）
+
 ### `test_content_guard.py`
 *content_guard 的合同测试：三条新判据该红时红、该绿时绿。*
 
