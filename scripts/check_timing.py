@@ -158,12 +158,24 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
                     out.append(("warning", note + "（这一格的字幕没按词校）"))
             # 字幕文本必须对得上这一段的真值：改写可以改标点、可以删口误，
             # 但不许凭空增加音频里没说的词（「大家可以放心」里的「放心」就是这么来的）。
-            bad, _ = EG.invented(win_txt, txt) if win_txt else ([], 0)
+            # 双向对账（T-040）：字幕多出的字、真值多出的字都过同一套同音放行
+            # （`evidence_guard.two_sided`，声母/韵母层面）。只数字幕这一边，就会把
+            # ASR 丢字判成编造——naming-01 字幕「什么」对上真值「为」，音频那边同时
+            # 多出「为我没有」三个音，两边都多、账是平的。单边净多出 ≥2 个实词才是编造；
+            # 人称代词不参与放行：对谁说话反了不是听错一个字，照旧判红。
+            extra_truth, bad = EG.two_sided(win_txt, txt) if win_txt else ([], [])
+            swap_sub = [c for c in bad if c in EG.PRONOUN]
+            swap_tr = [c for c in extra_truth if c in EG.PRONOUN]
             # 句级真值没有逐字时间，字幕窗口对不上「哪一秒说了哪个字」——
             # 硬错只能在词级上判，否则就是拿窗口错位冤枉字幕（假红）。
-            if len(bad) >= 2 and aid and levels.get(aid) == EG.WORD:
-                out.append(("error", f"字幕「{txt[:10]}」里的「{''.join(bad[:4])}」音频没说——"
-                                     f"这段声音是「{win_txt[:18]}」"))
+            if aid and levels.get(aid) == EG.WORD:
+                if swap_sub and swap_tr:
+                    out.append(("error", f"字幕「{txt[:10]}」里的人称「{''.join(swap_sub[:2])}」，"
+                                         f"音频说的是「{''.join(swap_tr[:2])}」——"
+                                         f"这句是对谁说的反了"))
+                elif len(bad) - len(extra_truth) >= 2:
+                    out.append(("error", f"字幕「{txt[:10]}」里的「{''.join(bad[:4])}」音频没说——"
+                                         f"这段声音是「{win_txt[:18]}」"))
             if not el:
                 continue
             aux = el.get("audio") or {}

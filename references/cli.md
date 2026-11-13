@@ -959,6 +959,11 @@
 
 （无参数）
 
+### `test_timing_subs.py`
+*check_timing 字幕后置判据的合同测试（T-040）：同音放行能放、编造照抓。*
+
+（无参数）
+
 ### `test_visual_grade.py`
 *CutSkills · T-015 口播「声 / 画双评级」与露脸门禁 · 合同测试。*
 
