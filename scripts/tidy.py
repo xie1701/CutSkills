@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -72,7 +73,7 @@ HOOKS_KEEP = {"review-kit.md"}
 AB_KEEP = {"compare.md"}
 
 PROCESS_DIRS = ("work", "review", "bgm-previews")
-TMP_PREFIXES = ("cutskills-selftest", "t0", "t1")
+TMP_PATTERNS = (r"^cutskills-selftest", r"^t\d{3}(-|$)")   # 自检残骸 / 各单留下的 t0XX-backup 项目副本
 
 
 def _size(p: Path) -> int:
@@ -150,8 +151,9 @@ def plan_tmp() -> list[tuple[int, str, Path]]:
     tmp = Path("/tmp")
     if not tmp.is_dir():
         return rows
+    pats = [re.compile(x) for x in TMP_PATTERNS]
     for q in sorted(tmp.iterdir()):
-        if not q.name.startswith(TMP_PREFIXES):
+        if not any(p.match(q.name) for p in pats):
             continue
         rows.append((_size(q), f"临时残骸 /tmp/{q.name}", q))
     return rows
