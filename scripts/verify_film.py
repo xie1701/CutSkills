@@ -20,6 +20,19 @@ from pathlib import Path
 
 import yaml
 
+# 参考片一条字幕多长（字）。来源是同一条 126.58 s 知识口播片的逐帧反解：
+# 113 条、每条均 8.9 / 中位 8 / 上限 12（talking-head-packaging/references/measured-spec.md）。
+# 判据用它当「切法基准」，而不是拿本片自己的均值反推——反推会把条数 N 约掉，
+# 那条判据就永远 0 偏差、什么都不判了（T-041）。
+REF_CHARS_PER_CUE = 8.0
+
+# 「大字/花字真的上屏了吗」的墨迹下限，按卡型分开：
+# behind/cutout 是故意被人挡住的，只剩可见边缘，墨迹天然远少于 keyword
+# （实测同一块字 keyword 0.4% 上下、behind 0.13%）。这里只判「字确实在画面上」，
+# 遮挡多少交给成片看，不假装能从一个数里量出来。
+KW_FLOOR_BEHIND = 0.0008
+KW_FLOOR_KEYWORD = 0.004
+
 
 def dark_ratio(im) -> float:
     """深底占比：像素 < 46（L 模式）的比例。供「代码画面真的在画面上」用，
@@ -30,6 +43,94 @@ def dark_ratio(im) -> float:
 
 def median_of(vals: list[float]):
     return sorted(vals)[len(vals) // 2] if vals else None
+
+
+def color_share(im, hexs, box, tol: int = 64) -> float:
+    """一块区域里接近某个颜色的像素占比。
+
+    为什么不用「深色占比」：那判据只对 ffmpeg 那条链的深底衬卡成立。
+    HyperFrames 链的大字是**亮黄字压画面**，深色占比天然为 0，
+    于是"卡明明在画面上"也会报红。卡是我们自己设计的，颜色是已知的，
+    就按颜色查——这比"深不深"诚实地多。
+    """
+    r0, g0, b0 = (int(hexs.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    crop = im.crop(box).convert("RGB")
+    px = list(crop.getdata())
+    n = sum(1 for r, g, b in px
+            if abs(r - r0) <= tol and abs(g - g0) <= tol and abs(b - b0) <= tol)
+    return n / max(1, len(px))
+
+
+def kw_ink_level(in_share: float, base_share, kind: str) -> tuple[str, float]:
+    """有卡帧的墨迹减去「卡不在」的基线 → 判 green/red，返回 (级别, 净墨迹)。
+
+    为什么要减基线：画面里本来就有同色的东西（招牌、包装 accent 用在大字以外的地方）。
+    `qizao-ground-01` 30.2s 那一帧，behind 的中段带里躺着 682 个 #F6EB34 像素（0.07%，
+    和卡无关）；而 behind 的墨迹下限只有 0.08%，一张「字根本没上屏」的帧能靠这点背景黄
+    擦着过线。减掉卡前/卡后的同一带子中位，背景就抵消了，判据量到的才是这张卡加的墨。
+    """
+    floor = KW_FLOOR_BEHIND if kind in ("behind", "cutout") else KW_FLOOR_KEYWORD
+    if base_share is None:
+        return ("green" if in_share > floor else "red"), float(in_share)
+    base = max(0.0, min(float(base_share), float(in_share)))
+    ink = float(in_share) - base
+    if in_share > 0 and base >= 0.5 * float(in_share):
+        # 带子被画面自己的同色占满（暖色/木色/陶土色多的镜头）：这时候减基线会把卡的墨迹
+        # 一起减掉——proj79 的 behind「成本贵在哪」带内 2.55%、卡不在时 2.48%，净 0.07%，
+        # 但那张卡其实在画面上（渲出来是半透明的淡黄 #F2E98F，与 pack accent 差 91 灰阶）。
+        # 退回旧口径「带内墨迹够量就算上屏」，并如实标注「净墨迹不可判」——
+        # 别拿一个量不出来的差值去报红（T-041 追加，留 T-044 用帧间差分重做这一层）。
+        return ("green" if in_share > floor else "red"), ink
+    return ("green" if ink > floor else "red"), ink
+
+
+def text_band(kind: str, box, W: int, H: int) -> tuple[int, int, int, int]:
+    """大字/花字该在画面的哪一带取样——**按卡型分开**。
+
+    keyword（替字幕说话的中央大字）落在中段带；behind / cutout（人脑后大字）
+    的排版天然更高：`emphasis.top_h: 0.30` 只是上限，字撑到 70% 屏宽之后整块上移，
+    实测 `qizao-ground-01` 那张 behind 的「售楼部 · 酒店」黄字在 **y 115–204**
+    （画面 6%–11%H），而中段带从 28%H 才开始——必然量空，报「字没上屏」（假红）。
+    有 `layout.box_px` 时以卡自己的框为准（外面各留 24px 余量，由调用方给）。
+    """
+    if kind in ("behind", "cutout"):
+        return box or (0, 0, W, int(H * 0.45))
+    return (0, int(H * 0.28), W, int(H * 0.76))
+
+
+def subtitle_density(cues: list[dict], dur: float, lo, hi) -> tuple[str, str, str] | None:
+    """字幕密度：实测与期望**都按整片分钟**算，跟参考片的 45–58 条/分钟同口径。
+
+    为什么分母必须是「整片分钟」：参考片那个基准就是这么量的——113 条 ÷
+    (126.58/60) 分 = 53.6 条/分钟（talking-head-packaging 的 measured-spec）。
+    旧版期望值写的是 `cps/avg*60`，分母其实是**字幕覆盖**分钟；片子里有多少秒
+    没字幕，就被硬当成「密度变了」报出来（T-032 把字幕窗口收窄到只盖说话的秒，
+    ground-01 的覆盖率 79.2%，凭空多一条黄）。更糟的是 N 在两边约掉之后，
+    那条判据量到的只剩「字幕覆盖率 C/T」：把条数砍掉 1/3 依旧 0 偏差。
+
+    所以期望值不能拿本片自己的 avg 反推（那样 N 又会约掉），而要用**参考片的每条字数**
+    当切法基准：同样的字量、按参考的切法，整片分钟该有多少条。这条判据量的是
+    「你切得比参考碎还是粗」，两侧同一把尺。
+
+    返回 (级别, 读数, 说明)；没有字幕时返回 None。
+    """
+    cues = [c for c in (cues or []) if (c.get("text") or "").strip()]
+    if not cues or not dur:
+        return None
+    chars_n = sum(len(c["text"]) for c in cues)
+    n = len(cues)
+    per_min = n / (dur / 60)
+    avg = chars_n / n
+    # 语速只作读数：分母是字幕覆盖时长，跟片长无关，不参与判定
+    cover = sum(float(c["end"]) - float(c["start"]) for c in cues)
+    cps = chars_n / cover if cover > 0 else 0.0
+    expect = (chars_n / REF_CHARS_PER_CUE) / (dur / 60)
+    dev = abs(per_min - expect) / expect
+    level = "green" if dev <= 0.15 else ("yellow" if dev <= 0.3 else "red")
+    note = (f"整片分钟口径（参考片 {lo}–{hi} 同口径）；本片 {n} 条 ÷ {dur:.1f}s，"
+            f"{chars_n} 字、语速 {cps:.1f} 字/秒、单条 {avg:.1f} 字 → "
+            f"按参考每条 {REF_CHARS_PER_CUE:.0f} 字该是 {expect:.0f} 条/分钟")
+    return level, f"{per_min:.1f} 条/分钟", note
 
 
 def pip_applied(meta: dict) -> bool:
@@ -505,21 +606,6 @@ def main() -> int:
         """大字色占比：候选色里取最大。候选来自当前包装的 accent / emphasis 色。"""
         return max(color_share(im, h, box) for h in _kw_list)
 
-    def color_share(im, hexs, box, tol=64):
-        """一块区域里接近某个颜色的像素占比。
-
-        为什么不再用「深色占比」：那判据只对 ffmpeg 那条链的深底衬卡成立。
-        HyperFrames 链的大字是**亮黄字压画面**，深色占比天然为 0，
-        于是"卡明明在画面上"也会报红。卡是我们自己设计的，颜色是已知的，
-        就按颜色查——这比"深不深"诚实地多。
-        """
-        r0, g0, b0 = (int(hexs.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
-        crop = im.crop(box).convert("RGB")
-        px = list(crop.getdata())
-        n = sum(1 for r, g, b in px
-                if abs(r - r0) <= tol and abs(g - g0) <= tol and abs(b - b0) <= tol)
-        return n / max(1, len(px))
-
     if cards_meta:
         for c in [x for v in cards_meta.values() for x in v]:
             a_, b_ = float(c["start"]), float(c["end"])
@@ -544,24 +630,43 @@ def main() -> int:
                 # 只在窗口中点取一帧会撞上入场动画的半路（擦显才到一半、字刚出来三分一），
                 # 实测同一块字中点 0.02%、往后 0.1s 就 0.13%——一帧定生死会寃红。
                 # 取窗口内的三帧取最大值：只要曾经完整上过屏，就算它上了。
+                _band = text_band(kind, _box, W, H)
                 share = 0.0
                 for frac in (0.35, 0.6, 0.85):
                     tt = min(dur - 0.05, a_ + (b_ - a_) * frac)
                     im_ = frame_at(tt, f"card{c.get('el')}{frac}", "RGB")
                     if im_ is None:
                         continue
-                    share = max(share, kw_share(im_, (0, int(H * 0.28), W, int(H * 0.76))))
+                    share = max(share, kw_share(im_, _band))
                 if im_ is None:
                     continue
+                # 基线：卡前 / 卡后各一帧，同一带子量到的「本来就有的黄」。
+                # 不减掉它，一张「字没上屏」的帧会被背景黄抬过 behind 的墨迹下限。
+                _bases = []
+                for _tt, _tag in ((a_ - 0.35, "pre"), (b_ + 0.35, "post")):
+                    if not (0.0 <= _tt <= dur - 0.05):
+                        continue
+                    _im_b = frame_at(_tt, f"card{c.get('el')}{_tag}", "RGB")
+                    if _im_b is not None:
+                        _bases.append(kw_share(_im_b, _band))
+                _base = min(_bases) if _bases else None
                 # behind 卡是故意被人挡住的，可见墨迹天然远少于 keyword：
-                # 实测同一块字，keyword 在 0.4% 上下，behind 只剩 0.13%（人挡住大半）。
-                # 拿 keyword 的门槛要求 behind 只会永远报红；这里只判「字确实在画面上」，
-                # 遮挡多少交给成片看，不假装能从一个数里量出来。
-                floor = 0.0008 if kind in ("behind", "cutout") else 0.004
-                label = "大字烧进画面（可见部分）" if floor < 0.004 else "大字烧进画面"
-                add(label, f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
-                    "green" if share > floor else "red",
-                    "" if share > floor else
+                # 实测同一块字，keyword 在 0.4% 上下、behind 只剩 0.13%（人挡住大半），
+                # 两字小卡「柒造」实测 0.17%。拿 keyword 的门槛要求 behind 只会永远报红；
+                # 这里只判「这张卡确实加了一笔墨在画面上」，遮挡多少交给成片看。
+                level, ink = kw_ink_level(share, _base, kind)
+                floor = KW_FLOOR_BEHIND if kind in ("behind", "cutout") else KW_FLOOR_KEYWORD
+                label = "大字烧进画面（可见部分）" if floor < KW_FLOOR_KEYWORD else "大字烧进画面"
+                if _base is None:
+                    _bt = ""
+                elif share > 0 and _base >= 0.5 * share:
+                    _bt = (f"（卡不在时同带 {_base * 100:.2f}%——带子被画面同色占满，"
+                           f"净墨迹不可判，按带内墨迹总量判）")
+                else:
+                    _bt = f"（卡不在时同带 {_base * 100:.2f}%，净 {ink * 100:.2f}%）"
+                add(label, f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%{_bt}",
+                    level,
+                    "" if level == "green" else
                     f"大字「{c.get('text')}」在 {a_:.1f}–{b_:.1f}s，画面 {kw_hex} 色几乎为零")
             elif kind in ("stat", "steps", "versus", "term"):
                 # MG 卡：底色是半透明 ground，accent 只出现在数字/标题/序号上，面积天然很小。
@@ -639,11 +744,20 @@ def main() -> int:
             if im is not None:
                 kind = str(card.get("kind") or "card")
                 if kind in ("keyword", "behind", "cutout"):
-                    share = kw_share(im, (0, int(H * 0.30), W, int(H * 0.74)))
-                    floor = 0.0008 if kind in ("behind", "cutout") else 0.004
+                    _band = text_band(kind, None, W, H)
+                    share = kw_share(im, _band)
+                    _bases = []
+                    for _tt, _tag in ((mid - cd / 2 - 0.35, "pre"), (mid + cd / 2 + 0.35, "post")):
+                        if not (0.0 <= _tt <= dur - 0.05):
+                            continue
+                        _im_b = frame_at(_tt, f"cardE{_tag}", "RGB")
+                        if _im_b is not None:
+                            _bases.append(kw_share(_im_b, _band))
+                    _base = min(_bases) if _bases else None
+                    level, ink = kw_ink_level(share, _base, kind)
                     add("大字烧进画面", f"{mid:.1f}s 处花字色占比 {share * 100:.2f}%",
-                        "green" if share > floor else "red",
-                        "" if share > floor else
+                        level,
+                        "" if level == "green" else
                         f"EDL 里有大字「{card.get('text')}」，画面 {kw_hex} 色几乎为零")
                 else:
                     px = list(im.crop((0, 760, W, 1040)).getdata())
@@ -760,25 +874,13 @@ def main() -> int:
     subs = json.loads((proj / "out" / "subs.json").read_text()) if (proj / "out" / "subs.json").exists() else {}
     cues = subs.get("cues") or []
     if cues and _has_subs:
-        per_min = len(cues) / (dur / 60) if dur else 0
-        # 包装模板不声明密度（A 族 0–8.5 处/分这种跨度没有意义），所以这一项可以缺
+        # 分母一律「**整片**分钟」，实测侧和期望侧同一把尺——参考片的 45–58 条/分钟就是
+        # 这么标的（113 条 ÷ (126.58/60) 分 = 53.6 条/分钟）。口径与判据一起看
+        # subtitle_density() 的 docstring（T-041）。
         lo, hi = (style["subtitle"].get("density_per_min") or ["—", "—"])
-        # 密度这个指标本身依赖语速：参考片 8 字/秒，45–58 条/分钟；这条片子 3.8 字/秒，
-        # 同样拆成 8–9 字一条就只有 25 条/分钟。所以判的是**期望值对不对**，
-        # 绝对数字照样写在说明里，别让"内容慢"背成"剪辑懒"的锅。
-        avg = float(subs.get("avg_chars") or 0) or 9.0
-        cps = float(subs.get("chars_per_s") or 0)
-        if not cps:   # subs.json 被别的包装写过（例如无字幕层那套）→ 就地按 cue 重算
-            _cs = sum(len(c.get("text") or "") for c in cues)
-            _ss = sum(float(c["end"]) - float(c["start"]) for c in cues)
-            cps = round(_cs / _ss, 2) if _ss else 0.0
-            avg = round(_cs / len(cues), 2) if _cs else avg
-        derived = (cps / avg) * 60
-        dev = abs(per_min - derived) / derived if derived else 1.0
-        level = "green" if dev <= 0.15 else ("yellow" if dev <= 0.3 else "red")
-        add("字幕密度", f"{per_min:.1f} 条/分钟", level,
-            f"参考片 {lo}–{hi}（快语速）；本片语速 {cps:.1f} 字/秒、"
-            f"单条 {avg:.1f} 字 → 期望 {derived:.0f} 条/分钟")
+        _d = subtitle_density(cues, dur, lo, hi)
+        if _d:
+            add("字幕密度", _d[1], _d[0], _d[2])
         longest = max((c.get("units") or len(c["text"])) for c in cues)
         mx = int(style["subtitle"].get("max_chars_per_line") or 16)
         # 按「展示单位」判，不按字数：半角字（OK、2026）只占 0.34 个单位，

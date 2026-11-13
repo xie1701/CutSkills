@@ -898,6 +898,11 @@
 
 （无参数）
 
+### `test_behind_band.py`
+*T-041（追加）回归：behind / cutout 大字的「取样带 + 基线」缺一条就假红。*
+
+（无参数）
+
 ### `test_blind_negative.py`
 *CutSkills · 盲测收口与阴性防误杀测试套件 (P4)*
 
@@ -975,6 +980,11 @@
 
 ### `test_speech_hygiene.py`
 *speech_hygiene 的合同测试：五类残渣必须各自被抓到。*
+
+（无参数）
+
+### `test_sub_density.py`
+*T-041 回归：`verify_film` 的「字幕密度」两侧必须同分母（整片分钟），且真判密度。*
 
 （无参数）
 
