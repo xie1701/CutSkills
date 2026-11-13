@@ -274,14 +274,25 @@ timeline.json  ──I1 board_from_timeline──▶  board/board.html（人看�
 片子散在不同的库和目录，文件名也全是给机器看的（`_hf_bed`、`P1-warm`、`film-hf`）。所以有两条入口：
 
 ```bash
-python3 <SKILL_DIR>/scripts/showcase.py          # → ~/Downloads/CutSkills-产出/index.html
-cd "<项目>/hf" && hyperframes preview --open     # 工程页（HyperFrames studio）
+python3 <SKILL_DIR>/scripts/showcase.py                  # 产出总表 + 每支片一个双击入口
+python3 <SKILL_DIR>/scripts/studio.py --project dianzan-a # 一键起工程页（HyperFrames studio）
+python3 <SKILL_DIR>/scripts/studio.py --list              # 现在开着哪些、端口多少
+python3 <SKILL_DIR>/scripts/studio.py --stop dianzan-a    # 关掉
 ```
+
+**一键工程页 `scripts/studio.py`**：按项目名在三个库里找片（`dianzan-a` / `qizao-ground-01` / `proj79`），
+自动挑 `3100` 起的空端口、`--background` 起 studio、等 HTTP 200 再打开 `/studio`。已经开着就只报地址，
+不再起第二个；名字含糊（前缀命中多个）就报歧义退 2，不许猜。`--stop-all` 一键全关。
+起停手册里验过一次真机：`qizao-ground-01` 起在 `3100`、`--stop` 后端口释放。
 
 **`showcase.py` 是给人看的产出总表**：扫多个库 → 一张静态 HTML，每支片一个可播的视频格，带主张、
 风格包、时长、响度与验收 🟢🟡🔴 计数，再加一张**命名对照表**（`timeline.json` / `brief.json` /
 `hf/` / `_hf_raw` / `P1-warm` / 素材名的 `日期_批次_内容_级别_原编号` 各是什么意思）和「想动手改」三条路。
 视频用相对路径，双击就能开；片子重渲、读数变了，重跑一次就同步——所以别手改那个 HTML。
+
+**总表里每支片三个入口**：① 视频格直接播；② `python3 …/studio.py --project <片>` 一行命令（点一下复制）；
+③ 同目录的 `启动工程-<片>.command`（macOS Finder 里双击就开）。哪个工程的 studio 正在跑，卡片上会直接
+出现一个绿色的「工程页已开 · 端口 3100」链接，点了就到。
 
 **工程页就是 HyperFrames 的 studio。** 实机验过（2026-11-13，`dianzan-a`）：`/studio` 返回 200，
 中央竖屏预览 `00:00/00:45`，右栏 Design/Layers/Renders/Variables，底部时间轴 V1–V13 + `Grade` 特效轨 +

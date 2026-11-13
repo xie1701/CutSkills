@@ -644,6 +644,11 @@
 | `--vote` | 记真人投票：逗号分隔，A/B/C 顺序对应看片顺序，如 A,B,C |
 | `--check` | 校验前 3 秒策略合规性与通过性 |
 
+### `libs.py`
+*库与项目的解析：影子和工程页两处入口共用这一份，不各写一套。*
+
+（无参数）
+
 ### `lock.py`
 *方案锁：拍板的那一刻，把时间轴钉死。*
 
@@ -886,6 +891,21 @@
 
 （无参数）
 
+### `studio.py`
+*一键起工程页：把 `cd <项目>/hf && hyperframes preview` 收成一条命令。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 项目名（dianzan-a / qizao-ground-01 …）或目录 |
+| `--library` | 要搜的库根（可多次） |
+| `--port` | 指定端口（默认 3100 起找空位） |
+| `--no-open` | 不自动开浏览器 |
+| `--print-cmd` | 只打印要跑的命令，不真起 |
+| `--list` | 列出开着的 studio |
+| `--stop` | 关掉某个项目的 studio |
+| `--stop-all` | 关掉全部 |
+| `--emit-launchers` | 给每支片写一个 .command |
+
 ### `style_menu.py`
 *CutSkills · 风格菜单：把 4 套剪法 + 3 套包装摆给用户点，而不是让他写配置。*
 
@@ -1026,6 +1046,11 @@
 
 ### `test_speech_hygiene.py`
 *speech_hygiene 的合同测试：五类残渣必须各自被抓到。*
+
+（无参数）
+
+### `test_studio.py`
+*`studio.py`（一键工程页）的离线回归：项目解析、命令拼装、双击入口。*
 
 （无参数）
 

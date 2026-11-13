@@ -375,6 +375,10 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_tidy.py")])
     must("收工清理不误删", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
 
+    print("㉗ 一键工程页入口（studio：项目解析/命令拼装/双击 .command，不起真服务）")
+    r = sh([PY, str(ROOT / "scripts" / "test_studio.py")])
+    must("工程页入口回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
+
     secs = time.time() - t0
     print()
     if fails:

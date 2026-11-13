@@ -18,60 +18,16 @@ import html
 import json
 import os
 import re
+import sys
+import urllib.parse
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from libs import DEFAULT_LIBS, find_projects, _pick, PROJECT_NOTES  # noqa: E402
+import studio  # noqa: E402  工程页起停也用同一份库解析
+
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_LIBS = [
-    "/Users/jerry/Downloads/ouyangTestCut",              # 欧阳 · 点赞茶楼 dianzan-a/b/c
-    "/Users/jerry/Downloads/柒造Video/素材",              # 柒造 · qizao-*
-    str(REPO / "references" / "packtest-2026-11-08"),    # 打包试验 proj79
-]
 HERE = Path(__file__).resolve().parent
-
-# 项目名 → 一句话（名字是给人看的，缩写在库里，含义写在这儿）
-PROJECT_NOTES = {
-    "dianzan": "「点赞茶楼」· 珠海金湾 600㎡ 粤语口播（牛哥）",
-    "qizao-ground": "柒造 · 地面施工（熊工讲进口 vs 国产的漆）",
-    "qizao-protect": "柒造 · 保护与收边（边角细节怎么贴）",
-    "qizao-naming": "柒造 · 「柒造」这名字的来历",
-    "qizao-lime-baxis": "柒造 · B 轴试验片（代码画的连续场景 + 人物画中画，13.9s）",
-    "proj79": "打包试验片 · 六个包装 token 的对照（79s）",
-    "selftest": "自检用的合成素材片（不交付，验证链路没断）",
-}
-
-
-def _pick(text: str) -> str:
-    """按项目名前缀找一句人话说明。"""
-    for key in sorted(PROJECT_NOTES, key=len, reverse=True):
-        if text.startswith(key):
-            return PROJECT_NOTES[key]
-    return ""
-
-
-def find_projects(libs: list[str]) -> list[Path]:
-    out: list[Path] = []
-    for lib in libs:
-        base = Path(lib).expanduser()
-        if not base.is_dir():
-            continue
-        cand = base / "_cutskills" / "projects"
-        if cand.is_dir():
-            out += [d for d in sorted(cand.iterdir()) if d.is_dir() and not d.name.startswith(".")]
-        if (base / "timeline.json").exists() or (base / "out").is_dir():
-            out.append(base)
-        else:
-            for sub in sorted(base.iterdir()):
-                if sub.is_dir() and (sub / "out").is_dir() and (sub / "timeline.json").exists():
-                    out.append(sub)
-    # 同一项目可能被两个入口扫到
-    seen, uniq = set(), []
-    for p in out:
-        if p.resolve() in seen:
-            continue
-        seen.add(p.resolve())
-        uniq.append(p)
-    return uniq
-
 
 def read_json(p: Path) -> dict:
     try:
@@ -130,10 +86,18 @@ def card(proj: Path, page: Path) -> str:
              if film else '<div class="nofilm">没有成片（out/ 里只有中间物）</div>')
 
     links = []
-    if (proj / "hf" / "index.html").exists():
+    hf_dir = proj / "hf"
+    if (hf_dir / "index.html").exists():
+        live = studio.running_for(proj)
+        if live and studio.alive(live["url"]):
+            links.append(f'<a class="lnk live" href="{html.escape(live["url"])}">工程页已开 · 端口 {live["port"]}</a>')
         links.append(
-            f'<div class="cmd"><code>cd "{proj / "hf"}" &amp;&amp; hyperframes preview --open</code>'
-            '<span>工程页：能拉时间轴看每一帧、能当场改</span></div>')
+            f'<div class="cmd"><code>python3 "{html.escape(str(HERE / "studio.py"))}" '
+            f'--project {html.escape(name)}</code>'
+            '<span>工程页：点一下复制命令，跑完浏览器自己开 studio</span></div>')
+        links.append(
+            f'<a class="lnk" href="{html.escape(urllib.parse.quote(f"启动工程-{name}.command"))}">'
+            '<span class="tip">双击启动（同目录的 .command 文件）</span></a>')
     if (proj / "board").is_dir() and (proj / "board" / "index.html").exists():
         links.append(f'<a class="lnk" href="{html.escape(os.path.relpath(proj / "board" / "index.html", page.parent))}">看板（改片的表）</a>')
     for label, rel_p in (("时间轴真值源", "timeline.json"), ("验收报告", "verify-report.md"),
@@ -188,6 +152,7 @@ h3 { font-size:16px; display:flex; justify-content:space-between; align-items:ba
 .lnk { font-size:12px; color:var(--ink); text-decoration:none; border:1px solid var(--line);
        border-radius:6px; padding:3px 9px; }
 .lnk:hover { border-color:var(--accent); }
+.lnk.live { border-color:#8FBF7F; color:#B7E0A6; }
 .cmd { width:100%; }
 .cmd code { cursor:copy; display:block; font-size:11.5px; background:#0C0B0A; border:1px solid var(--line); border-radius:6px;
             padding:7px 9px; color:#D8CFA6; overflow-x:auto; white-space:pre; }
@@ -293,8 +258,9 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     page = out / "index.html"
     page.write_text(build(projects, page), encoding="utf-8")
+    launchers = studio.emit_launchers(out, libs)
     n = sum(1 for p in projects if not p.name.startswith("selftest") and film_of(p))
-    print(f"→ {page}（{n} 支片 · 扫了 {len(libs)} 个库）")
+    print(f"→ {page}（{n} 支片 · 扫了 {len(libs)} 个库 · {len(launchers)} 个双击入口）")
     return 0
 
 
