@@ -328,6 +328,53 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   - `golden.py`：❌ 退出码 1（`proj79` 🔴3、`qizao-ground-01` 🔴3、`qizao-protect-01` 🔴2——系上一提交 `cbcc3ef` 将 `字幕停留`/`助词孤行` 与 `strip_noise` 并入 `verify_film.py` 时未同步更新 11-08 旧样片 `subs.json` 或校准基线所致，已单列 `T-024`）；
   - `selftest.py`：⛔ 退出码 2（`coli` 不在 PATH，已单列 `T-023`）；Python 现为 `3.15.2`（`~/.cutskills/py` 含 Pillow/numpy/pypinyin，`scripts/vendor/yaml` 已内置），`ffmpeg 9.0.2` 与 `hyperframes 0.9.39` 正常。
 
+### 2026-11-13 · Cola · T-030 词级真值查表接通（待复核）
+
+- **分支 / 工作树**：`ai/cola/T-030` @ `81a7007`（已 rebase 到 master `4e88f6a`），worktree `/Users/jerry/Downloads/AIworks/CutSkills-wsT030`；主树只落 TASKS/HANDOFF 状态行。
+- **一句话**：`evidence_guard` 查 ASR 缓存只认 `h12(asset_id)`，这批素材的缓存全在 `legacy_key` 下 → 查不到 → **静默退句级**，于是 `protect-01` #8 的「分色纸」被判「音频没说」。改成**两套键都查**（先新后旧、不跨键拼），并把「退到哪一级」用 `source` 带回来；`check_timing` / `check_cards` / `edge_audit` / `speech_hygiene` 统一走 `evidence_guard.chars_of_asset` 这一个入口。
+- **根因比这条假红大**：柒造库 153 个素材里 **102 个缓存只在 `legacy_key` 下、0 个只在新键下**。也就是说这四个判据在这批片上**从来没真跑过**（master 上 `speech_hygiene` / `edge_audit` 对四支片各 0 条读数）。
+- **读数（改前→改后，2026-11-13 当前项目数据；复核人请重跑）**：
+
+| 命令 | 改前（master 代码） | 改后（本分支） |
+|---|---|---|
+| `evidence_guard protect-01` | 1 黄（=假红 #8「分色」） | **0 条** 🟢 台词全部有据可查 |
+| `check_cards protect-01` | 0e / 5w（全「没有词级真值」） | 4e / 0w（#2 = T-033， #8/#9/#12 = **T-039**） |
+| `check_cards ground-01` | 0e / 5w | 1e / 2w（#14「2–3 倍」= **T-033** 真缺陷） |
+| `check_timing protect-01 / ground-01` | 0e / 0w（词表空＝没校） | 0e / 0w |
+| `check_timing naming-01` | 3e / 0w | 4e / 1w（新那条 = **T-040** 假红） |
+| `check_timeline protect-01` | 0e / 15w | 2e / 20w（= **T-037** 假红） |
+| `check_timeline ground-01` | 2e / 20w | 4e / 24w（#14 两条真缺陷，同 **T-033**） |
+| `check_timeline naming-01` | 5e / 23w | 10e / 22w（**T-037** ×2 假红 + 切在「了/的」真缺陷） |
+| `check_timeline lime-baxis` | 0e / 2w | 1e / 3w（**T-037** 假红：并列列举「白云石断烧/石灰石断烧」） |
+| `check_subs` 四支片 | 过/过/没过/没过 | 过/过/没过/没过（不变） |
+
+- **必须如实说的**：红黄变多了，而**判据一条都没放宽**（铁律④）。新增红分三类：① 判据假红 → **T-037**（`edge_audit` 单字虚词/并列列举，4 条）、**T-040**（字幕比对缺同音放行，1 条）；② 真缺陷 → **T-039**（protect-01 三张卡大字）、ground-01 #14 两条（已在 **T-033**）、naming-01 #2/#3 切在「了/的」上；③ 残余同源实现 → **T-038**（`cue_guard.words_of`，口令检查仍空跑）。
+- **selftest / golden 的失败是 master 既有**：`selftest` master 与本分支**逐条一致**（同样 4 条红：验收 🔴1「的不只是价格」、`check_subs`、`edge_audit`、品牌安全 9<10，见 T-025）；`golden` 两边都 FAIL 且逐条一致（proj79 3 红 / ground-01 3 红 / protect-01 5 红「大字烧进画面」）。本单**未碰** `verify_film.py` / `render_hf.py` / `subs.py` / `check_subs.py`。
+- **负样本**：`test_evidence_guard.py` 新增「查表口径」4 条合同——第③条把 `keys_of` 改成只认一个不存在的键 → `source=sentence` + 报「#8 该段没有词级真值，已退句级比对，可能漏判」、**0 条 error**（不假绿不假红），改回后恢复 `word`。CLI 级同款打桩跑过 `evidence_guard` / `check_cards` / `check_timing`，全部只报「缺词级真值」。
+- **文档**：`SKILL.md` 增「词级真值只有一个入口」；`references/index-schema.md` 新增「缓存命名（`cache/asr` 的两套键）」一节。`references/cli.md` 重生成零差异（参数没变）。
+- **状态**：T-030 待复核；新挂 T-037 / T-038 / T-039 / T-040。
+
+### 2026-11-13 · Cola · T-037 edge_audit ① 孤立提示词收紧（待复核）
+
+- **分支 / 工作树**：`ai/cola/T-037` @ `727f827`，worktree `/Users/jerry/Downloads/AIworks/CutSkills-wsT037`；主树只落 TASKS/HANDOFF 状态行。
+- **一句话**：`edge_audit` ① 原来只问「停 ≥0.90s 之前那个词，4 秒内又出现过吗」——所以单字虚词「的」、并列列举的收尾词「断烧」「倍」「道理」、句内排比「该有它」全被当成「主播自己念题」。现在先量出「停之前一口气念完的那一小截」，只认①**这一小截的开头**（≥2 字、含实词，先岔一句再回来也算）被重说，或②收尾词在停后 0–2 字内贴着重说。停 ≥0.90s 的时间口径未动，错的仍是 error。
+- **四支片 `edge_audit`（改前 → 改后，2026-11-13 当前数据；复核人请重跑 `--project` 三条命令）**：
+
+| 片 | 改前 🔴 | 改后 🔴 | 说明 |
+|---|---|---|---|
+| `qizao-protect-01` | 2（#4「的」@11.40→12.96、#7「是」@26.88） | **1**（#7 保留，改报「念到『其实是』停了 1.08s，又把『其实是』重说一遍」） | #4 是虚词假红；#7 是真·重起句 |
+| `qizao-lime-baxis` | 1（「烧」@682.98） | **0** | 「白云石断烧，或者说石灰石断烧」＝并列列举，本片确实没有孤立提示词 |
+| `qizao-naming-01` | 2（「理」@437.22、「做」@404.46） | **0** | 单字虚词/半截，本片确实没有孤立提示词 |
+| `qizao-ground-01` | 1（「倍」@1732.62） | **0** | 「差到 4 倍，四到 5 倍」＝并列列举，本片确实没有孤立提示词 |
+
+- **收紧时当场抓出的新假红（已堵）**：`ground-01 #16`「它该有它该去的地方（停 1.02s）该有它该有的位置」——第一版收紧后它被判红，但那一截在停之前就说过，是句内排比不是念题；现规则要求「这一截在停之前没出现过」，已写进合同测试第 5 条。
+- **`check_timeline`（同一份读数，error 只减不增，warning 不变）**：protect-01 2e/20w → **1e/20w**；lime-baxis 1e/3w → **0e/3w**；naming-01 10e/22w → **8e/22w**；ground-01 4e/24w → **3e/24w**。
+- **负样本（`scripts/test_edge_audit.py`，10/10）**：前 5 条词表与时间戳**原样抄自真片词级真值**（lime-baxis #1、protect-01 #7/#4、ground-01 #14/#16），后 5 条合成最小样本；并列列举不红、重起句必红、单字虚词不红、全是虚词不红、停 0.60s 不判。
+- **CI**：`audit_skill` 🔴0 🟡1（= worktree 目录名，与 T-030 相同）；`selftest` 与 master **逐条一致**（同样 3 条历史红：验收无红、`check_subs`、`edge_audit`=T-025 的 `timeline.json` 缺口），新增第 ⑯ 步「孤立提示词判据回归」通过；`golden` 与 master 逐条一致（proj79 3 红 / ground-01 3 红 / protect-01 5 红）——`verify_film` 不过 `edge_audit`，读数本来就不该变，所以**没有重校基线**（基线仍是 0 红，重校等于把历史红记成基线）。
+- **文档**：`SKILL.md` 命令说明补口径；`references/editorial-packaging-principles.md` 原则 A1 硬指标新增第 3 条（提词半截词）并把脚本落点顺延为第 4 条；`references/cli.md` 重生成（多了新测试脚本条目）。
+- **未碰**：`subs.py`（T-032）、`render_hf.py`（T-019）、`evidence_guard.py`（T-030 刚改完）。
+- **状态**：T-037 待复核。剩下的真案：protect-01 #7「其实是…其实是」——要不要切、切在哪写进 `decisions.md`，属内容侧（与 T-031/T-035 同片）。
+
 ### 2026-11-13 · Cola · T-032 完成待复核（拆条按实测静音，不再只信 ASR 词起点间隔）
 
 - **分支 / worktree**：`ai/cola/T-032` @ `f0660b2`（业务提交）／`/Users/jerry/Downloads/AIworks/CutSkills-wsT032`。主目录（master）未动。
@@ -349,7 +396,7 @@ T-004 在 ai/gemini/T-004（四次整改完成，待复核）；T-005 在 Cola w
   | `dianzan-b` | 35 → 35 | ✅0 → ✅0 | 同上（残词） | — |
   | `dianzan-c` | 27 → 28 | ✅0 → ✅0 | 同上（残词）；字一个没少 | — |
 
-  ground-01 多出来的 1 黄是「字幕密度 27.5 条/分钟 vs 期望 36」——**不是片子变差**，是语速估计 4.1→4.3 字/秒（字幕窗口不再盖住尾部静音）把期望值抬上去了，判据本身把两个不同分母硬比，已挂 **T-035**。大字烧进画面那 3/5 条与字幕无关（内容侧）。
+  ground-01 多出来的 1 黄是「字幕密度 27.5 条/分钟 vs 期望 36」——**不是片子变差**，是语速估计 4.1→4.3 字/秒（字幕窗口不再盖住尾部静音）把期望值抬上去了，判据本身把两个不同分母硬比，已挂 **T-041**。大字烧进画面那 3/5 条与字幕无关（内容侧）。
 - **`proj79` 没动**：它只有 `edl.json`（v2），重算被 T-028 挡着（`lock.py` 只认 `timeline.json`），本单不替它开路。
 - **负样本**：`python3 scripts/test_breath_split.py`（5 条）——合成为「说话—静音—说话」纯音，字级时间戳按 ASR 的坏习惯把停顿算进前一个字的时长：**0.35s 停顿必拆**（`我们的厨房`｜`占了三分`）、**0.10s 停顿不许拆**（一条 3.5s）、素材缺失时说话（stderr + `LAST_PROBE`）且不崩、同一窗口第二次走缓存、短尾巴不许丢（master 版会丢掉 2 字尾巴上的实词）。证据与真素材四处对照见 `references/negative-samples/breath-split.md`。
 - **复现命令**：

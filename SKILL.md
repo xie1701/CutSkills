@@ -41,7 +41,7 @@ metadata:
 `paper-edit.md`、`gaps.md`、`verify-report.md`、`yield-card.md`、`decisions.md` 全是**视图**，
 从上面几个生成。视图能被手改，手改完和真值源不一致，整条流水线就开始撒谎——视图永远可以删掉重建。
 
-Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](references/timeline-schema.md) · [edl-schema.md](references/edl-schema.md)（v2，兼容；升级旧时间轴用 `scripts/schema_upgrade.py --project <slug> --write`）
+Schema：[index-schema.md](references/index-schema.md) · [timeline-schema.md](references/timeline-schema.md) · [edl-schema.md](references/edl-schema.md)（v2，兼容）。升级旧时间轴分两种：停在 v4 的用 `scripts/schema_upgrade.py --project <slug> --write`（只加字段）；**只有 `edl.json` 的 v2 项目先跑 `scripts/timeline.py --project <slug> --from-edl --library <素材库根>` 再从 v4 升 v5**——`schema_upgrade.py` 自己从无到有造不出来（没有 `timeline.json` 就退出 1），步骤见 [timeline-schema.md](references/timeline-schema.md) 的「v2 项目升级的四步」
 
 台词真值口径（`evidence` 必须是说过的话，不是写顺了的话）见 [plan-ng-2026-11-12.md](references/plan-ng-2026-11-12.md)；字体与字号校准见 [styles/fonts.yaml](styles/fonts.yaml)。
 
@@ -62,6 +62,8 @@ python3 scripts/broll_split.py --projects <项目...>     # 一组片子：B-rol
 python3 scripts/test_hygiene_fixtures.py                # 五段真音频夹具（判据不许改松）
 python3 scripts/test_content_guard.py                   # 内容守卫负样本（0.00s 糊片 / 四张图配工地 / 夸赞撞生肉血水）
 ```
+
+**词级真值只有一个入口：`evidence_guard.chars_of_asset(lib, asset_id)`。** 它先按 `h12(id)` 找 ASR 缓存，找不到再按索引里的 `legacy_key`（首次建索引时的路径哈希）找——**两套键都要查**；都没有才退句级，并且把 `source="sentence"` 带回来，调用方必须打一条「该段没有词级真值，已退句级比对，可能漏判」。谁自己拼 `cache/asr/` 路径，谁就会在素材改过名之后悄悄退回句级（T-030 实测：柒造库 102/153 个素材只落在 `legacy_key` 下，四个判据全部假绿）。键的规则见 [index-schema.md](references/index-schema.md) 的「缓存命名」一节。
 
 ## v4 主链路：一条命令一层
 
@@ -84,7 +86,7 @@ python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候�
 
 # 3 构形：意图 → 元素时间轴（缺口按兜底链自动补 gen / 章节卡）
 python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
-python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由（含第三方品牌字样排查与核销）
+python3 scripts/check_timeline.py --project <项目> --library <素材库根>   # error 必改，warning 要能说出理由（含第三方品牌字样排查与核销）；索引没解析到会报一条黄，此时的 error 0 不算数
 python3 scripts/content_guard.py --project <项目>      # 内容守卫：B-roll 起尾余量 0.40s / 视觉指代词 / 品类禁忌（check_timeline 已自动调，单跑看细节）
 
 # 3.4 B 轴连续场景：marks 别拍脑袋，按旁白锚词标定
