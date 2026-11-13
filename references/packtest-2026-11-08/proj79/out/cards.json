@@ -10,37 +10,118 @@
     "工地现场口述"
    ],
    "start": 0.5,
-   "end": 9.0
+   "end": 9.0,
+   "anchor_word": "事情",
+   "anchor_t": 0.06,
+   "mg": "mg-01"
   },
   {
+   "seg": 1,
    "kind": "behind",
    "text": "不是非黑即白",
-   "start": 3.9,
-   "end": 5.23
+   "data": null,
+   "start": 9.2,
+   "end": 10.2,
+   "anchor_word": "非黑即白",
+   "anchor_t": 4.02,
+   "appear_t": 5.42,
+   "lag_ms": 1400,
+   "mg": "mg-02",
+   "kw_box_px": [
+    162,
+    330,
+    756,
+    122
+   ],
+   "kw_top_h": 0.165,
+   "kw_font_px": 126
   },
   {
+   "seg": 2,
    "kind": "keyword",
    "text": "进口一定好？",
-   "start": 7.213,
-   "end": 8.713
+   "data": null,
+   "start": 10.4,
+   "end": 11.883,
+   "top_h": 0.075,
+   "anchor_word": "一定好",
+   "anchor_t": 7.333,
+   "appear_t": 7.6,
+   "lag_ms": 267,
+   "mg": "mg-03",
+   "kw_box_px": [
+    162,
+    156,
+    756,
+    123
+   ],
+   "kw_top_h": 0.075,
+   "kw_font_px": 126
   },
   {
+   "seg": 3,
    "kind": "keyword",
    "text": "差不多就行",
-   "start": 10.406,
-   "end": 11.406
+   "data": null,
+   "start": 12.083,
+   "end": 13.083,
+   "top_h": 0.075,
+   "anchor_word": "差不多",
+   "anchor_t": 10.526,
+   "appear_t": 11.509,
+   "lag_ms": 983,
+   "mg": "mg-04",
+   "kw_box_px": [
+    162,
+    160,
+    755,
+    145
+   ],
+   "kw_top_h": 0.075,
+   "kw_font_px": 151
   },
   {
+   "seg": 4,
    "kind": "keyword",
    "text": "都有偏颇",
-   "start": 14.986,
-   "end": 15.986
+   "data": null,
+   "start": 15.256,
+   "end": 16.256,
+   "top_h": 0.075,
+   "anchor_word": "偏颇",
+   "anchor_t": 15.106,
+   "appear_t": 15.256,
+   "lag_ms": 150,
+   "mg": "mg-05",
+   "kw_box_px": [
+    162,
+    165,
+    756,
+    181
+   ],
+   "kw_top_h": 0.075,
+   "kw_font_px": 189
   },
   {
+   "seg": 10,
    "kind": "behind",
    "text": "成本贵在哪",
-   "start": 47.086,
-   "end": 48.296
+   "data": null,
+   "start": 48.546,
+   "end": 49.546,
+   "anchor_word": "成本比较高",
+   "anchor_t": 47.146,
+   "appear_t": 48.546,
+   "lag_ms": 1400,
+   "mg": "mg-06",
+   "kw_box_px": [
+    162,
+    319,
+    755,
+    149
+   ],
+   "kw_top_h": 0.159,
+   "kw_font_px": 151
   }
  ],
  "engine": "hyperframes"

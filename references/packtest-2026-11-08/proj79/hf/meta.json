@@ -1,13 +1,21 @@
 {
- "from_edl": "edl.json",
+ "from": "timeline.json",
  "style": "talking-head-v1",
- "segments": 14,
- "total_s": 79.153,
+ "elements": 14,
+ "clips": 14,
+ "gen": 0,
+ "total_s": 79.055,
  "captions": 37,
  "cards": 6,
+ "pips": [],
+ "pips_applied": false,
  "fonts": {
   "sub": "NotoSansSC-SemiBold.ttf",
   "big": "NotoSansSC-Black.ttf"
  },
- "engine": "hyperframes"
+ "engine": "hyperframes",
+ "duration_s": 79.06,
+ "lufs": -14.18,
+ "true_peak": -1.9,
+ "bytes": 128386584
 }

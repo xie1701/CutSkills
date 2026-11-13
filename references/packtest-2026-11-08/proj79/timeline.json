@@ -53,7 +53,9 @@
    "card": {
     "text": "进口一定好？",
     "kind": "keyword",
-    "on": "一定好"
+    "on": "一定好",
+    "top_h": 0.075,
+    "_why_top_h": "T-047：keyword 大字原 30%H 压在熊工脸上（占脸 37–62%），与 T-046 同口径移到头顶空档 7.5%H"
    },
    "grade_at_cut": "backup",
    "axis": "A"
@@ -75,7 +77,9 @@
    "card": {
     "text": "差不多就行",
     "kind": "keyword",
-    "on": "差不多"
+    "on": "差不多",
+    "top_h": 0.075,
+    "_why_top_h": "T-047：keyword 大字原 30%H 压在熊工脸上（占脸 37–62%），与 T-046 同口径移到头顶空档 7.5%H"
    },
    "grade_at_cut": "backup",
    "axis": "A"
@@ -97,7 +101,9 @@
    "card": {
     "text": "都有偏颇",
     "kind": "keyword",
-    "on": "偏颇"
+    "on": "偏颇",
+    "top_h": 0.075,
+    "_why_top_h": "T-047：keyword 大字原 30%H 压在熊工脸上（占脸 37–62%），与 T-046 同口径移到头顶空档 7.5%H"
    },
    "grade_at_cut": "backup",
    "axis": "A"
@@ -211,14 +217,6 @@
     "asset": "20261009_书架口播_备用_熊工口播3.MOV",
     "in": 337.68,
     "out": 343.26
-   },
-   "card": {
-    "text": "",
-    "kind": "boroll",
-    "boroll_kind": "grid",
-    "spec": "boroll-grid.json",
-    "at": 1.8,
-    "dur": 3.4
    },
    "grade_at_cut": "must-use",
    "grade_confidence": 0.78,

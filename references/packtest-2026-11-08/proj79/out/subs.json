@@ -2,190 +2,452 @@
  "cues": [
   {
    "start": 0.06,
-   "end": 3.0,
-   "text": "事情不是这么简单的"
+   "end": 2.1,
+   "text": "事情不是这么简单的",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 2,
+   "ef": 63,
+   "el": 1,
+   "break_after": "width"
   },
   {
-   "start": 3.0,
-   "end": 5.76,
-   "text": "去非黑即白，"
+   "start": 3.18,
+   "end": 4.98,
+   "text": "去非黑即白",
+   "html": null,
+   "chars": 5,
+   "units": 5.0,
+   "sf": 95,
+   "ef": 149,
+   "el": 1,
+   "break_after": "clause"
   },
   {
    "start": 5.76,
-   "end": 6.72,
-   "text": "我是这样看的。"
+   "end": 6.6,
+   "text": "我是这样看的",
+   "html": null,
+   "chars": 6,
+   "units": 6.0,
+   "sf": 173,
+   "ef": 198,
+   "el": 1,
+   "break_after": "clause"
   },
   {
    "start": 6.853,
-   "end": 9.553,
-   "text": "进口的一定好就对吧"
+   "end": 9.433,
+   "text": "进口的一定好就对吧",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 206,
+   "ef": 283,
+   "el": 2,
+   "break_after": "clause"
   },
   {
    "start": 9.566,
-   "end": 11.726,
-   "text": "他就觉得差不多，"
+   "end": 11.006,
+   "text": "他就觉得差不多",
+   "html": null,
+   "chars": 7,
+   "units": 7.0,
+   "sf": 287,
+   "ef": 330,
+   "el": 3,
+   "break_after": "clause"
   },
   {
-   "start": 11.726,
-   "end": 13.106,
-   "text": "或者说觉得国产的也"
+   "start": 11.466,
+   "end": 12.266,
+   "text": "或者说",
+   "html": null,
+   "chars": 3,
+   "units": 3.0,
+   "sf": 352,
+   "ef": 368,
+   "el": 3,
+   "break_after": "width"
   },
   {
-   "start": 13.106,
-   "end": 14.446,
-   "text": "不错。"
+   "start": 12.266,
+   "end": 13.446,
+   "text": "觉得国产的也不错",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 368,
+   "ef": 403,
+   "el": 3,
+   "break_after": "clause"
   },
   {
    "start": 14.566,
-   "end": 16.686,
-   "text": "都有偏颇嗯"
+   "end": 15.526,
+   "text": "都有偏颇",
+   "html": null,
+   "chars": 4,
+   "units": 4.0,
+   "sf": 437,
+   "ef": 466,
+   "el": 4,
+   "break_after": "clause"
   },
   {
    "start": 16.686,
-   "end": 18.606,
-   "text": "因为我们毕竟第一我"
+   "end": 18.066,
+   "text": "因为我们毕竟",
+   "html": null,
+   "chars": 6,
+   "units": 6.0,
+   "sf": 501,
+   "ef": 542,
+   "el": 5,
+   "break_after": "width"
   },
   {
-   "start": 18.606,
-   "end": 21.666,
-   "text": "们门店来说一直是在"
+   "start": 18.066,
+   "end": 20.626,
+   "text": "第一我们门店来说",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 542,
+   "ef": 619,
+   "el": 5,
+   "break_after": "width"
   },
   {
-   "start": 21.666,
-   "end": 22.719,
-   "text": "做进口涂料"
+   "start": 21.166,
+   "end": 22.706,
+   "text": "一直是在做进口涂料",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 635,
+   "ef": 681,
+   "el": 5,
+   "break_after": "clause"
   },
   {
-   "start": 22.779,
-   "end": 24.219,
-   "text": "也做了相当"
+   "start": 22.766,
+   "end": 24.196,
+   "text": "也做了相当",
+   "html": null,
+   "chars": 5,
+   "units": 5.0,
+   "sf": 683,
+   "ef": 726,
+   "el": 6,
+   "break_after": "clause"
   },
   {
-   "start": 24.219,
-   "end": 26.199,
-   "text": "一部分的商业项目，"
+   "start": 24.196,
+   "end": 25.736,
+   "text": "一部分的商业项目",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 726,
+   "ef": 772,
+   "el": 7,
+   "break_after": "clause"
   },
   {
-   "start": 26.199,
-   "end": 27.159,
-   "text": "就是在珠海，"
+   "start": 26.176,
+   "end": 27.016,
+   "text": "就是在珠海",
+   "html": null,
+   "chars": 5,
+   "units": 5.0,
+   "sf": 785,
+   "ef": 810,
+   "el": 7,
+   "break_after": "clause"
   },
   {
-   "start": 27.219,
-   "end": 30.519,
-   "text": "包括房地产的售楼部"
+   "start": 27.189,
+   "end": 29.669,
+   "text": "包括房地产的售楼部",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 816,
+   "ef": 890,
+   "el": 8,
+   "break_after": "width"
   },
   {
-   "start": 30.519,
-   "end": 34.126,
-   "text": "知名的餐厅酒店民宿"
+   "start": 30.489,
+   "end": 33.569,
+   "text": "知名的餐厅酒店民宿",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 915,
+   "ef": 1007,
+   "el": 8,
+   "break_after": "clause"
   },
   {
-   "start": 34.186,
-   "end": 36.106,
-   "text": "不管珠海的广州的现"
+   "start": 34.139,
+   "end": 35.939,
+   "text": "不管珠海的广州的",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 1024,
+   "ef": 1078,
+   "el": 9,
+   "break_after": "width"
   },
   {
-   "start": 36.106,
-   "end": 38.086,
-   "text": "在广州在做的上海的"
+   "start": 35.939,
+   "end": 37.139,
+   "text": "现在广州在做的",
+   "html": null,
+   "chars": 7,
+   "units": 7.0,
+   "sf": 1078,
+   "ef": 1114,
+   "el": 9,
+   "break_after": "width"
   },
   {
-   "start": 38.086,
-   "end": 39.706,
-   "text": "厦门的汕"
+   "start": 37.139,
+   "end": 39.646,
+   "text": "上海的厦门的汕",
+   "html": null,
+   "chars": 7,
+   "units": 7.0,
+   "sf": 1114,
+   "ef": 1189,
+   "el": 9,
+   "break_after": "clause"
   },
   {
-   "start": 39.706,
-   "end": 41.446,
-   "text": "那么因为有不同的需"
+   "start": 39.646,
+   "end": 41.686,
+   "text": "那么因为有不同的需求",
+   "html": null,
+   "chars": 10,
+   "units": 10.0,
+   "sf": 1189,
+   "ef": 1251,
+   "el": 10,
+   "break_after": "clause"
   },
   {
-   "start": 41.446,
-   "end": 43.306,
-   "text": "求，就是说我们也不"
+   "start": 42.326,
+   "end": 43.486,
+   "text": "就是说我们也不能说",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 1270,
+   "ef": 1305,
+   "el": 10,
+   "break_after": "width"
   },
   {
-   "start": 43.306,
-   "end": 45.106,
-   "text": "能说是只是只拿进口"
+   "start": 43.486,
+   "end": 45.286,
+   "text": "是只是只拿进口产品",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 1305,
+   "ef": 1359,
+   "el": 10,
+   "break_after": "clause"
   },
   {
-   "start": 45.106,
-   "end": 46.426,
-   "text": "产品，因为毕竟进口"
+   "start": 45.406,
+   "end": 46.546,
+   "text": "因为毕竟进口的",
+   "html": null,
+   "chars": 7,
+   "units": 7.0,
+   "sf": 1362,
+   "ef": 1396,
+   "el": 10,
+   "break_after": "width"
   },
   {
-   "start": 46.426,
-   "end": 47.806,
-   "text": "的产品它的成本比较"
+   "start": 46.546,
+   "end": 47.986,
+   "text": "产品它的成本比较高",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 1396,
+   "ef": 1440,
+   "el": 10,
+   "break_after": "clause"
   },
   {
-   "start": 47.806,
-   "end": 48.526,
-   "text": "高。"
+   "start": 48.539,
+   "end": 49.679,
+   "text": "给他打了大概",
+   "html": null,
+   "chars": 6,
+   "units": 6.0,
+   "sf": 1456,
+   "ef": 1490,
+   "el": 11,
+   "break_after": "width"
   },
   {
-   "start": 48.599,
-   "end": 50.819,
-   "text": "给他打了大概有不下"
+   "start": 49.679,
+   "end": 52.799,
+   "text": "有不下10个样板其中有",
+   "html": null,
+   "chars": 11,
+   "units": 9.68,
+   "sf": 1490,
+   "ef": 1584,
+   "el": 11,
+   "break_after": "clause"
   },
   {
-   "start": 50.819,
-   "end": 52.019,
-   "text": "10个样板，"
+   "start": 54.019,
+   "end": 56.039,
+   "text": "三个国产厂家",
+   "html": null,
+   "chars": 6,
+   "units": 6.0,
+   "sf": 1621,
+   "ef": 1681,
+   "el": 11,
+   "break_after": "clause"
   },
   {
-   "start": 52.019,
-   "end": 56.399,
-   "text": "其中有三个国产厂家"
+   "start": 56.339,
+   "end": 58.259,
+   "text": "然后也打了进口的",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 1690,
+   "ef": 1748,
+   "el": 12,
+   "break_after": "clause"
   },
   {
-   "start": 56.406,
-   "end": 59.826,
-   "text": "然后也打了进口的，"
+   "start": 59.639,
+   "end": 60.439,
+   "text": "最后",
+   "html": null,
+   "chars": 2,
+   "units": 2.0,
+   "sf": 1793,
+   "ef": 1813,
+   "el": 12,
+   "break_after": "pause"
   },
   {
-   "start": 59.826,
-   "end": 63.486,
-   "text": "最后业主方怎么都觉"
+   "start": 61.459,
+   "end": 63.119,
+   "text": "业主方怎么",
+   "html": null,
+   "chars": 5,
+   "units": 5.0,
+   "sf": 1844,
+   "ef": 1894,
+   "el": 12,
+   "break_after": "width"
   },
   {
-   "start": 63.486,
-   "end": 64.746,
-   "text": "得的进口的好，"
+   "start": 63.119,
+   "end": 64.299,
+   "text": "都觉得的进口的好",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 1894,
+   "ef": 1929,
+   "el": 12,
+   "break_after": "clause"
   },
   {
-   "start": 64.746,
-   "end": 68.166,
-   "text": "虽然实事求是的讲原"
+   "start": 64.672,
+   "end": 67.052,
+   "text": "虽然实事求是的讲",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 1940,
+   "ef": 2012,
+   "el": 13,
+   "break_after": "width"
   },
   {
-   "start": 68.166,
-   "end": 70.626,
-   "text": "料成本可能差到4倍"
+   "start": 68.052,
+   "end": 68.932,
+   "text": "原料成本可能",
+   "html": null,
+   "chars": 6,
+   "units": 6.0,
+   "sf": 2042,
+   "ef": 2068,
+   "el": 13,
+   "break_after": "width"
   },
   {
-   "start": 70.626,
-   "end": 71.886,
-   "text": "四到5倍。"
+   "start": 68.932,
+   "end": 71.292,
+   "text": "差到4倍四到5倍",
+   "html": null,
+   "chars": 8,
+   "units": 6.68,
+   "sf": 2068,
+   "ef": 2139,
+   "el": 13,
+   "break_after": "clause"
   },
   {
-   "start": 71.946,
-   "end": 73.926,
-   "text": "不同的产品，"
+   "start": 71.865,
+   "end": 73.365,
+   "text": "不同的产品",
+   "html": null,
+   "chars": 5,
+   "units": 5.0,
+   "sf": 2156,
+   "ef": 2201,
+   "el": 14,
+   "break_after": "clause"
   },
   {
-   "start": 73.926,
-   "end": 75.786,
-   "text": "它该有它该去的地方"
+   "start": 74.105,
+   "end": 75.705,
+   "text": "它该有它该去的地方",
+   "html": null,
+   "chars": 9,
+   "units": 9.0,
+   "sf": 2223,
+   "ef": 2271,
+   "el": 14,
+   "break_after": "clause"
   },
   {
-   "start": 75.786,
-   "end": 79.153,
-   "text": "，该有它该有的位置"
+   "start": 76.005,
+   "end": 78.165,
+   "text": "该有它该有的位置",
+   "html": null,
+   "chars": 8,
+   "units": 8.0,
+   "sf": 2280,
+   "ef": 2345,
+   "el": 14,
+   "break_after": "clause"
   }
  ],
+ "suppressed": [],
+ "subtitle_suppressed": false,
+ "subtitle_system": "single-line",
  "band": [
   1034,
   1554
@@ -193,8 +455,9 @@
  "font": "NotoSansSC-SemiBold",
  "size": 80,
  "overflow": [],
- "speech_chars": 282,
- "avg_chars": 7.62,
- "chars_per_s": 3.59,
+ "speech_chars": 266,
+ "avg_chars": 7.19,
+ "chars_per_s": 4.27,
+ "colorize": false,
  "engine": "hyperframes"
 }

@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=1080, height=1920" />
-<title>qizao-ground-01</title>
+<title>proj79</title>
 <!-- 由 scripts/render_hf.py 从 edl.json 生成；改剪辑去改 EDL，别手改这个文件 -->
 <style>
+/* 包装 token → CSS 变量。只有一条规矩：变量只喂「穿什么」，不喂「什么时候」。
+   代码画出来的格子（.gen）以前颜色是写死的 #F6EB34，换包不换脸——那是假的换装。 */
+:root { --ground:#1A1410; --ink:#FFFFFF; --accent:#F6EB34; --accent2:#C1121F; --radius:18px; --stroke:2px; --surface-plate:linear-gradient(180deg, rgba(10,13,19,.76), rgba(10,13,19,.76)); --surface-plate-term:linear-gradient(180deg, rgba(12,15,21,.84), rgba(12,15,21,.84)); --surface-border:rgba(255,255,255,.16); --surface-border-term:rgba(255,255,255,.14); --surface-scrim:radial-gradient(76% 56% at 50% 42%, rgba(0,0,0,.90) 0%, rgba(0,0,0,.76) 46%, rgba(0,0,0,.38) 82%, rgba(0,0,0,.12) 100%); --surface-ink:#FFFFFF; --surface-ink-rgb:255,255,255; --surface-blur:none; --surface-shadow:none; --surface-light:none; --surface-term-pad:30px 26px; --surface-term-gap:22px; }
 @font-face { font-family: "SC-Sub"; src: url("assets/fonts/NotoSansSC-SemiBold.ttf"); font-weight: 600; }
 @font-face { font-family: "SC-Big"; src: url("assets/fonts/NotoSansSC-Black.ttf"); font-weight: 900; }
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -13,98 +16,303 @@ html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
 #root { position:relative; width:100%; height:100%; }
 .clip { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 #grade { position:absolute; inset:0; background:transparent; }
-.cap { position:absolute; left:0; right:0; top:67.4%; display:flex; justify-content:center;
+/* .cap 同时带 .clip，而 .clip 是 inset:0 + height:100% —— 字幕框被撑成整屏高。
+   单行时看不出（行盒在框顶），双语竖排时 align-items:center 把整块垂直居中，
+   直接推到画面外（实测 y=2254，比 1920 还低一半）：双语双行「从来没出现过」。
+   所以这里必须显式收掉 bottom 与 height。 */
+.cap { position:absolute; left:0; right:0; top:67.4%; bottom:auto; height:auto;
+        display:flex; justify-content:center; align-items:flex-start;
         padding:0 140px; }
+/* light_text：奶白字 + 细描边。试过「暗晕」和「纸底」两条路，都不行——
+   暗晕压在复杂背景上像一块擦不掉的脏斑（26.0s 那一帧），纸底被 .clip 的
+   100% 高度推到画面外。描边是唯一不看背景脸色、又不改版面的做法。 */
+.cap.cap-light span, .cap.cap-light .en {
+  paint-order:stroke fill; -webkit-text-stroke:2px rgba(0,0,0,0.45); }
+/* 压在浅底代码画面上：换深墨字，描边也跟着反过来 */
+.cap.cap-ink span, .cap.cap-ink .en {
+  color:var(--ink,#1F1B16) !important; -webkit-text-stroke:2px rgba(255,255,255,0.35); }
+.cap.cap-bi { flex-direction:column; align-items:center; gap:8px; }
+.cap.cap-bi .en { font-family:"SC-Sub", sans-serif; font-style:normal; font-weight:600;
+  letter-spacing:0.02em; white-space:nowrap; opacity:0.92;
+  text-shadow:0 1px 0 rgba(255,255,255,.35); }
 .cap span { font-family:"SC-Sub", sans-serif; font-weight:600; font-size:80px;
   color:#FFFFFF; letter-spacing:0.01em; line-height:1.28; text-align:center;
-  text-shadow:0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9);  }
-.kw { position:absolute; left:0; right:0; top:44.0%; display:flex; justify-content:center;
+  text-shadow:0 3px 8px rgba(0,0,0,.75), 0 1px 2px rgba(0,0,0,.9); white-space:nowrap; -webkit-text-stroke:2px rgba(0,0,0,0.35);paint-order:stroke fill; }
+/* 强调：数字与否定/对比词。只染这两类，别的一个字都不动 */
+.cap .em { color:#F6EB34; font-weight:800; }
+.scrim { position:absolute; left:0; right:0; top:0; pointer-events:none;
+         background:linear-gradient(to bottom, rgba(0,0,0,0.58), rgba(0,0,0,0)); }
+.kw { position:absolute; left:0; right:0; top:30.0%; display:flex; justify-content:center;
        padding:0 140px; }
+/* behind：字压在人物脑袋后面，露一半。位置按样式的 top_h，字更大一号，
+   下半截交给抠像层盖住——这是「人物前后层级」唯一能被眼睛验证的地方。 */
+/* 不给负 z-index：遮挡靠 ffmpeg 的抠像层贴回来实现，DOM 里给它负层会被整块压到视频下面，
+   结果就是「字根本没出现」（2026-11-09 实测一整段看不见）。 */
+.kw-behind { top:28.5%; }
+.kw-behind span { font-size:187px; }
 .kw span { font-family:"SC-Big", sans-serif; font-weight:900; font-size:163px;
-  line-height:1.06; text-align:center; color:#F6EB34;
+  line-height:1.06; text-align:center; color:#F6EB34; white-space:nowrap;
   text-shadow:0 6px 22px rgba(0,0,0,0.6);  }
+/* 大字隔离层（T-045）：字后一块柔化压暗。色/浓度/柔化半径/外扩全由包管
+   （emphasis.isolate → 渲器算成这四个 inline 值），这里只管「它是一层不占位的板」。
+   为什么不给字加 text-shadow：投影只舔笔画边，隔不开一块高频背景（工地的工具/管子）；
+   为什么不整屏暗场：露脸格整屏暗场是 B7 红线，而且它改的是整个画面的曝光。 */
+.kwpod { position:absolute; pointer-events:none; }
 .idcard { position:absolute; left:5.5%; top:15.5%; text-align:left; }
 .idcard span { display:block; font-family:"SC-Sub", sans-serif; color:#fff; line-height:1.34; }
+/* MG 卡：按 srt-motion-cards 的设计语言重写——渐变压暗 + 居中排版 + 强对比字号。
+   自造那版是「顶部一小块 78% 黑底」，看着像贴了个便签；这一版把卡放进画面中段的一块
+   暗场里，字号撑开，读起来是「这一幕在讲这个数」。位置限制在字幕带之上（18%–62%H），
+   不压人脸上半张。class 名沿用旧的，GSAP 的入场不用改。 */
+/* 叠加态（T-019，原则 B7 图底主权 / B10 局部底衬）：
+   卡放在哪、底片让不让位，不再由一条写死的百分比带决定，也不再有「整屏 90% 暗场」。
+   scripts/card_layout.py 逐卡算出三种合法态之一（corner / focus_blur / cutaway），
+   这里只负责把结果画上去：
+     .mgbox   —— 卡本体放在哪、缩多少（承载位置与 scale）
+     .mgplate —— **跟着卡走的那一块**底衬（羽化边），不再是全屏
+     .mg      —— 卡片本体，GSAP 的入场目标（类名与动画都不动） */
+.mgwrap { position:absolute; inset:0; }
+.mgbox { position:absolute; left:28px; right:28px; top:21.0%; bottom:62.0%; }
+.mgplate { position:absolute; pointer-events:none; }
+/* 底板外投影（T-019 复核②）：**另起一层**圆角色块 + filter:blur()。
+   为什么不能用 box-shadow：底板带羽化 mask，而 box-shadow 属于元素自身绘制，
+   同层时会被同一张 mask 一起裁掉——投影与羽化边只能二选一。参数仍取
+   tokens.surface.shadow（最大模糊的那条外投影），不另设第二个 token。 */
+.mgplate > .mp-glow { position:absolute; inset:var(--mg-glow-spread,0px); border-radius:26px;
+  background:var(--mg-glow,none); filter:blur(var(--mg-glow-blur,0px));
+  transform:translate(var(--mg-glow-shift,0px 0px)); }
+/* 底板本体：四边羽化由 mask 给（两段 linear-gradient 取交集，带子是定宽像素，
+   所以在板边界上 alpha 恰好归零——没有任何一条边是被硬切的）；磨砂由 backdrop-filter 给。
+   T-042 三层：① --mg-tint（逐卡算出来的底片平均色温，focus_blur 用，见 card_layout.plate_tint）
+   ② --surface-light（包的纵向光线：顶部窄亮带 + 底部轻沉）③ --surface-scrim（包的遮罩）。
+   顺序不能反：色温在最下、光在中、遮罩在上，否则暖底会把顶部亮带吃掉。 */
+.mgplate > .mp-surf { position:absolute; inset:0;
+  background-image:var(--mg-tint,none), var(--surface-light,none), var(--surface-scrim);
+  -webkit-mask-image:var(--mg-plate-mask,none); mask-image:var(--mg-plate-mask,none);
+  -webkit-mask-composite:source-in; mask-composite:intersect; }
+/* 景深退后：只对这块底板做背景模糊，画面其余部分保持清晰 */
+.mgplate.mg-blur > .mp-surf { backdrop-filter:blur(22px) saturate(.92);
+  -webkit-backdrop-filter:blur(22px) saturate(.92); }
+/* 整屏纯底切出（B7 第三种态）：底衬换成包的不透明语域底，不靠半透明板子「差不多盖住」
+   ——那是糊，不是切走。两层叠上去：底板色（tokens.surface.plate）压在 palette.ground 上，
+   再叠包自己的遮罩。只铺 ground 一层会把整屏压成近黑（实测 L≈0.10，被 blackdetect 判成黑帧），
+   底板色那一层既保住语域，也把亮度拉回 0.2 以上——切出的是「品牌底板」，不是「黑屏」。 */
+.mgplate.mg-cut > .mp-surf { background-color:var(--ground);
+  background-image:var(--mg-tint,none), var(--surface-plate), var(--surface-light,none),
+    var(--surface-scrim); }
+.mg { position:absolute; inset:0;
+  display:flex; flex-direction:column; justify-content:center;
+  align-items:center; text-align:center; }
+.mg-stat .mg-kick { text-shadow:0 2px 10px rgba(0,0,0,.85);
+  font-family:"SC-Sub"; font-weight:600; font-size:34px;
+  letter-spacing:.16em; color:rgba(var(--surface-ink-rgb),.6); margin-bottom:22px; }
+.mg .mg-title { font-family:"SC-Sub"; font-weight:700; font-size:56px;
+  color:var(--surface-ink); letter-spacing:.01em; margin-bottom:22px; text-align:center; }
+/* stat：kicker → 巨数字 → 说明 → 出处，四行都是居中 */
+.mg-stat .mg-hero { display:flex; align-items:baseline; justify-content:center; gap:14px; }
+.mg-stat .num { font-family:"SC-Big"; font-weight:900; font-size:214px;
+  line-height:.94; color:var(--surface-ink); letter-spacing:-.035em;
+  text-shadow:0 16px 54px rgba(0,0,0,.65); }
+.mg-stat .unit { font-family:"SC-Big"; font-weight:900; font-size:76px;
+  color:var(--accent); }
+.mg-stat .mg-label { font-family:"SC-Sub"; font-weight:700; font-size:48px;
+  color:var(--surface-ink); opacity:1; margin-top:22px; line-height:1.32;
+  text-shadow:0 2px 6px rgba(0,0,0,.9), 0 6px 22px rgba(0,0,0,.7); }
+.mg-stat .mg-src { font-family:"SC-Sub"; font-weight:600; font-size:34px;
+  color:var(--surface-ink); opacity:.86; margin-top:14px; letter-spacing:.06em;
+  text-shadow:0 2px 10px rgba(0,0,0,.95); }
+/* steps：序号是实心圆点，条目左对齐——「先后」靠上下排，不靠居中对齐 */
+.mg-steps { align-items:stretch !important; text-align:left; }
+.mg-steps ol { list-style:none; display:flex; flex-direction:column; gap:22px;
+  width:100%; align-items:flex-start; padding:0 26px; }
+.mg-steps li { display:flex; align-items:flex-start; gap:14px; position:relative; }
+.mg-steps li:not(:last-child)::after { content:""; position:absolute; left:29px;
+  top:100%; height:22px; width:2px; background:#fff; opacity:.22; }
+.mg-steps li b { font-family:"SC-Big"; font-weight:900; font-size:34px; color:#0b0d11;
+  background:var(--accent); width:58px; height:58px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center; flex:0 0 auto; margin-top:12px; }
+.mg-steps li span { font-family:"SC-Sub"; font-weight:600; font-size:46px;
+  color:rgba(var(--surface-ink-rgb),.94); line-height:1.3; }
+/* versus：两栏面板 + 圆形 VS 徽标。徽标是「这是对立」的唯一视觉信号 */
+.mg-versus .mg-ver { display:flex; align-items:stretch; gap:14px; width:100%; }
+/* 面板要能「浮起来」，不能只是「画在背景上的一块色」：外投影 + 较亮的底 + 一根亮边。
+   三样都走 tokens.surface（shadow / plate / border），老包不写就是 none，像素不动。 */
+.mg-versus .side { flex:1; display:flex; flex-direction:column; gap:14px;
+  padding:30px 26px; border-radius:26px;
+  background:var(--surface-plate); border:1px solid var(--surface-border);
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow); }
+.mg-versus .side b { font-family:"SC-Big"; font-weight:900; font-size:50px;
+  color:var(--surface-ink); }
+.mg-versus .side span { font-family:"SC-Sub"; font-weight:600; font-size:40px;
+  color:rgba(var(--surface-ink-rgb),.78); line-height:1.32; }
+.mg-versus .vs { align-self:center; flex:0 0 auto; width:104px; height:104px;
+  border-radius:50%; display:grid; place-items:center; font-family:"SC-Big"; font-weight:900;
+  font-size:38px; color:#0b0d11; background:var(--accent); }
+.mg-versus .mg-tail { font-family:"SC-Sub"; font-weight:600; font-size:46px;
+  color:rgba(var(--surface-ink-rgb),.88); margin-top:22px; }
+/* term：像一张词条卡，左边一条 accent 竖条把「词」和「释义」分开 */
+/* term 是一张「词条卡」，要有一块自己的面板——白字直接压在杂树/浅墙上必糊
+   （srt-motion-cards 的 term-card 就是一块 .84 的深底，这层别省；具体什么色归包管） */
+.mg-term { background:var(--surface-plate-term); border:1px solid var(--surface-border-term);
+  border-radius:26px; padding:var(--surface-term-pad); text-align:left;
+  backdrop-filter:var(--surface-blur); box-shadow:var(--surface-shadow);
+  align-items:flex-start !important; display:flex; flex-direction:column; }
+/* 词头**不能**再叫 .mg-term：外层定位容器就是 `mg mg-term`，内外同名时同一个
+   `.mg-term` 选择器同时命中两层，卡片被套上一个同样的深框——「黑框套黑框」
+   （2026-11-13 T-018 事故：dianzan-b 的 term 卡）。内层一律用 mg-word。 */
+.mg-term .mg-word { font-family:"SC-Big"; font-weight:900; font-size:92px;
+  color:var(--surface-ink); line-height:1.04; letter-spacing:-.02em; }
+/* 不加左侧竖条：它只对着释义，看着像列表符号，把版面切散（srt 的 term-card 也没有） */
+.mg-term .mg-def { font-family:"SC-Sub"; font-weight:500; font-size:46px;
+  color:rgba(var(--surface-ink-rgb),.95); margin-top:var(--surface-term-gap);
+  line-height:1.42; text-align:left;
+  text-shadow:0 2px 10px rgba(0,0,0,.9); }
+
+.gen { position:absolute; inset:0; display:flex; flex-direction:column;
+       justify-content:center; align-items:center; background:var(--ground,#14110f); color:var(--ink,#fff);
+       padding:0 88px; text-align:center; }
+.gen .big { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.04;
+            letter-spacing:0.01em; }
+.gen .sm { font-family:"SC-Sub",sans-serif; font-weight:600; line-height:1.4;
+           color:var(--ink,#fff); opacity:0.78; }
+.gen .cols { display:flex; width:100%; gap:40px; align-items:stretch; }
+.gen .col { flex:1; display:flex; flex-direction:column; justify-content:center;
+            gap:18px; padding:48px 24px; border-radius:var(--radius,18px);
+            background:color-mix(in srgb, var(--ink,#fff) 8%, transparent); }
+.gen .col.hi { outline:var(--stroke,2px) solid var(--accent,#F6EB34); outline-offset:0; }
+.gen .row { display:flex; align-items:baseline; gap:26px; width:100%; }
+.gen .bar { height:38px; border-radius:var(--radius,6px); background:var(--accent,#F6EB34); }
+.gen .chn { font-family:"SC-Big",sans-serif; font-weight:900; color:var(--accent,#F6EB34);
+            opacity:0.92; line-height:1; }
+.gen .num { font-family:"SC-Big",sans-serif; font-weight:900; color:var(--accent,#F6EB34); line-height:1; }
+.gen blockquote { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.3; }
+.gen cite { font-family:"SC-Sub",sans-serif; font-style:normal; opacity:0.7; }
+.gen ol { list-style:none; width:100%; display:flex; flex-direction:column; gap:26px; }
+.gen ol li { display:flex; gap:26px; align-items:baseline; }
+.gen ol li b { font-family:"SC-Big",sans-serif; color:var(--accent,#F6EB34); }
+.gen .fcol { display:flex; flex-direction:column; gap:34px; width:100%; align-items:flex-start; }
+.gen .fnode { display:flex; align-items:center; gap:24px; position:relative; }
+.gen .fnode .dot { width:26px; height:26px; border-radius:50%; background:var(--accent,#F6EB34);
+                   flex:0 0 26px; box-shadow:0 0 0 6px rgba(246,235,52,0.16); }
+.gen .fnode::after { content:""; position:absolute; left:12px; top:26px; width:2px; height:34px;
+                     background:var(--accent,#F6EB34); opacity:.32;
+                     transform-origin:top; }
+.gen .fnode:last-child::after { display:none; }
+.gen .lstack { display:flex; flex-direction:column; gap:12px; width:100%; }
+.gen .layer { border-radius:var(--radius,14px); padding:26px 26px; text-align:left; color:var(--ink,#fff);
+              background:linear-gradient(160deg,rgba(255,255,255,0.16),rgba(255,255,255,0.07));
+              border:1px solid rgba(255,255,255,0.10); }
+.gen .layer .ltxt { font-family:"SC-Sub",sans-serif; font-weight:600; }
+.gen-ov { inset:auto 56px auto 56px; top:50%; transform:translateY(-50%);
+          background:var(--ground,#0e0c0a); opacity:.94; border-radius:var(--radius,26px); padding:64px 48px;
+          box-shadow:0 24px 60px rgba(0,0,0,0.55); backdrop-filter:blur(2px); }
+
 </style>
 </head>
 <body>
   <div id="root" data-composition-id="main" data-start="0"
-       data-width="1080" data-height="1920" data-fps="30" data-duration="79.153">
+       data-width="1080" data-height="1920" data-fps="30" data-duration="79.055">
     <video id="v1" class="clip" src="clips/_书架口播_备用_熊工口播3_297p30-304p02.mp4" data-start="0.0" data-duration="6.733" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
     <video id="v2" class="clip" src="clips/_书架口播_备用_熊工口播3_231p54-234p36.mp4" data-start="6.733" data-duration="2.833" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
     <video id="v3" class="clip" src="clips/_书架口播_备用_熊工口播3_279p18-284p06.mp4" data-start="9.566" data-duration="4.88" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
     <video id="v4" class="clip" src="clips/_书架口播_备用_熊工口播3_292p14-294p38.mp4" data-start="14.446" data-duration="2.24" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v5" class="clip" src="clips/打磨_必用_IMG_1042_1p00-7p02.mp4" data-start="16.686" data-duration="6.033" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v6" class="clip" src="clips/打磨_备用_IMG_1040_2p00-3p49.mp4" data-start="22.719" data-duration="1.5" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v7" class="clip" src="clips/倒料_必用_IMG_1079_6p00-8p94.mp4" data-start="24.219" data-duration="2.94" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v8" class="clip" src="clips/摊料_备用_IMG_1070_1p00-7p95.mp4" data-start="27.159" data-duration="6.967" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v9" class="clip" src="clips/特写_必用_IMG_1080_1p00-6p58.mp4" data-start="34.126" data-duration="5.58" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v10" class="clip" src="clips/_书架口播_备用_熊工口播3_354p12-362p94.mp4" data-start="39.706" data-duration="8.833" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v11" class="clip" src="clips/选板_必用_IMG_1092_1p00-8p86.mp4" data-start="48.539" data-duration="7.867" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v12" class="clip" src="clips/展示_备用_IMG_1090_0p50-8p84.mp4" data-start="56.406" data-duration="8.34" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v13" class="clip" src="clips/配料_备用_IMG_1035_1p00-8p14.mp4" data-start="64.746" data-duration="7.14" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
-    <video id="v14" class="clip" src="clips/地面_备用_IMG_1770_0p50-7p75.mp4" data-start="71.886" data-duration="7.267" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v5" class="clip" src="clips/打磨_必用_IMG_1042_1p00-7p02.mp4" data-start="16.686" data-duration="6.02" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v6" class="clip" src="clips/打磨_备用_IMG_1040_2p00-3p49.mp4" data-start="22.706" data-duration="1.49" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v7" class="clip" src="clips/倒料_必用_IMG_1079_6p00-8p94.mp4" data-start="24.196" data-duration="2.933" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v8" class="clip" src="clips/摊料_备用_IMG_1070_1p00-7p95.mp4" data-start="27.129" data-duration="6.95" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v9" class="clip" src="clips/特写_必用_IMG_1080_1p00-6p58.mp4" data-start="34.079" data-duration="5.567" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v10" class="clip" src="clips/_书架口播_备用_熊工口播3_354p12-362p94.mp4" data-start="39.646" data-duration="8.833" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v11" class="clip" src="clips/选板_必用_IMG_1092_1p00-8p86.mp4" data-start="48.479" data-duration="7.86" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v12" class="clip" src="clips/展示_备用_IMG_1090_0p50-8p84.mp4" data-start="56.339" data-duration="8.333" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v13" class="clip" src="clips/配料_备用_IMG_1035_1p00-8p14.mp4" data-start="64.672" data-duration="7.133" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+    <video id="v14" class="clip" src="clips/地面_备用_IMG_1770_0p50-7p75.mp4" data-start="71.805" data-duration="7.25" data-media-start="0" data-track-index="0" playsinline data-has-audio="true"></video>
+
+
     <div id="grade"></div>
+
     <div id="idc" class="clip idcard" data-start="0.5" data-duration="8.5">
       <span style="font-size:64px">熊工</span>
       <span style="font-size:44px">柒造 · 地面工程</span>
       <span style="font-size:36px">进口和国产，到底差在哪</span>
       <span style="font-size:30px">工地现场口述</span>
     </div>
-    <div id="kw-02" class="clip kw" data-start="3.9" data-duration="1.33"><span>不是非黑即白</span></div>
-    <div id="kw-03" class="clip kw" data-start="7.213" data-duration="1.5"><span>进口一定好？</span></div>
-    <div id="kw-04" class="clip kw" data-start="10.406" data-duration="1.0"><span>差不多就行</span></div>
-    <div id="kw-05" class="clip kw" data-start="14.986" data-duration="1.0"><span>都有偏颇</span></div>
-    <div id="kw-06" class="clip kw" data-start="47.086" data-duration="1.21"><span>成本贵在哪</span></div>
+    <div class="scrim" data-start="9.2" data-duration="1.0" style="height:30.0%"></div>
+    <div id="kw-02" class="clip kw kw-behind" data-start="9.2" data-duration="1.0" style="top:16.50%"><span style="font-size:126px">不是非黑即白</span></div>
+    <div id="kw-03" class="clip kw" data-start="10.4" data-duration="1.483" style="top:7.50%"><span style="font-size:126px">进口一定好？</span></div>
+    <div id="kw-04" class="clip kw" data-start="12.083" data-duration="1.0" style="top:7.50%"><span style="font-size:151px">差不多就行</span></div>
+    <div id="kw-05" class="clip kw" data-start="15.256" data-duration="1.0" style="top:7.50%"><span style="font-size:189px">都有偏颇</span></div>
+    <div class="scrim" data-start="48.546" data-duration="1.0" style="height:29.9%"></div>
+    <div id="kw-06" class="clip kw kw-behind" data-start="48.546" data-duration="1.0" style="top:15.90%"><span style="font-size:151px">成本贵在哪</span></div>
 
     <div id="caplayer">
-      <div id="cap-001" class="clip cap" data-start="0.06" data-duration="2.94"><span>事情不是这么简单的</span></div>
-      <div id="cap-002" class="clip cap" data-start="3.0" data-duration="2.76"><span>去非黑即白，</span></div>
-      <div id="cap-003" class="clip cap" data-start="5.76" data-duration="0.96"><span>我是这样看的。</span></div>
-      <div id="cap-004" class="clip cap" data-start="6.853" data-duration="2.7"><span>进口的一定好就对吧</span></div>
-      <div id="cap-005" class="clip cap" data-start="9.566" data-duration="2.16"><span>他就觉得差不多，</span></div>
-      <div id="cap-006" class="clip cap" data-start="11.726" data-duration="1.38"><span>或者说觉得国产的也</span></div>
-      <div id="cap-007" class="clip cap" data-start="13.106" data-duration="1.34"><span>不错。</span></div>
-      <div id="cap-008" class="clip cap" data-start="14.566" data-duration="2.12"><span>都有偏颇嗯</span></div>
-      <div id="cap-009" class="clip cap" data-start="16.686" data-duration="1.92"><span>因为我们毕竟第一我</span></div>
-      <div id="cap-010" class="clip cap" data-start="18.606" data-duration="3.06"><span>们门店来说一直是在</span></div>
-      <div id="cap-011" class="clip cap" data-start="21.666" data-duration="1.053"><span>做进口涂料</span></div>
-      <div id="cap-012" class="clip cap" data-start="22.779" data-duration="1.44"><span>也做了相当</span></div>
-      <div id="cap-013" class="clip cap" data-start="24.219" data-duration="1.98"><span>一部分的商业项目，</span></div>
-      <div id="cap-014" class="clip cap" data-start="26.199" data-duration="0.96"><span>就是在珠海，</span></div>
-      <div id="cap-015" class="clip cap" data-start="27.219" data-duration="3.3"><span>包括房地产的售楼部</span></div>
-      <div id="cap-016" class="clip cap" data-start="30.519" data-duration="3.607"><span>知名的餐厅酒店民宿</span></div>
-      <div id="cap-017" class="clip cap" data-start="34.186" data-duration="1.92"><span>不管珠海的广州的现</span></div>
-      <div id="cap-018" class="clip cap" data-start="36.106" data-duration="1.98"><span>在广州在做的上海的</span></div>
-      <div id="cap-019" class="clip cap" data-start="38.086" data-duration="1.62"><span>厦门的汕</span></div>
-      <div id="cap-020" class="clip cap" data-start="39.706" data-duration="1.74"><span>那么因为有不同的需</span></div>
-      <div id="cap-021" class="clip cap" data-start="41.446" data-duration="1.86"><span>求，就是说我们也不</span></div>
-      <div id="cap-022" class="clip cap" data-start="43.306" data-duration="1.8"><span>能说是只是只拿进口</span></div>
-      <div id="cap-023" class="clip cap" data-start="45.106" data-duration="1.32"><span>产品，因为毕竟进口</span></div>
-      <div id="cap-024" class="clip cap" data-start="46.426" data-duration="1.38"><span>的产品它的成本比较</span></div>
-      <div id="cap-025" class="clip cap" data-start="47.806" data-duration="0.72"><span>高。</span></div>
-      <div id="cap-026" class="clip cap" data-start="48.599" data-duration="2.22"><span>给他打了大概有不下</span></div>
-      <div id="cap-027" class="clip cap" data-start="50.819" data-duration="1.2"><span>10个样板，</span></div>
-      <div id="cap-028" class="clip cap" data-start="52.019" data-duration="4.38"><span>其中有三个国产厂家</span></div>
-      <div id="cap-029" class="clip cap" data-start="56.406" data-duration="3.42"><span>然后也打了进口的，</span></div>
-      <div id="cap-030" class="clip cap" data-start="59.826" data-duration="3.66"><span>最后业主方怎么都觉</span></div>
-      <div id="cap-031" class="clip cap" data-start="63.486" data-duration="1.26"><span>得的进口的好，</span></div>
-      <div id="cap-032" class="clip cap" data-start="64.746" data-duration="3.42"><span>虽然实事求是的讲原</span></div>
-      <div id="cap-033" class="clip cap" data-start="68.166" data-duration="2.46"><span>料成本可能差到4倍</span></div>
-      <div id="cap-034" class="clip cap" data-start="70.626" data-duration="1.26"><span>四到5倍。</span></div>
-      <div id="cap-035" class="clip cap" data-start="71.946" data-duration="1.98"><span>不同的产品，</span></div>
-      <div id="cap-036" class="clip cap" data-start="73.926" data-duration="1.86"><span>它该有它该去的地方</span></div>
-      <div id="cap-037" class="clip cap" data-start="75.786" data-duration="3.367"><span>，该有它该有的位置</span></div>
+      <div id="cap-001" class="clip cap" data-start="0.06" data-duration="2.04"><span>事情不是这么简单的</span></div>
+      <div id="cap-002" class="clip cap" data-start="3.18" data-duration="1.8"><span>去非黑即白</span></div>
+      <div id="cap-003" class="clip cap" data-start="5.76" data-duration="0.84"><span>我是这样看的</span></div>
+      <div id="cap-004" class="clip cap" data-start="6.853" data-duration="2.58"><span>进口的一定好就对吧</span></div>
+      <div id="cap-005" class="clip cap" data-start="9.566" data-duration="1.44"><span>他就觉得差不多</span></div>
+      <div id="cap-006" class="clip cap" data-start="11.466" data-duration="0.8"><span>或者说</span></div>
+      <div id="cap-007" class="clip cap" data-start="12.266" data-duration="1.18"><span>觉得国产的也不错</span></div>
+      <div id="cap-008" class="clip cap" data-start="14.566" data-duration="0.96"><span>都有偏颇</span></div>
+      <div id="cap-009" class="clip cap" data-start="16.686" data-duration="1.38"><span>因为我们毕竟</span></div>
+      <div id="cap-010" class="clip cap" data-start="18.066" data-duration="2.56"><span>第一我们门店来说</span></div>
+      <div id="cap-011" class="clip cap" data-start="21.166" data-duration="1.54"><span>一直是在做进口涂料</span></div>
+      <div id="cap-012" class="clip cap" data-start="22.766" data-duration="1.43"><span>也做了相当</span></div>
+      <div id="cap-013" class="clip cap" data-start="24.196" data-duration="1.54"><span>一部分的商业项目</span></div>
+      <div id="cap-014" class="clip cap" data-start="26.176" data-duration="0.84"><span>就是在珠海</span></div>
+      <div id="cap-015" class="clip cap" data-start="27.189" data-duration="2.48"><span>包括房地产的售楼部</span></div>
+      <div id="cap-016" class="clip cap" data-start="30.489" data-duration="3.08"><span>知名的餐厅酒店民宿</span></div>
+      <div id="cap-017" class="clip cap" data-start="34.139" data-duration="1.8"><span>不管珠海的广州的</span></div>
+      <div id="cap-018" class="clip cap" data-start="35.939" data-duration="1.2"><span>现在广州在做的</span></div>
+      <div id="cap-019" class="clip cap" data-start="37.139" data-duration="2.507"><span>上海的厦门的汕</span></div>
+      <div id="cap-020" class="clip cap" data-start="39.646" data-duration="2.04"><span>那么因为有不同的需求</span></div>
+      <div id="cap-021" class="clip cap" data-start="42.326" data-duration="1.16"><span>就是说我们也不能说</span></div>
+      <div id="cap-022" class="clip cap" data-start="43.486" data-duration="1.8"><span>是只是只拿进口产品</span></div>
+      <div id="cap-023" class="clip cap" data-start="45.406" data-duration="1.14"><span>因为毕竟进口的</span></div>
+      <div id="cap-024" class="clip cap" data-start="46.546" data-duration="1.44"><span>产品它的成本比较高</span></div>
+      <div id="cap-025" class="clip cap" data-start="48.539" data-duration="1.14"><span>给他打了大概</span></div>
+      <div id="cap-026" class="clip cap" data-start="49.679" data-duration="3.12"><span>有不下10个样板其中有</span></div>
+      <div id="cap-027" class="clip cap" data-start="54.019" data-duration="2.02"><span>三个国产厂家</span></div>
+      <div id="cap-028" class="clip cap" data-start="56.339" data-duration="1.92"><span>然后也打了进口的</span></div>
+      <div id="cap-029" class="clip cap" data-start="59.639" data-duration="0.8"><span>最后</span></div>
+      <div id="cap-030" class="clip cap" data-start="61.459" data-duration="1.66"><span>业主方怎么</span></div>
+      <div id="cap-031" class="clip cap" data-start="63.119" data-duration="1.18"><span>都觉得的进口的好</span></div>
+      <div id="cap-032" class="clip cap" data-start="64.672" data-duration="2.38"><span>虽然实事求是的讲</span></div>
+      <div id="cap-033" class="clip cap" data-start="68.052" data-duration="0.88"><span>原料成本可能</span></div>
+      <div id="cap-034" class="clip cap" data-start="68.932" data-duration="2.36"><span>差到4倍四到5倍</span></div>
+      <div id="cap-035" class="clip cap" data-start="71.865" data-duration="1.5"><span>不同的产品</span></div>
+      <div id="cap-036" class="clip cap" data-start="74.105" data-duration="1.6"><span>它该有它该去的地方</span></div>
+      <div id="cap-037" class="clip cap" data-start="76.005" data-duration="2.16"><span>该有它该有的位置</span></div>
     </div>
   </div>
 <script src="assets/gsap.min.js"></script>
 <script>
 const tl = gsap.timeline({ paused: true });
+// 口播跳切推近：同一段画面换景别，声音不断、时间轴不动
+  tl.set("#v1", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 2.524);
+  tl.set("#v1", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 4.28);
+  tl.set("#v3", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 11.906);
+  tl.set("#v5", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 18.326);
+  tl.set("#v5", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 20.699);
+  tl.set("#v8", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 29.446);
+  tl.set("#v8", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 32.109);
+  tl.set("#v9", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 37.099);
+  tl.set("#v10", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 41.886);
+  tl.set("#v10", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 44.426);
+  tl.set("#v10", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 46.386);
+  tl.set("#v11", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 51.119);
+  tl.set("#v11", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 53.999);
+  tl.set("#v12", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 59.117);
+  tl.set("#v12", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 61.739);
+  tl.set("#v13", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 66.712);
+  tl.set("#v13", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 69.752);
+  tl.set("#v14", { scale: 1.06, x: "2.0%", transformOrigin: "50% 50%" }, 74.145);
+  tl.set("#v14", { scale: 1.0, x: "-2.0%", transformOrigin: "50% 50%" }, 76.638);
+
 // 字幕：hard_cut
 document.querySelectorAll(".cap").forEach((c) => {
   const t = parseFloat(c.dataset.start);
   const h = c.querySelector("span");
-  tl.set(h, { y: 0, opacity: 1 }, t);
+  tl.set(h, { opacity: 1 }, t);
 });
 // 大字：先弹进来，停住，再退
 document.querySelectorAll(".kw").forEach((c) => {
@@ -117,10 +325,123 @@ document.querySelectorAll(".kw").forEach((c) => {
   tl.to(c.querySelector("span"), { opacity: 0, duration: 0.16, ease: "power1.in" },
         t + Math.max(0, d - 0.16));
 });
+// 大字隔离层：跟大字同进同退（它只是字底下一块板，晚一帧出现就变成「闪一下」）
+document.querySelectorAll(".kwpod").forEach((c) => {
+  const t = parseFloat(c.dataset.start);
+  const d = parseFloat(c.dataset.duration);
+  tl.set(c, { opacity: 0 }, 0);
+  tl.set(c, { opacity: 1 }, t);
+  tl.to(c, { opacity: 0, duration: 0.16, ease: "power1.in" },
+        t + Math.max(0, d - 0.16));
+});
+// MG 卡：件与件之间要有先后，否则就是一页 PPT 硬切上来。
+document.querySelectorAll(".mgwrap").forEach((w) => {
+  // 时间窗在 .mgwrap 上（它是 .clip），视觉主体在里面那层 .mg
+  const c = w.querySelector(".mg") || w;
+  const t = parseFloat(w.dataset.start);
+  const d = parseFloat(w.dataset.duration);
+  tl.set(w, { opacity: 0 }, t);
+  tl.set(w, { opacity: 1 }, t);
+  tl.fromTo(c, { opacity: 0, y: 30, scale: 0.97 },
+    { opacity: 1, y: 0, scale: 1, duration: 0.32, ease: "power2.out", immediateRender: false }, t);
+  // 数字卡：de-blur + 轻微放大入场，同时数字从 0 滚上去。
+  // 曲线照 srt-motion-cards 的 stat-in：scale .82 / blur 10px → 1 / 0，cubic-bezier(.16,1,.3,1)。
+  // 这一下是「高级感」的主要来源——硬切上来就是贴便签，模糊化开才像镜头语言。
+  const num = c.querySelector(".num");
+  if (num) {
+    const raw = num.dataset.to || num.textContent;
+    const target = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+    if (!isNaN(target)) {
+      const o = { v: 0 };
+      const dec = /\d[.,]\d/.test(String(raw)) ? 1 : 0;
+      tl.fromTo(num, { scale: 0.82, filter: "blur(10px)", opacity: 0 },
+        { scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.8,
+           ease: "expo.out", immediateRender: false }, t + 0.04);
+      tl.fromTo(o, { v: 0 }, {
+        v: target, duration: 0.5, ease: "power2.out", immediateRender: false,
+        onUpdate: () => { num.textContent = dec ? o.v.toFixed(1) : String(Math.round(o.v)); },
+        onComplete: () => { num.textContent = raw; }
+      }, t + 0.04);
+      const unit = num.parentElement.querySelector(".unit");
+      if (unit) {
+        tl.fromTo(unit, { opacity: 0, y: 8 },
+          { opacity: 1, y: 0, duration: 0.4, ease: "expo.out", immediateRender: false }, t + 0.42);
+      }
+      const kick = c.querySelector(".mg-kick");
+      if (kick) {
+        tl.fromTo(kick, { opacity: 0, y: 8 },
+          { opacity: 1, y: 0, duration: 0.4, ease: "expo.out", immediateRender: false }, t + 0.12);
+      }
+      const lab = c.querySelector(".mg-label"), sr = c.querySelector(".mg-src");
+      if (lab) tl.fromTo(lab, { opacity: 0, y: 10 },
+        { opacity: 1, y: 0, duration: 0.45, ease: "expo.out", immediateRender: false }, t + 0.3);
+      if (sr) tl.fromTo(sr, { opacity: 0 },
+        { opacity: 0.52, duration: 0.4, immediateRender: false }, t + 0.46);
+    }
+  }
+  // 条目逐条进来（步骤卡 / 对比卡的两栏 / 术语卡的释义）
+  const kids = c.querySelectorAll("li, .side, .mg-tail");
+  kids.forEach((k, i) => {
+    const when = t + 0.2 + i * 0.22;
+    tl.set(k, { opacity: 0 }, t);
+    tl.fromTo(k, { opacity: 0, y: 16 },
+      { opacity: 1, y: 0, duration: 0.24, ease: "power2.out", immediateRender: false }, when);
+  });
+  const vs = c.querySelector(".vs");
+  if (vs) {
+    tl.fromTo(vs, { scale: 0.4, opacity: 0 },
+      { scale: 1, opacity: 0.9, duration: 0.26, ease: "back.out(3)",
+         immediateRender: false }, t + 0.42);
+  }
+  const def = c.querySelector(".mg-def");
+  if (def) {
+    tl.fromTo(def, { opacity: 0, y: 12 },
+      { opacity: 1, y: 0, duration: 0.26, immediateRender: false }, t + 0.3);
+  }
+  tl.to(w, { opacity: 0, duration: 0.18, ease: "power1.in" }, t + Math.max(0.2, d - 0.18));
+});
 document.querySelectorAll(".idcard > span").forEach((el, i) => {
   tl.fromTo(el, { x: -18, opacity: 0 },
     { x: 0, opacity: 1, duration: 0.42, ease: "power3.out",
        immediateRender: false }, 0.42 + i * 0.08);
+});
+// 代码生成的整屏：淡入 + 上移，撤场只降透明。不许有布局动画——
+// 整屏的文本量比字幕大得多，一缩放就糊。
+// 生成元素的子件按顺序进场：一句一条，不是一屏同时亮
+document.querySelectorAll(".gen").forEach((c) => {
+  const t = parseFloat(c.dataset.start);
+  // morph_carry：这一格是**接着上一格**的（同一块东西没换），所以不许重新入场。
+  // 重新淡入＝观众看到「又一页」，那正是「像 PPT 翻页」的来源。
+  const carry = c.dataset.carry === "1";
+  const d = parseFloat(c.dataset.duration);
+  const kids = c.querySelectorAll(".col, ol li, .bar, .chn, blockquote, .num, .fnode, .layer");
+  // 每条子件的入场时刻：优先用「这句台词的重音点」（data-ct），没有才均分。
+  const ct = (c.dataset.ct || "").split(",").filter(Boolean).map(Number);
+  // 收尾那一行（比如对比屏下面的结论）永远最后出：它得等两栏都比完了才有意义。
+  const last = c.querySelector(".ct-last");
+  if (last) {
+    const at = (ct.length ? Math.max(...ct) + 0.5 : d * 0.55);
+    tl.set(last, { opacity: 0 }, t);
+    tl.fromTo(last, { opacity: 0 }, { opacity: 1, duration: 0.24, immediateRender: false },
+              t + Math.min(Math.max(0.2, at), Math.max(0.3, d - 0.45)));
+  }
+  kids.forEach((k, i) => {
+    const when = (ct.length === kids.length) ? t + ct[i]
+      : t + 0.12 + i * Math.min(0.34, Math.max(0.12, (d - 0.5) / Math.max(1, kids.length)));
+    tl.set(k, { opacity: 0, y: 18 }, t);          // 轮到之前必须是不可见，否则一开场全亮
+    tl.fromTo(k, { opacity: 0, y: 18 },
+      { opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
+         immediateRender: false }, when);
+  });
+  if (carry) {
+    tl.set(c, { opacity: 1, y: 0 }, t);
+  } else {
+    tl.fromTo(c, { opacity: 0, y: 24 },
+      { opacity: 1, y: 0, duration: 0.32, ease: "power2.out", immediateRender: false }, t);
+  }
+  if (d > 0.8) {
+    tl.to(c, { opacity: 0, duration: 0.2, ease: "power1.in" }, t + d - 0.2);
+  }
 });
 window.__timelines["main"] = tl;
 tl.seek(0);

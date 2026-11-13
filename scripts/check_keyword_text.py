@@ -243,6 +243,15 @@ def place_of(proj: Path, card: dict, style: dict, W: int, H: int, videos: list[d
     否则量的是没上屏的中间态。
     """
     kind = str(card.get("kind") or "")
+    # 最可信的是渲器自己写进 `out/cards.json` 的 `kw_top_h`：那是它画字时真正用的上沿。
+    # 以前这里到遮罩缓存去重算一遍 override，重渲后 `hf/work/mask` 跟渲器用的不是同一份，
+    # 算出来 5.5%H、卡实际画在 16.5%H——判据去一个没字的地方找字，报「这张大字没上屏」
+    # （T-047 实测：成片该位置确有 32.7% 偏黄像素，典型色 #F0E435）。
+    _own = card.get("kw_top_h")
+    if _own is not None:
+        _t = round(float(_own), 4)
+        _scrim = kind in ("behind", "cutout") or bool(CL.kw_top_of(card, style, W, H)[1])
+        return _t, _scrim, f"渲器落点 {_t * 100:.1f}%H（cards.json 的 kw_top_h）"
     if kind in ("behind", "cutout"):
         v = clip_at(videos, float(card.get("start") or 0.0))
         if v is not None and v["clip"].exists():

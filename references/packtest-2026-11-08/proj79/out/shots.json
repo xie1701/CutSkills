@@ -2,199 +2,298 @@
  {
   "n": 1,
   "seg": 1,
-  "in": 297.3,
-  "out": 300.66,
-  "dur": 3.3667,
-  "frames": 101,
+  "in": 0.0,
+  "out": 2.524,
+  "dur": 2.524,
   "zoom": 1.0,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "medium": "talking"
  },
  {
   "n": 2,
   "seg": 1,
-  "in": 300.66,
-  "out": 304.02,
-  "dur": 3.3667,
-  "frames": 101,
-  "zoom": 1.12,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "in": 2.524,
+  "out": 4.28,
+  "dur": 1.756,
+  "zoom": 1.06,
+  "medium": "talking"
  },
  {
   "n": 3,
-  "seg": 2,
-  "in": 231.54,
-  "out": 234.36,
-  "dur": 2.8333,
-  "frames": 85,
+  "seg": 1,
+  "in": 4.28,
+  "out": 6.733,
+  "dur": 2.453,
   "zoom": 1.0,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "medium": "talking"
  },
  {
   "n": 4,
-  "seg": 3,
-  "in": 279.18,
-  "out": 281.64,
-  "dur": 2.4667,
-  "frames": 74,
+  "seg": 2,
+  "in": 0.0,
+  "out": 2.833,
+  "dur": 2.833,
   "zoom": 1.0,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "medium": "talking"
  },
  {
   "n": 5,
   "seg": 3,
-  "in": 281.64,
-  "out": 284.06,
-  "dur": 2.4333,
-  "frames": 73,
-  "zoom": 1.12,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "in": 0.0,
+  "out": 2.34,
+  "dur": 2.34,
+  "zoom": 1.0,
+  "medium": "talking"
  },
  {
   "n": 6,
-  "seg": 4,
-  "in": 292.14,
-  "out": 294.38,
-  "dur": 2.2333,
-  "frames": 67,
-  "zoom": 1.0,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "seg": 3,
+  "in": 2.34,
+  "out": 4.88,
+  "dur": 2.54,
+  "zoom": 1.06,
+  "medium": "talking"
  },
  {
   "n": 7,
-  "seg": 5,
-  "in": 1.0,
-  "out": 7.02,
-  "dur": 6.0333,
-  "frames": 181,
+  "seg": 4,
+  "in": 0.0,
+  "out": 2.24,
+  "dur": 2.24,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240729_地面施工_地面打磨_必用_IMG_1042.MOV"
+  "medium": "talking"
  },
  {
   "n": 8,
-  "seg": 6,
-  "in": 2.0,
-  "out": 3.49,
-  "dur": 1.5,
-  "frames": 45,
+  "seg": 5,
+  "in": 0.0,
+  "out": 1.64,
+  "dur": 1.64,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240729_地面施工_腻子打磨_备用_IMG_1040.MOV"
+  "medium": "broll"
  },
  {
   "n": 9,
-  "seg": 7,
-  "in": 6.0,
-  "out": 8.94,
-  "dur": 2.9333,
-  "frames": 88,
-  "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240729_地面施工_自流平倒料_必用_IMG_1079.mov"
+  "seg": 5,
+  "in": 1.64,
+  "out": 4.013,
+  "dur": 2.373,
+  "zoom": 1.06,
+  "medium": "broll"
  },
  {
   "n": 10,
-  "seg": 8,
-  "in": 1.0,
-  "out": 7.95,
-  "dur": 6.9333,
-  "frames": 208,
+  "seg": 5,
+  "in": 4.013,
+  "out": 6.02,
+  "dur": 2.007,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240729_地面施工_地坪摊料_备用_IMG_1070.MOV"
+  "medium": "broll"
  },
  {
   "n": 11,
-  "seg": 9,
-  "in": 1.0,
-  "out": 6.58,
-  "dur": 5.5667,
-  "frames": 167,
+  "seg": 6,
+  "in": 0.0,
+  "out": 1.49,
+  "dur": 1.49,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240729_地面施工_刮平特写_必用_IMG_1080.MOV"
+  "medium": "broll"
  },
  {
   "n": 12,
-  "seg": 10,
-  "in": 354.12,
-  "out": 356.94,
-  "dur": 2.8333,
-  "frames": 85,
+  "seg": 7,
+  "in": 0.0,
+  "out": 2.933,
+  "dur": 2.933,
   "zoom": 1.0,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "medium": "broll"
  },
  {
   "n": 13,
-  "seg": 10,
-  "in": 356.94,
-  "out": 359.94,
-  "dur": 3.0,
-  "frames": 90,
-  "zoom": 1.12,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "seg": 8,
+  "in": 0.0,
+  "out": 2.317,
+  "dur": 2.317,
+  "zoom": 1.0,
+  "medium": "broll"
  },
  {
   "n": 14,
-  "seg": 10,
-  "in": 359.94,
-  "out": 362.94,
-  "dur": 3.0,
-  "frames": 90,
-  "zoom": 1.0,
-  "medium": "talking",
-  "asset": "20261009_书架口播_备用_熊工口播3.MOV"
+  "seg": 8,
+  "in": 2.317,
+  "out": 4.98,
+  "dur": 2.663,
+  "zoom": 1.06,
+  "medium": "broll"
  },
  {
   "n": 15,
-  "seg": 11,
-  "in": 1.0,
-  "out": 8.86,
-  "dur": 7.8667,
-  "frames": 236,
+  "seg": 8,
+  "in": 4.98,
+  "out": 6.95,
+  "dur": 1.97,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "新展厅选样板/20261017_新展厅选样板_桌面选板_必用_IMG_1092.MOV"
+  "medium": "broll"
  },
  {
   "n": 16,
-  "seg": 12,
-  "in": 0.5,
-  "out": 8.84,
-  "dur": 8.3333,
-  "frames": 250,
+  "seg": 9,
+  "in": 0.0,
+  "out": 3.02,
+  "dur": 3.02,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "新展厅选样板/20261017_新展厅选样板_样板展示_备用_IMG_1090.MOV"
+  "medium": "broll"
  },
  {
   "n": 17,
-  "seg": 13,
-  "in": 1.0,
-  "out": 8.14,
-  "dur": 7.1333,
-  "frames": 214,
-  "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240729_地面施工_粉末配料_备用_IMG_1035.MOV"
+  "seg": 9,
+  "in": 3.02,
+  "out": 5.567,
+  "dur": 2.547,
+  "zoom": 1.06,
+  "medium": "broll"
  },
  {
   "n": 18,
-  "seg": 14,
-  "in": 0.5,
-  "out": 7.75,
-  "dur": 7.2667,
-  "frames": 218,
+  "seg": 10,
+  "in": 0.0,
+  "out": 2.24,
+  "dur": 2.24,
   "zoom": 1.0,
-  "medium": "broll",
-  "asset": "地面施工素材/20240807_地面施工_完工地面_备用_IMG_1770.MOV"
+  "medium": "talking"
+ },
+ {
+  "n": 19,
+  "seg": 10,
+  "in": 2.24,
+  "out": 4.78,
+  "dur": 2.54,
+  "zoom": 1.06,
+  "medium": "talking"
+ },
+ {
+  "n": 20,
+  "seg": 10,
+  "in": 4.78,
+  "out": 6.74,
+  "dur": 1.96,
+  "zoom": 1.0,
+  "medium": "talking"
+ },
+ {
+  "n": 21,
+  "seg": 10,
+  "in": 6.74,
+  "out": 8.833,
+  "dur": 2.093,
+  "zoom": 1.06,
+  "medium": "talking"
+ },
+ {
+  "n": 22,
+  "seg": 11,
+  "in": 0.0,
+  "out": 2.64,
+  "dur": 2.64,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 23,
+  "seg": 11,
+  "in": 2.64,
+  "out": 5.52,
+  "dur": 2.88,
+  "zoom": 1.06,
+  "medium": "broll"
+ },
+ {
+  "n": 24,
+  "seg": 11,
+  "in": 5.52,
+  "out": 7.86,
+  "dur": 2.34,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 25,
+  "seg": 12,
+  "in": 0.0,
+  "out": 2.778,
+  "dur": 2.778,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 26,
+  "seg": 12,
+  "in": 2.778,
+  "out": 5.4,
+  "dur": 2.622,
+  "zoom": 1.06,
+  "medium": "broll"
+ },
+ {
+  "n": 27,
+  "seg": 12,
+  "in": 5.4,
+  "out": 8.333,
+  "dur": 2.933,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 28,
+  "seg": 13,
+  "in": 0.0,
+  "out": 2.04,
+  "dur": 2.04,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 29,
+  "seg": 13,
+  "in": 2.04,
+  "out": 5.08,
+  "dur": 3.04,
+  "zoom": 1.06,
+  "medium": "broll"
+ },
+ {
+  "n": 30,
+  "seg": 13,
+  "in": 5.08,
+  "out": 7.133,
+  "dur": 2.053,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 31,
+  "seg": 14,
+  "in": 0.0,
+  "out": 2.34,
+  "dur": 2.34,
+  "zoom": 1.0,
+  "medium": "broll"
+ },
+ {
+  "n": 32,
+  "seg": 14,
+  "in": 2.34,
+  "out": 4.833,
+  "dur": 2.493,
+  "zoom": 1.06,
+  "medium": "broll"
+ },
+ {
+  "n": 33,
+  "seg": 14,
+  "in": 4.833,
+  "out": 7.25,
+  "dur": 2.417,
+  "zoom": 1.0,
+  "medium": "broll"
  }
 ]
