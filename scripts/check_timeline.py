@@ -386,10 +386,19 @@ def main() -> int:
     tl = json.loads(tp.read_text())
     lib = Path(a.library).expanduser().resolve() if a.library else proj.parent.parent.parent
     index = load_index(lib)
+    # 索引找不到就静默跳过全部素材/真值/口令判据——那是**假绿**（T-028 实测：
+    # proj79 不带 --library 时 error 1 → 0，rc 也从 1 变 0）。宁可报一条黄。
+    index_ok = bool(index)
 
     dec_f = proj / "decisions.md"
     dec_text = dec_f.read_text(encoding="utf-8") if dec_f.exists() else None
     probs = check(tl, index, strict=a.strict, decisions_text=dec_text)
+    if not index_ok:
+        n_assets = len(tl.get("elements") or [])
+        probs.append(("warning",
+                      f"素材库索引没解析到（{lib}/_cutskills/index.json 不存在）——"
+                      f"素材、台词真值、口令、双评级四类判据全部跳过，{n_assets} 格一个都没查；"
+                      "这个 error 0 不算数，补 --library <素材库根> 再跑"))
     # 别人的话不许进片：场记口令 / 摄影师的指导语 / 主播自己的重说。
     # 这一条放在这里而不是只在 cue_guard 里，是因为它是**时间轴层面的错**：
     # 音频窗口一旦套住口令，剪辑方案就已经错了，后面渲得再好也是错的。
@@ -460,7 +469,8 @@ def main() -> int:
     s = summary(tl)
 
     if a.json:
-        print(json.dumps({"problems": probs, "summary": s}, ensure_ascii=False, indent=1))
+        print(json.dumps({"problems": probs, "summary": s, "library": str(lib),
+                          "index_resolved": index_ok}, ensure_ascii=False, indent=1))
     else:
         for lv, m in probs:
             print(f"  {'✗' if lv == 'error' else '!'} {m}")

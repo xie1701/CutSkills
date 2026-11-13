@@ -84,7 +84,7 @@ python3 scripts/hooks.py --project <项目> --render   # 2–3 个前 3 秒候�
 
 # 3 构形：意图 → 元素时间轴（缺口按兜底链自动补 gen / 章节卡）
 python3 scripts/timeline.py --project <项目> --fill --fit-skeleton
-python3 scripts/check_timeline.py --project <项目>     # error 必改，warning 要能说出理由（含第三方品牌字样排查与核销）
+python3 scripts/check_timeline.py --project <项目> --library <素材库根>   # error 必改，warning 要能说出理由（含第三方品牌字样排查与核销）；索引没解析到会报一条黄，此时的 error 0 不算数
 python3 scripts/content_guard.py --project <项目>      # 内容守卫：B-roll 起尾余量 0.40s / 视觉指代词 / 品类禁忌（check_timeline 已自动调，单跑看细节）
 
 # 3.4 B 轴连续场景：marks 别拍脑袋，按旁白锚词标定
