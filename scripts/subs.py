@@ -790,7 +790,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
     return final
 
 
-def _report_probe(segments) -> None:
+def _report_probe() -> None:
     """把「静音探针到底量没量到」说出口。量不到不许静默装作「没停顿」。
 
     素材不在本机（拷到别的工位、素材盘拔了）是最常见的：那时 `silence.runs_strict()`
@@ -841,7 +841,7 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
                          "sf": int(round(a * fps)), "ef": int(round(b * fps)),
                          "el": blk["el"], "break_after": why})
     cues.sort(key=lambda c: c["start"])
-    _report_probe(segments)
+    _report_probe()
     # 相邻重叠：后一条推到前一条收口之后（硬切不留缝）
     out: list[dict] = []
     for c in cues:
