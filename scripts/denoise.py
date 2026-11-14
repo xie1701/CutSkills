@@ -18,7 +18,7 @@ BRIEF 第 8 步原文是「混音：人声降噪；人声出现时 BGM 自动闪
 用法：
     # 量（默认只打到终端；给 --out / --library 才落 json）
     denoise.py --measure a.mov b.mov --ss 3 --duration 12
-    denoise.py --measure --library "/Users/jerry/Downloads/柒造Video/素材" --out /tmp/dn.json
+    denoise.py --measure --library "<素材库>" --out /tmp/dn.json
 
     # 降（源文件一个字节都不动，产物写新文件）
     denoise.py --apply a.mov --out /tmp/a.dn.wav --profile standard

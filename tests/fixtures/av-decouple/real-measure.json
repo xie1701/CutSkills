@@ -2,14 +2,14 @@
  "films": [
   {
    "slug": "sxls-b3-chandi",
-   "project": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-b3-chandi",
+   "project": "<素材库>/_cutskills/projects/sxls-b3-chandi",
    "fps": 30.0,
    "lead_frames": 3,
    "elem": 3,
    "t_boundary": 11.42,
    "src_t": 3867.78,
-   "source": "/Users/jerry/Downloads/新邻舍新素材/访谈口播原始素材/10月15日.mov",
-   "film": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-b3-chandi/out/film-hf.mp4",
+   "source": "<素材库>/访谈口播原始素材/10月15日.mov",
+   "film": "<素材库>/_cutskills/projects/sxls-b3-chandi/out/film-hf.mp4",
    "no_jcut": {
     "pic_cut": 11.4367,
     "audio_arrival": 11.4349
@@ -21,14 +21,14 @@
   },
   {
    "slug": "sxls-j-mingzi",
-   "project": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-j-mingzi",
+   "project": "<素材库>/_cutskills/projects/sxls-j-mingzi",
    "fps": 30.0,
    "lead_frames": 3,
    "elem": 2,
    "t_boundary": 3.78,
    "src_t": 774.06,
-   "source": "/Users/jerry/Downloads/新邻舍新素材/访谈口播原始素材/10月15日.mov",
-   "film": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-j-mingzi/out/film-hf.mp4",
+   "source": "<素材库>/访谈口播原始素材/10月15日.mov",
+   "film": "<素材库>/_cutskills/projects/sxls-j-mingzi/out/film-hf.mp4",
    "no_jcut": {
     "pic_cut": 3.7967,
     "audio_arrival": 3.7819

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -39,14 +40,37 @@ import check_timing as CT                      # noqa: E402
 import render_hf as RH                         # noqa: E402
 import timeline as TL                          # noqa: E402
 from libs import ffmpeg_bin, hf_bin            # noqa: E402
+import libs as libs_mod                        # noqa: E402
 
 FPS = 30
 FIX = ROOT / "tests" / "fixtures" / "av-decouple"
+
+
+def _real_lib_globs() -> list[str]:
+    """本机真项目语料的位置：从 `$CUTSKILLS_REAL_LIBS`（冒号分隔）与 config 里的 libs 读。
+
+    为什么不写死路径：这是要发给陌生人的包，里面不许有任何一个具体人的家目录。
+    没配就返回空，测试只跑合成样本并说出口。
+    """
+    libs: list[str] = []
+    env = (os.environ.get("CUTSKILLS_REAL_LIBS") or "").strip()
+    if env:
+        libs += [p for p in env.split(os.pathsep) if p.strip()]
+    try:
+        libs += [str(x) for x in (libs_mod.config_libs() or [])]
+    except Exception:                                   # 配置读不出来不该把测试带倒
+        pass
+    out: list[str] = []
+    for lib in dict.fromkeys(libs):
+        f = Path(lib).expanduser()
+        if f.is_dir():
+            out.append(str(f / "_cutskills" / "projects" / "*" / "timeline.json"))
+    return out
 REAL_GLOBS = [
-    "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/*/timeline.json",
-    "/Users/jerry/Downloads/OYTest2/**/_cutskills/projects/*/timeline.json",
-    "/Users/jerry/Downloads/ouyangTestCut/_cutskills/projects/*/timeline.json",
-    "/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/*/timeline.json",
+    # 本机真项目语料（自己机器上有就顺带量；没有就只跑合成样本，并说出口）。
+    # 路径从 `$CUTSKILLS_REAL_LIBS`（冒号分隔）或 `~/.cutskills/libraries.json` 读，
+    # 不写死任何人的家目录——包是要发给陌生人的。
+    *_real_lib_globs(),
 ]
 
 

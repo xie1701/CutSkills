@@ -52,6 +52,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -61,18 +62,37 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import evidence_guard as EG              # noqa: E402
+import libs as libs_mod                   # noqa: E402
 import subs                              # noqa: E402
 import timeline as TL                     # noqa: E402
 
+
+def _real_lib_globs() -> list[str]:
+    """本机真项目语料的位置：`$CUTSKILLS_REAL_LIBS`（冒号分隔）+ config 里的 libs。
+
+    不写死路径：这是要发给陌生人的包，里面不许出现任何一个人的家目录。
+    没配就返回空，测试只跑合成样本并说出口。
+    """
+    cands: list[str] = []
+    env = (os.environ.get("CUTSKILLS_REAL_LIBS") or "").strip()
+    if env:
+        cands += [p for p in env.split(os.pathsep) if p.strip()]
+    try:
+        cands += [str(x) for x in (libs_mod.config_libs() or [])]
+    except Exception:
+        pass
+    out: list[str] = []
+    for lib in dict.fromkeys(cands):
+        f = Path(lib).expanduser()
+        if f.is_dir():
+            out.append(str(f / "_cutskills" / "projects" / "*" / "timeline.json"))
+    return out
+
 FPS = 30
 TEXT = "我花咗三百万喺金湾开咗间茶楼"
-# 真项目的落点（这台机器上有就顺带量一遍；没有就只跑合成样本，并且说出口）
-PROJECT_GLOBS = [
-    "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/*/timeline.json",
-    "/Users/jerry/Downloads/OYTest2/_cutskills/projects/*/timeline.json",
-    "/Users/jerry/Downloads/ouyangTestCut/_cutskills/projects/*/timeline.json",
-    "/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/*/timeline.json",
-]
+# 真项目的落点（本机配了素材库就顺带量一遍；没配就只跑合成样本，并且说出口）
+# 路径从 `$CUTSKILLS_REAL_LIBS`（冒号分隔）与 config 的 libs 读，不写死任何人的家目录。
+PROJECT_GLOBS = _real_lib_globs()
 
 
 # ---------------------------------------------------------------- 夹具
