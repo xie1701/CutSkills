@@ -531,6 +531,11 @@
 | `--fix` | — |
 | `--words` | — |
 
+### `doctor.py`
+*第一次跑产线之前的体检：缺什么、去哪补，一次说完。*
+
+（无参数）
+
 ### `edge_audit.py`
 *边界审计：每一格的开头 / 结尾 / 中间，有没有「不干净」的东西。*
 
@@ -680,6 +685,13 @@
 | `--sfx-dir` | 音效目录（默认 $CUTSKILLS_HOME/assets/sfx） |
 | `--ceiling-db` | f'混后峰值硬顶（默认 {CEILING_DB} dBFS）。人声轨若已经过 loudnorm，它的样本峰本身就贴着 -1dBTP，硬顶设得更严只会把音效压没（默认 CEILING_DB） |
 
+### `pack_dist.py`
+*把仓库打成可复制的分发包：CutSkills-<日期>.zip*
+
+| 参数 | 说明 |
+|---|---|
+| `--out` | （默认 str(Path.home() / 'Downloads' / 'CutSkills-dist')） |
+
 ### `pick_take.py`
 *CutSkills · 一个论点有好几个 take 时，选哪个。*
 
@@ -825,7 +837,7 @@
 
 | 参数 | 说明 |
 |---|---|
-| `--out` | 输出目录（默认 '~/Downloads/CutSkills-产出'） |
+| `--out` | 输出目录（默认取 config.json 的 out_dir）（默认 config_out_dir()） |
 | `--library` | 要扫的库根（可多次） |
 
 ### `silence.py`
