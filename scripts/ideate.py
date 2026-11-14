@@ -72,9 +72,20 @@ STREAMS = [
 
 
 def _extract_core(topic: str) -> str:
-    t = re.sub(r"^(我想做|帮我做|关于|拍一条|做一条|聊聊|讲讲)", "", topic.strip())
-    t = re.sub(r"(的视频|短视频|口播|脚本|选题)$", "", t).strip(" ，。！？、")
-    return (t[:12] if len(t) > 12 else t) or "这件事"
+    t = re.sub(r"^(我想做|帮我做|帮我|关于|拍一条|做一条|聊聊|讲讲)", "", topic.strip())
+    t = re.sub(r"(的视频|短视频|口播|脚本|选题|讲讲|聊聊)$", "", t).strip(" ，。！？、")
+    if len(t) <= 12:
+        return t or "这件事"
+    # 优先在最后一个「的」后取中心语短语（至少 6 字），最贴钩子语感：「…的茶楼 → 茶楼」不够短则退回尾部切片；
+    # 切片起点不许落在数字串中间：「用300万打造600平…」截成「打造6」是钩子里的硬伤。
+    p = t.rfind("的")
+    if p != -1 and len(t) - p - 1 >= 6:
+        return t[p + 1:].strip(" ，。！？、")
+    start = len(t) - 12
+    if start > 0 and t[start].isdigit() and t[start - 1].isdigit():
+        while start < len(t) and t[start].isdigit():
+            start += 1          # 跳过被砍剩的半个数字串
+    return t[start:].strip(" ，。！？、的了与和") or t[:12]
 
 
 def build_proposals(topic: str, persona: str, audience: str, duration_s: int) -> dict:
