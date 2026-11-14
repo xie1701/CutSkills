@@ -252,9 +252,9 @@ def _hf_bin() -> str:
 
 
 def _gsap() -> Path | None:
-    """gsap 只为了「入场已做完」的稳态帧；本机 vendor 路径被挪过，就退到仓库里的副本。"""
-    for c in (Path("/Users/jerry/.agents/skills/talking-head-recut/assets/vendor/gsap.min.js"),
-              ROOT / "demo" / "pack-micro" / "hf" / "assets" / "gsap.min.js"):
+    """gsap 只为了「入场已做完」的稳态帧；与 render_hf.GSAP_CANDIDATES 同一套候选，不另维护一份。"""
+    from render_hf import GSAP_CANDIDATES  # noqa: E402
+    for c in GSAP_CANDIDATES():
         if c.exists():
             return c
     return None

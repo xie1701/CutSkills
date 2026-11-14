@@ -32,11 +32,46 @@ def resolve_lib(proj: Path, given: str | Path | None = None, *, strict: bool = F
             f"  放在别处就加 --library \"<素材库根目录>\"。"
         )
     return cand
-DEFAULT_LIBS = [
-    "/Users/jerry/Downloads/ouyangTestCut",              # 欧阳 · 点赞茶楼 dianzan-a/b/c
-    "/Users/jerry/Downloads/柒造Video/素材",              # 柒造 · qizao-*
-    str(REPO / "references" / "packtest-2026-11-08"),    # 打包试验 proj79
-]
+# ---- 配置：整个产线唯一的私有路径入口 --------------------------------
+#
+# 别人复制这份仓库后只改一件事：把 config.example.json 复制成 config.json，
+# 填自己的素材库 / CC0 库 / 产出目录。脚本里不许再出现任何人的家目录。
+# 环境变量（CUTSKILLS_LIB / CUTSKILLS_BGM_LIB / CUTSKILLS_SFX_LIB）仍可临时覆盖。
+
+CONFIG_PATH = REPO / "config.json"
+
+
+def load_config() -> dict:
+    """读 config.json（无则空 dict，产线仍可用 --library 显式传）。"""
+    try:
+        import json
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _expand(v) -> list[str]:
+    if not v:
+        return []
+    if isinstance(v, str):
+        v = [v]
+    return [str(Path(x).expanduser()) for x in v if str(x).strip()]
+
+
+def config_libs() -> list[str]:
+    return _expand(load_config().get("libs"))
+
+
+def config_out_dir() -> str:
+    d = str(load_config().get("out_dir") or "").strip()
+    return str(Path(d).expanduser()) if d else str(Path.home() / "CutSkills-产出")
+
+
+DEFAULT_LIBS = (
+    config_libs()
+    or _expand(os.environ.get("CUTSKILLS_LIB"))
+    or [str(REPO / "references" / "packtest-2026-11-08")]   # 盲测夹具 proj79（合成素材，无需真语料）
+)
 
 # 项目名 → 一句话（名字是给人看的，缩写在库里，含义写在这儿）
 PROJECT_NOTES = {

@@ -4,7 +4,7 @@
 为什么要它：片子散在三个库、六个目录里，文件名（`_hf_bed`、`P1-warm`、`lock.json`、
 `film-hf`）全是给机器看的。人找一次问一次，就该有个页面替人记住。
 
-    python3 scripts/showcase.py                          # 默认写到 ~/Downloads/CutSkills-产出/index.html
+    python3 scripts/showcase.py                          # 默认写到 config.json 的 out_dir/index.html
     python3 scripts/showcase.py --out <目录>
     python3 scripts/showcase.py --library <库根> ...      # 额外/替换要扫的库
 
@@ -23,7 +23,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from libs import DEFAULT_LIBS, find_projects, _pick, PROJECT_NOTES  # noqa: E402
+from libs import DEFAULT_LIBS, find_projects, _pick, PROJECT_NOTES, config_out_dir  # noqa: E402
 import studio  # noqa: E402  工程页起停也用同一份库解析
 
 REPO = Path(__file__).resolve().parent.parent
@@ -248,7 +248,7 @@ def build(projects: list[Path], page: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成看片导航页")
-    ap.add_argument("--out", default="~/Downloads/CutSkills-产出", help="输出目录")
+    ap.add_argument("--out", default=config_out_dir(), help="输出目录（默认取 config.json 的 out_dir）")
     ap.add_argument("--library", action="append", help="要扫的库根（可多次）")
     a = ap.parse_args(argv)
 

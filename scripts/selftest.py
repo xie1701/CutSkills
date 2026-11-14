@@ -105,12 +105,17 @@ def _dark_judge_negative() -> bool:
             im.load()
             return im
 
-    # 负样本主体：拿 ground-01 成片（纯实拍，无 gen）抽三帧，用与 verify_film
+    # 负样本主体：拿一条纯实拍成片（无 gen）抽三帧，用与 verify_film
     # 同一个 dark_ratio/median_of 量——必须低（会触发红）；没有真语料时跳过
-    # 这半边但明说，合成帧对照必须跑。
-    g_out = Path.home() / "Downloads" / "柒造Video" / "素材" / "_cutskills" / "projects" \
-        / "qizao-ground-01" / "out"
-    g = next((p for p in (g_out / "film-hf.mp4", g_out / "film.mp4") if p.exists()), g_out / "film-hf.mp4")
+    # 这半边但明说，合成帧对照必须跑。（在 config.json 声明的各库里找
+    # qizao-ground-01；别人的机器上没有它就自动跳过，不报错。）
+    from libs import config_libs  # noqa: E402
+    g = None
+    for lib in config_libs():
+        g_out = Path(lib) / "_cutskills" / "projects" / "qizao-ground-01" / "out"
+        g = next((p for p in (g_out / "film-hf.mp4", g_out / "film.mp4") if p.exists()), None)
+        if g:
+            break
     if g.exists():
         vals = [dark_ratio(im) for im in (_frame(g, 10.0, "a"), _frame(g, 30.0, "b"),
                                           _frame(g, 55.0, "c")) if im]

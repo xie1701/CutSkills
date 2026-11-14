@@ -19,10 +19,19 @@ from __future__ import annotations
 import csv
 import os
 import random
+import sys
 from pathlib import Path
 
-BGM_LIB = Path(os.environ.get("CUTSKILLS_BGM_LIB") or (Path.home() / "Downloads" / "cc0-bgm-library"))
-SFX_LIB = Path(os.environ.get("CUTSKILLS_SFX_LIB") or (Path.home() / "Downloads" / "cc0-sfx-library"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from libs import load_config  # noqa: E402  私有路径的唯一入口（config.json）
+
+_cfg = load_config()
+BGM_LIB = Path(os.environ.get("CUTSKILLS_BGM_LIB")
+               or _cfg.get("bgm_lib")
+               or (Path.home() / "Downloads" / "cc0-bgm-library")).expanduser()
+SFX_LIB = Path(os.environ.get("CUTSKILLS_SFX_LIB")
+               or _cfg.get("sfx_lib")
+               or (Path.home() / "Downloads" / "cc0-sfx-library")).expanduser()
 
 # 授权口径（2026-11-14 补）：成片要能发布，用了哪个文件、什么许可必须有留痕。
 # 两个库都是 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名），

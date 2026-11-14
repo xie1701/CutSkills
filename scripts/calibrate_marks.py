@@ -19,9 +19,9 @@ Audio-First 的 B 轴延伸：每一幕的换幕点，应该落在旁白念到�
   python3 scripts/calibrate_marks.py --project qizao-lime-baxis            # 只看报告
   python3 scripts/calibrate_marks.py --project qizao-lime-baxis --write    # 写回 timeline.json
 
-项目定位：`--root`（默认环境变量 CUTSKILLS_PROJECTS，再默认
-/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects）、`--lib`（素材根，
-默认同目录上一级）。退出码：0 = 全部锚词落实；1 = 有锚词没落实（报告已说明）。
+项目定位：`--root`（默认环境变量 CUTSKILLS_PROJECTS，再默认 config.json 第一个
+素材库下的 _cutskills/projects）、`--lib`（素材根，默认同目录上一级）。
+退出码：0 = 全部锚词落实；1 = 有锚词没落实（报告已说明）。
 """
 from __future__ import annotations
 
@@ -36,8 +36,13 @@ sys.path.insert(0, str(HERE))
 
 from audio_map import chars_of  # noqa: E402
 import lexicon  # noqa: E402
+from libs import config_libs  # noqa: E402
 
-DEF_ROOT = ("/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects")
+# 默认项目根：config.json 第一个素材库的 projects/；不再写死任何人的家目录。
+_libs = config_libs()
+DEF_ROOT = os.environ.get("CUTSKILLS_PROJECTS") or (
+    str(Path(_libs[0]) / "_cutskills" / "projects") if _libs
+    else str(Path.home() / "CutSkills-素材" / "_cutskills" / "projects"))
 GAP = 0.05  # 两幕之间至少隔 5% 的时长，贴着换幕会看不出过渡
 
 

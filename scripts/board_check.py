@@ -152,8 +152,9 @@ def checks(board: dict, proj: Path, tl: dict) -> list[tuple[str, str, str]]:
     empty = [s["id"] for s in shots if not str(s.get("vo") or "").strip()]
     out.append(("warn" if empty else "ok", "每镜有口播原文", "全有" if not empty else f"空 {empty}"))
 
-    # 6. 音效名：必须是 CC0 库里真有的
-    cat = Path("/Users/jerry/Downloads/cc0-sfx-library/catalog.csv")
+    # 6. 音效名：必须是 CC0 库里真有的（库路径走 config.json，不写死任何人的家目录）
+    from cc0_lib import SFX_LIB  # noqa: E402
+    cat = SFX_LIB / "catalog.csv"
     if cat.exists():
         import csv
         names = set()
