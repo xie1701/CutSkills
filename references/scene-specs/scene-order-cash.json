@@ -1,0 +1,161 @@
+{
+ "scene_id": "order_cash",
+ "kind": "situational",
+ "purpose": "把「订单越多 → 现金越紧」这条反向因果演成一个画面：左边订单票据一张张落到桌面叠成堆、堆真的变高；右边一沓硬币一枚枚被拿走、整沓矮一截。两个方向同时发生，最后镜头一拉让反差自己说话，全片不上一个字。",
+ "beats": {
+  "subject": "同一个人、同一张桌上的两件事：一摞订单票据（左边）和一沓现金硬币（右边）。左边是进来的，右边是出去的。",
+  "action": "票据从画面上方一张张飘落，落到桌面就叠上去（每张都有接触阴影，堆一层层变高）；每付一笔钱，最上面那枚硬币被抬起来甩出画面，剩下的整沓往下坐一截。",
+  "change": "7 张票叠成 7 层（落 `N_SLIPS=7`）；现金从 6 层被取到 1 层（`N_LAYERS=6 − N_EXPENSE=5`）。左边单调升、右边单调降，两条曲线方向相反。",
+  "camera": "全片一条连续曲线：前段极慢推近（1.02→1.055，无切点无回正），收尾 0.88s 一拉到底（→0.876）把两张桌面上的量同时收进画面，最后 0.15s 停住。手持呼吸 ≤2px。",
+  "audience": "看到「当老板的忙起来了」这句话的人。他先读到「单子越来越多」，再读到「钱越来越少」，不需要任何人给他念数字。",
+  "sound": "4 个锚点落在动作起点：第 1 张票落桌（impact）、第 2 张开始下落（pop）、第 1 笔支出（whoosh）、最后 1 笔支出（whoosh）。留白处不出声。"
+ },
+ "claim_source": {
+  "asset_id": "",
+  "start": 0.0,
+  "end": 0.0,
+  "evidence": "订单多了，老板更忙了，最后现金却更紧。",
+  "source_kind": "brief",
+  "note": "这句是方案 P1 案例 B 的需求口径（brief），不是某条素材的 ASR 原句；场景只画这句里的「订单多了」与「现金更紧」两个量，不补任何原文没有的数字、时间、金额。"
+ },
+ "audio": {
+  "events": [
+   {
+    "id": "slip-1",
+    "t": 0.36,
+    "name": "impact-light-firm",
+    "alias": "impact",
+    "scene_event": "slip-1",
+    "intent": "第一张订单票据落到桌面（落桌触点，接触声）"
+   },
+   {
+    "id": "slip-2",
+    "t": 0.43,
+    "name": "pop-medium-in",
+    "alias": "pop",
+    "scene_event": "slip-2",
+    "intent": "第二张票据开始下落（票据开始一张接一张地来）"
+   },
+   {
+    "id": "expense-1",
+    "t": 3.0,
+    "name": "whoosh-medium-soft",
+    "alias": "whoosh",
+    "scene_event": "expense-1",
+    "intent": "第一笔支出：最上面那一枚硬币被抬离桌面"
+   },
+   {
+    "id": "expense-5",
+    "t": 6.15,
+    "name": "whoosh-medium-soft",
+    "alias": "whoosh",
+    "scene_event": "expense-5",
+    "intent": "最后一笔支出：整沓只剩一枚"
+   }
+  ],
+  "note": "模块 `scripts/scenes/order_cash.py` 的 EVENTS.name 写的是 `cc0_lib.SFX_MAP` 的别名（impact / pop / whoosh，合同要求 name 必须真实存在于 SFX_MAP）；这里写的是别名在 CC0 库里解析出来的 catalog id，因为 `scene_spec.py --check` 只认 catalog id。两端靠 alias / scene_event 对应，同一事件不会出现第二个音效。"
+ },
+ "review": {
+  "visual": "pending（开位自量：1080 三帧 + 像素单调性见 readouts，未判收）",
+  "audio": "pending（未混音；4 个锚点落在动作起点，name 均已对上 SFX_MAP ↔ CC0 catalog）",
+  "truth": "pending（画面只演 brief 里已有的两件事，未出现金额/数量以外的原文外事实）"
+ },
+ "readouts": {
+  "measured_by": "开位（Cola/scene 施工）自量，**不是判收**；判收要另一位工位重跑命令",
+  "measured_at": "2026-11-14",
+  "commands": [
+   "python3 scripts/gen_scene.py --scene order_cash --out /tmp/oc.mp4 --dur 8 --fps 12 --size 540x960 --marks 0.0,0.375,0.87",
+   "python3 scripts/measure_motion.py --video /tmp/oc.mp4 --fps 12",
+   "python3 scripts/gen_scene.py --scene order_cash --out /tmp/oc-probe.mp4 --probe --dur 8 --size 1080x1920 --marks 0.0,0.375,0.87",
+   "python3 scripts/measure_geom.py --frame /tmp/oc-t1.0.png --what gold（t=5.0 / 7.8 同）",
+   "python3 /tmp/measure_oc.py（自写像素量法：票据堆顶边 y 单调降 / 硬币柱高单调降 / 自报层数单调降）"
+  ],
+  "motion": {
+   "动帧占比": "0.93（≥0.85）",
+   "最长静止": "0.17s（<1.2s）",
+   "帧差中位": "3.39（1.2–6.0）",
+   "每秒帧差": "10.4 10.5 9.9 2.9 3.2 2.9 2.6 1.7",
+   "verdict": "三条全过（measure_motion 退出码 0）"
+  },
+  "probe": {
+   "收尾": "bright 26.71%（峰值 33.65%）",
+   "最长静止": "0.00s",
+   "动帧": "100%",
+   "帧差中位": "3.76",
+   "verdict": "🟢 收尾有东西（gen_scene --probe 退出码 0）"
+  },
+  "pile_height_monotone": {
+   "method": "1080 帧上取纸色像素（r>200,g>185,b>160,|r−b|<45）在 x<0.52W、y∈[0.45H,0.85H] 带内的最小 y（堆顶边）；每张落定后 0.12s 采样一次",
+   "paper_top_y": [
+    1100,
+    1083,
+    1065,
+    1045,
+    1023,
+    1009,
+    990
+   ],
+   "slips_landed": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "verdict": "单调递减（越堆越高）；相邻差 17/18/20/22/14/19px ≈ 每张 18px 的堆高"
+  },
+  "cash_height_monotone": {
+   "method": "1080 帧上取金色像素（r>140,g>105,b<118,r−b>70）在 x>0.52W、y∈[0.45H,0.85H] 带内的上下沿；采样点放在「上一枚已飞走、下一笔还没开始」的间隙",
+   "gold_top_y": [
+    981,
+    1024,
+    1062,
+    1094,
+    1133,
+    1162
+   ],
+   "gold_column_px": [
+    245,
+    204,
+    170,
+    146,
+    101,
+    80
+   ],
+   "cash_layers": [
+    6,
+    5,
+    4,
+    3,
+    2,
+    1
+   ],
+   "verdict": "柱高单调递减、顶面单调下降、层数单调递减 —— 每一笔支出正好拿走一层"
+  },
+  "measure_geom_gold": {
+   "t=1.0": "4 段（滚花竖纹把一柱切成几段），硬币柱最上 y987 → 最下 y1205（6 层）",
+   "t=5.0": "3 段：空中那一枚 y366–443（正在被拿走）+ 桌面柱 y1097–1212（3 层）",
+   "t=7.8": "1 段：y1130–1193（只剩一枚）",
+   "note": "金色判据按行找连续区间，硬币的滚花竖纹会把同一柱切成几段，看**最上到最下的总跨度**即可；票据是米白（r−b≈25）不进金色判据，两个量不会串。measure_geom 退出码 0。"
+  },
+  "determinism": {
+   "check": "同一 t 在 540×960 渲两遍，6 个采样点逐字节一致（sha256 前 16 位见 stderr 清单）",
+   "verdict": "True"
+  },
+  "frames": [
+   "/tmp/oc-t1.0.png",
+   "/tmp/oc-t5.0.png",
+   "/tmp/oc-t7.8.png"
+  ]
+ },
+ "notes": {
+  "counts_are_constants": "N_SLIPS=7 / N_EXPENSE=5 / N_LAYERS=6，全在模块顶部写死；一笔支出取走一枚（6−5=1），结尾「票 7 张、钱剩 1 层」是数得出来的",
+  "unknowns": [
+   "没混音：这条 spec 只声明锚点，真混音要在 gen 元素的 props.events 里接上（name 用 SFX_MAP 别名，走 cc0_lib.pick_sfx）",
+   "票据的可见厚度（18px@1080）比真纸厚：7 张真纸叠起来只有几像素，看不出「堆」——可读性取舍，写在模块注释里",
+   "空中那一枚（正在被拿走）在**静帧**上仍偏「浮」：视觉复核三次都嫌它没有影子。动态里靠竖直位移 + 桌面上偏移 0.30×升高 的软影读得出来，但单帧截图不如后半程清楚"
+  ]
+ }
+}

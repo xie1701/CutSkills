@@ -324,6 +324,19 @@
 | `--moods` | 开关 |
 | `--analyze` | 只量一段 wav，不合成 |
 
+### `blind_kit.py`
+*效果评估（方案 P4）：同一格里「旧卡 / 纯实拍 / AI 场景」三版盲测套件。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--n` | **必填** |
+| `--out` | — |
+| `--card-template` | （默认 'compare'） |
+| `--variants` | （默认 'card,real,scene'） |
+| `--quality` | （默认 'looks'） |
+| `--dry-run` | 开关 |
+
 ### `board_check.py`
 *看板数据的不变式检查，外加「导出 XML 后应该看到什么」的对照表。*
 
@@ -623,6 +636,30 @@
 | `--status` | 开关 |
 | `--note` | — |
 
+### `measure_geom.py`
+*几何靠量，不靠视觉模型描述。*
+
+| 参数 | 说明 |
+|---|---|
+| `--frame` | **必填** |
+| `--what` | （默认 'gold,order,shift'） |
+| `--band` | 只量这条 y 带：y0:y1 |
+| `--ends` | 量两端位置：两个 x 中心，如 200,880 |
+| `--yrange` | 两端模式的 y 限制：y0:y1 |
+| `--crop` | 只分析这块：x0,y0,x1,y1 |
+
+### `measure_motion.py`
+*帧差剖面：一段画面到底有没有在动、有没有卡住。*
+
+| 参数 | 说明 |
+|---|---|
+| `--video` | **必填** |
+| `--fps` | （默认 DEF_FPS） |
+| `--from` | — |
+| `--dur` | — |
+| `--json` | — |
+| `--median-band` | 帧差中位的合格区间 y0:y1。代码场景默认 1.2:6.0；实拍/手持段天然更大（是镜头在动，不是问题），给 6:20 之类 |
+
 ### `measure_panel.py`
 *CutSkills · 卡面板可读性实测：文字像素 vs **紧邻**底板的 ΔL*
 
@@ -663,6 +700,19 @@
 | `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
 | `--approve` | 人看过之后拍板：写 approval.json，render 才放行 |
 | `--show` | 开关 |
+
+### `preview_card.py`
+*一张卡/一格代码画面的快速样张：改完立刻看，不用重渲整片。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 项目目录（从 timeline.json 取第 n 格） |
+| `--n` | 取第几格（timeline 的 n） |
+| `--gen` | 直接给元素 JSON |
+| `--pack` | （默认 'P1-warm'） |
+| `--at` | 相对卡片起点的秒数，逗号分隔（默认 '1.0'） |
+| `--out` | — |
+| `--dur` | --gen 模式下的卡片时长（默认 4.0） |
 
 ### `refit_text.py`
 *把每一格的 `evidence` 按 ASR 字流重算——**改过剪切就必须重跑这一步**。*
@@ -718,6 +768,18 @@
 |---|---|
 | `--project` | **必填**　项目目录，只读时间轴与已渲产物 |
 | `--force` | 更新已有 review/sheet.html 与同名生成帧 |
+
+### `scene_review.py`
+*场景自审：给一段场景视频（或成片里的一格）出一份「每条判据都带读数」的复核报告。*
+
+| 参数 | 说明 |
+|---|---|
+| `--video` | **必填** |
+| `--dur` | **必填**　时间轴上这一格的 dur（秒） |
+| `--events` | JSON 数组：[{t,name}]（事件锚点，场景内相对秒） |
+| `--out` | 产物目录（默认取视频所在目录） |
+| `--json` | 报告路径（默认 <out>/scene-review/review.json） |
+| `--median-band` | 帧差中位的合格区间 y0:y1，默认 1.2:6.0（代码场景口径）。实拍/手持/推镜段给 6:20——底片帧差天然 8–13，用场景口径会恒假红 |
 
 ### `scene_spec.py`
 *scene_spec.json——单个补镜画面的生产任务单（AI 视听方案 2026-11-14 · P0）。*
@@ -932,6 +994,11 @@
 
 （无参数）
 
+### `test_measure_geom.py`
+*measure_geom 的负样本：判据必须能把画错的那一版抓出来。*
+
+（无参数）
+
 ### `test_mg_kinds.py`
 *MG 新卡型（proportion / day-night / chips）结构与词证/修辞误用回归（T-020）。*
 
@@ -959,6 +1026,11 @@
 
 ### `test_scene_determinism.py`
 *T-055 回归：代码场景必须可重复渲染（相同输入 → 逐帧一致）。*
+
+（无参数）
+
+### `test_scene_review.py`
+*契约测试：`scene_review.py` 的四条判据真的抓得住——自造样例，不依赖真片。*
 
 （无参数）
 

@@ -394,61 +394,192 @@ def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None
                 + (f'<div class="sm ct-last" style="font-size:{int(H * 0.024)}px;'
                    f'margin-top:44px">{esc(p.get("note"))}</div>' if p.get("note") else ""))
     elif tpl == "balance":
-        # 天平：SVG 画实体（横杆渐变、托盘带投影、砝码有侧面），GSAP 只负责倾/平
-        # 与砝码落下。坐标全是 900×560 的 SVG 单位，随屏宽等比缩放。
+        # 天平：SVG 画实体，GSAP 只负责倾/平与砝码落下。坐标是 900×480 的 SVG 单位，
+        # 随屏宽等比缩放。
+        # 2026-11-14 实测纠错：第一版把托盘与砝码画在横杆**上方**（砝码 383–458、横杆 592），
+        # 吊线朝上，整个天平是倒着的——这就是它读起来像图标的直接原因。现在几何链是：
+        # 吊线挂杆端（y162）→ 盘沿（y300）→ 砝码坐在盘里 → 往下才是标签。
+        # 伪 3D 只有一件事：每个实体的「顶面 + 正面 + 侧面」三块，加接地阴影。
         L = p.get("left") or {}
         R = p.get("right") or {}
         acc = str((p or {}).get("accent") or "#F6EB34")
+        BW, BH, BD, STEP = 64, 14, 6, 12      # 砝码宽 / 高 / 进深 / 码垛步距
+        # 倾角取负：SVG 里正角是顺时针，正角会把**左**端抬起来。而这张卡的语义是
+        # 「只比原料价 → 左边沉」，所以左端必须往下走（2026-11-14 第一版把方向写反了，
+        # 结果杆往一头倒、盘往另一头掉，吊线两端差了 72px——量出来的）。
+        RIM_Y, TILT, TILT_DY = 300, -7, 36      # 盘沿 y / 倾角 / 杆端纵向位移（≈300·sin7°）
+        CX_L, CX_R = 150, 750                 # 两只盘的中心 x（杆半长 300）
+        NB = 5                                # 每盘砝码块数
 
-        def pan_group(side: str, title: str, value: str, n_blocks: int, drop: int) -> str:
-            """一只托盘：吊线 + 盘体 + 盘内砝码堆 + 盘下标签。drop>0 的块后落。"""
-            cx = 170 if side == "l" else 730
-            blocks = ""
-            for k in range(n_blocks):
-                by = 96 - k * 17
-                cls = "blk late" if (drop and k >= n_blocks - drop) else "blk"
-                blocks += ('<rect class="%s" x="%d" y="%d" width="68" height="15" rx="3"'
-                           ' fill="url(#bbar)"/>'
-                           '<rect x="%d" y="%d" width="68" height="4" rx="2"'
-                           ' fill="rgba(255,255,255,.30)"/>') % (cls, cx - 34, by, cx - 34, by)
-            return f'''<g class="pan {side}">
-      <line x1="{cx}" y1="0" x2="{cx}" y2="66" stroke="rgba(226,206,160,.55)" stroke-width="3"/>
-      <path d="M {cx - 78} 62 L {cx + 78} 62 L {cx + 56} 100 Q {cx} 114 {cx - 56} 100 Z"
-            fill="url(#bpan)" stroke="rgba(255,235,190,.22)" stroke-width="2"/>
-      {blocks}
-      <text x="{cx}" y="158" text-anchor="middle" fill="rgba(255,255,255,.62)"
-            font-family="SC-Sub" font-size="24" letter-spacing="1">{esc(title)}</text>
-      <text x="{cx}" y="206" text-anchor="middle" fill="{acc}"
-            font-family="SC-Big" font-weight="900" font-size="34">{esc(value)}</text>
+        def blk(cx: float, y: float, late: bool) -> str:
+            """一块砝码：接地遮蔽 + 顶/正/侧三面 + 上棱倒角高光 + 底棱暗线。
+
+            三面律是「不像卡片」的下限；再多两条才像实物：块与块之间的接触遮蔽
+            （每块底棱一条暗线）和左棱一道窄反光。
+            """
+            x = cx - BW / 2
+            return ('<g class="%s">'
+                    '<ellipse cx="%.1f" cy="%.1f" rx="%d" ry="4" fill="#000" opacity=".55"'
+                    ' filter="url(#bsoft)"/>'
+                    '<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="url(#btop)"/>'
+                    '<rect x="%.1f" y="%.1f" width="%d" height="%d" fill="url(#bfront)"/>'
+                    '<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="url(#bside)"/>'
+                    '<rect x="%.1f" y="%.1f" width="%d" height="1.6" fill="rgba(255,255,255,.42)"/>'
+                    '<rect x="%.1f" y="%.1f" width="%d" height="1.6" fill="rgba(0,0,0,.42)"/>'
+                    '<rect x="%.1f" y="%.1f" width="1.4" height="%d" fill="rgba(255,255,255,.18)"/>'
+                    '</g>') % (
+                "blk late" if late else "blk",
+                cx, y + BH + 1, BW // 2, x, y, x + BD, y - BD, x + BW + BD, y - BD, x + BW, y,
+                x, y, BW, BH,
+                x + BW, y, x + BW + BD, y - BD, x + BW + BD, y - BD + BH, x + BW, y + BH,
+                x + 0.5, y + 0.6, BW - 1,
+                x, y + BH - 1.6, BW,
+                x + 0.6, y + 1.4, BH - 2.8)
+
+        def pan_group(cx: float, title: str, value: str, drop: int) -> str:
+            """一只托盘：吊线 + 吊轭 + 盘身（内侧 AO + 受光弧）+ 盘沿（带反光弧）+ 盘内码垛。"""
+            stack = ""
+            base_top = RIM_Y - BH - 8
+            for k in range(NB):
+                stack += blk(cx, base_top - k * STEP, bool(drop) and k >= NB - drop)
+            return f'''<g class="pan" data-cx="{cx}">
+      <line x1="{cx}" y1="176" x2="{cx}" y2="286" stroke="rgba(232,214,170,.48)" stroke-width="2.8"/>
+      <line x1="{cx}" y1="286" x2="{cx - 40}" y2="{RIM_Y}" stroke="rgba(232,214,170,.34)" stroke-width="2"/>
+      <line x1="{cx}" y1="286" x2="{cx + 40}" y2="{RIM_Y}" stroke="rgba(232,214,170,.34)" stroke-width="2"/>
+      <circle cx="{cx}" cy="286" r="3" fill="#8B7C63"/>
+      <circle cx="{cx}" cy="170" r="3" fill="#8B7C63"/>
+      <path d="M {cx - 64} {RIM_Y} C {cx - 58} {RIM_Y + 34}, {cx - 30} {RIM_Y + 44}, {cx} {RIM_Y + 44}
+               C {cx + 30} {RIM_Y + 44}, {cx + 58} {RIM_Y + 34}, {cx + 64} {RIM_Y} Z"
+            fill="url(#bbowl)" stroke="rgba(255,240,205,.16)" stroke-width="1.5"/>
+      <path d="M {cx - 60} {RIM_Y + 10} C {cx - 54} {RIM_Y + 31}, {cx - 28} {RIM_Y + 39}, {cx} {RIM_Y + 39}"
+            fill="none" stroke="rgba(0,0,0,.5)" stroke-width="7" filter="url(#bsoft)"/>
+      <path d="M {cx - 64} {RIM_Y} C {cx - 58} {RIM_Y + 34}, {cx - 30} {RIM_Y + 44}, {cx} {RIM_Y + 44}"
+            fill="none" stroke="rgba(255,246,222,.32)" stroke-width="2"/>
+      <ellipse cx="{cx}" cy="{RIM_Y}" rx="64" ry="13" fill="url(#brim)"/>
+      <ellipse cx="{cx}" cy="{RIM_Y + 1}" rx="55" ry="9" fill="#0B0908" opacity=".62"/>
+      <path d="M {cx - 62} {RIM_Y - 2} A 62 12 0 0 1 {cx + 22} {RIM_Y - 11}"
+            fill="none" stroke="rgba(255,252,240,.5)" stroke-width="2.2"/>
+      {stack}
     </g>'''
 
+        def label(cx: float, title: str, value: str) -> str:
+            return (f'<text x="{cx}" y="408" text-anchor="middle" fill="rgba(255,255,255,.66)"'
+                    f' font-family="SC-Sub" font-size="25" letter-spacing="1.5">{esc(title)}</text>'
+                    f'<text x="{cx}" y="450" text-anchor="middle" fill="{acc}"'
+                    f' font-family="SC-Big" font-weight="900" font-size="38">{esc(value)}</text>')
+
         body = f'''<div class="bal-wrap">
-    <svg viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet">
+    <svg viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet">
       <defs>
         <linearGradient id="bbar" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#E8C766"/><stop offset=".45" stop-color="#C9A227"/>
-          <stop offset="1" stop-color="#7A5E12"/>
+          <stop offset="0" stop-color="#F4DC92"/><stop offset=".42" stop-color="#CBA52B"/>
+          <stop offset="1" stop-color="#6B520E"/>
         </linearGradient>
-        <linearGradient id="bpan" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#4A4038"/><stop offset="1" stop-color="#17120E"/>
+        <linearGradient id="btop" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#FBE8AE"/><stop offset="1" stop-color="#D9B44C"/>
+        </linearGradient>
+        <linearGradient id="bfront" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#D2AC3A"/><stop offset=".6" stop-color="#A9851F"/>
+          <stop offset="1" stop-color="#7E6114"/>
+        </linearGradient>
+        <linearGradient id="bside" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#75590F"/><stop offset="1" stop-color="#3F3108"/>
+        </linearGradient>
+        <radialGradient id="brim" cx=".38" cy=".30" r=".82">
+          <stop offset="0" stop-color="#EFE3C6"/><stop offset=".55" stop-color="#9C9182"/>
+          <stop offset="1" stop-color="#4A4238"/>
+        </radialGradient>
+        <linearGradient id="bbowl" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#6E6459"/><stop offset=".55" stop-color="#3B342C"/>
+          <stop offset="1" stop-color="#1A1410"/>
+        </linearGradient>
+        <linearGradient id="bcol" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#241D17"/><stop offset=".38" stop-color="#6E6357"/>
+          <stop offset=".62" stop-color="#8A7E6E"/><stop offset="1" stop-color="#17110D"/>
+        </linearGradient>
+        <linearGradient id="bbase" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#5E5349"/><stop offset="1" stop-color="#17120E"/>
+        </linearGradient>
+        <linearGradient id="btop2" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#4B4238"/><stop offset=".5" stop-color="#7D7266"/>
+          <stop offset="1" stop-color="#3A322A"/>
+        </linearGradient>
+        <pattern id="bbrush" width="5" height="3" patternUnits="userSpaceOnUse">
+          <rect width="5" height="1" fill="rgba(255,255,255,.07)"/>
+        </pattern>
+        <!-- 表面颗粒：金属的「不是塑料」靠的是这点不均匀；颗粒只叠在实体上，不进背景 -->
+        <pattern id="bgrain" width="7" height="7" patternUnits="userSpaceOnUse">
+          <circle cx="1.6" cy="2.2" r=".8" fill="rgba(255,255,255,.05)"/>
+          <circle cx="5.1" cy="5.6" r=".7" fill="rgba(0,0,0,.10)"/>
+        </pattern>
+        <!-- 地面：底座下面有一块比四周略亮的受光地面，物体才「坐」在空间里而不是漂着 -->
+        <radialGradient id="bfloor" cx=".5" cy=".5" r=".5">
+          <stop offset="0" stop-color="#6B5847" stop-opacity=".55"/>
+          <stop offset=".45" stop-color="#3E3128" stop-opacity=".42"/>
+          <stop offset="1" stop-color="#120D0A" stop-opacity="0"/>
+        </radialGradient>
+        <!-- 天空/地面分离：一条几乎看不出、但把「地平线」交代清楚的水平过渡带 -->
+        <linearGradient id="bhz" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#000" stop-opacity="0"/>
+          <stop offset=".62" stop-color="#000" stop-opacity=".18"/>
+          <stop offset="1" stop-color="#000" stop-opacity=".45"/>
         </linearGradient>
         <radialGradient id="bglow" cx=".5" cy=".5" r=".5">
-          <stop offset="0" stop-color="{acc}" stop-opacity=".17"/>
+          <stop offset="0" stop-color="{acc}" stop-opacity=".16"/>
           <stop offset="1" stop-color="{acc}" stop-opacity="0"/>
         </radialGradient>
-        <filter id="bshadow" x="-30%" y="-30%" width="160%" height="160%">
-          <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".55"/>
+        <filter id="bsoft" x="-60%" y="-160%" width="220%" height="420%">
+          <feGaussianBlur stdDeviation="3.2"/>
+        </filter>
+        <filter id="bshadow" x="-30%" y="-30%" width="160%" height="180%">
+          <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000" flood-opacity=".5"/>
+        </filter>
+        <filter id="bground" x="-40%" y="-120%" width="180%" height="340%">
+          <feGaussianBlur stdDeviation="13"/>
         </filter>
       </defs>
-      <ellipse cx="450" cy="300" rx="420" ry="210" fill="url(#bglow)"/>
-      <g class="beam" style="transform-box:fill-box;transform-origin:50% 50%">
-        <rect x="110" y="238" width="680" height="26" rx="13" fill="url(#bbar)" filter="url(#bshadow)"/>
-        <rect x="110" y="238" width="680" height="6" rx="3" fill="rgba(255,255,255,.34)"/>
+      <ellipse cx="450" cy="250" rx="430" ry="200" fill="url(#bglow)"/>
+      <!-- 台面：用**梯形**而不是椭圆。椭圆只说明「底下有东西」，梯形有地平线与透视收敛，
+           观众才读成「放在一张桌上」。远处窄、近处宽，上沿比下沿淡。 -->
+      <path d="M 120 404 L 780 404 L 900 480 L 0 480 Z" fill="url(#bfloor)"/>
+      <rect x="0" y="404" width="900" height="76" fill="url(#bhz)"/>
+      <!-- 三层接地：外扩软影 + 紧贴硬影 + 倒影；阴影一律往右下偏——
+           光在左上，影子不可能正好在正下方（正下方的影子＝贴纸）。 -->
+      <ellipse cx="512" cy="446" rx="286" ry="19" fill="#000" opacity=".52"
+               filter="url(#bground)" transform="rotate(-2 512 446)"/>
+      <ellipse cx="486" cy="437" rx="92" ry="7.5" fill="#000" opacity=".85" filter="url(#bsoft)"/>
+      <path d="M 372 438 L 536 438 L 522 455 L 390 455 Z" fill="#7E7064" opacity=".12"
+            filter="url(#bsoft)"/>
+      <path d="M 386 416 L 514 416 L 532 438 L 368 438 Z" fill="url(#bbase)"/>
+      <path d="M 386 416 L 514 416 L 532 438 L 368 438 Z" fill="url(#bgrain)"/>
+      <path d="M 386 416 L 514 416 L 521 423 L 379 423 Z" fill="url(#btop2)"/>
+      <path d="M 386 416 L 514 416" stroke="rgba(255,246,226,.35)" stroke-width="1.6"/>
+      <path d="M 402 416 L 396 428" stroke="rgba(0,0,0,.55)" stroke-width="10" filter="url(#bsoft)"/>
+      <polygon points="441,174 459,174 470,416 430,416" fill="url(#bcol)"/>
+      <polygon points="441,174 459,174 470,416 430,416" fill="url(#bgrain)"/>
+      <line x1="448" y1="180" x2="443" y2="410" stroke="rgba(255,255,255,.13)" stroke-width="3"/>
+      <!-- 连接件：柱子直接插进底座会读成「梗在空气里」。垫一圈法兰 + 一道 AO。 -->
+      <path d="M 428 396 L 472 396 L 482 416 L 418 416 Z" fill="url(#btop2)"/>
+      <path d="M 428 396 L 472 396" stroke="rgba(255,246,226,.30)" stroke-width="1.4"/>
+      <path d="M 418 416 L 482 416" stroke="rgba(0,0,0,.55)" stroke-width="2.4"/>
+      <ellipse cx="450" cy="415" rx="34" ry="7" fill="#000" opacity=".5" filter="url(#bsoft)"/>
+      <!-- 支点：一个轴销 + 一圈垫，横杆才有「能转」的理由 -->
+      <circle cx="450" cy="162" r="11" fill="#1B1510"/>
+      <circle cx="450" cy="162" r="9" fill="url(#bbar)"/>
+      <circle cx="450" cy="162" r="3.4" fill="#20180F"/>
+      <circle cx="447.2" cy="158.6" r="2.6" fill="rgba(255,255,255,.55)"/>
+      <g class="beam" data-pivot="450,162" data-tilt="{TILT}">
+        <rect x="150" y="150" width="600" height="24" rx="11" fill="url(#bbar)" filter="url(#bshadow)"/>
+        <rect x="150" y="150" width="600" height="24" rx="11" fill="url(#bbrush)"/>
+        <rect x="152" y="151.5" width="596" height="5" rx="2.5" fill="rgba(255,255,255,.34)"/>
+        <rect x="152" y="169" width="596" height="3" rx="1.5" fill="rgba(0,0,0,.34)"/>
+        <circle cx="150" cy="162" r="8" fill="url(#bbar)" stroke="rgba(0,0,0,.35)" stroke-width="1"/>
+        <circle cx="750" cy="162" r="8" fill="url(#bbar)" stroke="rgba(0,0,0,.35)" stroke-width="1"/>
       </g>
-      <g class="pan-wrap l" transform="translate(0,46)">{pan_group("l", str(L.get("title") or ""), str(L.get("value") or ""), 5, 0)}</g>
-      <g class="pan-wrap r" transform="translate(0,-46)">{pan_group("r", str(R.get("title") or ""), str(R.get("value") or ""), 5, 4)}</g>
-      <polygon points="450,246 418,300 482,300" fill="url(#bbar)"/>
-      <rect x="392" y="298" width="116" height="16" rx="8" fill="url(#bbar)"/>
+      <g class="pan-wrap l" transform="translate(0,{TILT_DY})">{pan_group(CX_L, str(L.get("title") or ""), str(L.get("value") or ""), 0)}</g>
+      <g class="pan-wrap r" transform="translate(0,{-TILT_DY})">{pan_group(CX_R, str(R.get("title") or ""), str(R.get("value") or ""), NB - 1)}</g>
+      {label(CX_L, str(L.get("title") or ""), str(L.get("value") or ""))}
+      {label(CX_R, str(R.get("title") or ""), str(R.get("value") or ""))}
     </svg>
     {'<div class="bal-note">' + esc(p.get('note')) + '</div>' if p.get('note') else ''}
   </div>'''
@@ -1626,15 +1757,19 @@ document.querySelectorAll(".gen").forEach((c) => {{
     // 前一半让观众看清「左边沉」，后一半留出回平与读结论的时间。
     const tipRaw = (ct.length > 1) ? ct[1] : d * 0.5;
     const tip = t + Math.min(Math.max(tipRaw, 1.0), Math.max(1.2, d * 0.55));
-    tl.set(beam, {{ rotation: -9, transformOrigin: "50% 50%" }}, t);
-    if (panL) tl.set(panL, {{ attr: {{ transform: "translate(0,46)" }} }}, t);
-    if (panR) tl.set(panR, {{ attr: {{ transform: "translate(0,-46)" }} }}, t);
+    // 倾角与杆端位移都从标记里读，不在 JS 重写一份几何：杆半长 300、7°→≈36px。
+    // 杆与两只盘必须同步走完同一条缓动，否则吊线会从杆端脱开（第一版就脱了 7px）。
+    const til = parseFloat(beam.dataset.tilt || "7");
+    const dy = Math.round(300 * Math.sin(til * Math.PI / 180));
+    tl.set(beam, {{ rotation: til, transformOrigin: "50% 50%" }}, t);
+    if (panL) tl.set(panL, {{ attr: {{ transform: "translate(0," + dy + ")" }} }}, t);
+    if (panR) tl.set(panR, {{ attr: {{ transform: "translate(0," + (-dy) + ")" }} }}, t);
     lateBlk.forEach((b) => tl.set(b, {{ opacity: 0, y: -34 }}, t));
-    tl.to(beam, {{ rotation: 0, duration: 0.85, ease: "power2.out" }}, tip);
-    if (panL) tl.to(panL, {{ attr: {{ transform: "translate(0,0)" }}, duration: 0.85, ease: "power2.out" }}, tip);
-    if (panR) tl.to(panR, {{ attr: {{ transform: "translate(0,0)" }}, duration: 0.85, ease: "power2.out" }}, tip);
-    lateBlk.forEach((b, i) => tl.to(b, {{ opacity: 1, y: 0, duration: 0.26, ease: "power2.out" }},
-                                     tip - 0.10 + i * 0.09));
+    tl.to(beam, {{ rotation: 0, duration: 0.9, ease: "power2.out" }}, tip);
+    if (panL) tl.to(panL, {{ attr: {{ transform: "translate(0,0)" }}, duration: 0.9, ease: "power2.out" }}, tip);
+    if (panR) tl.to(panR, {{ attr: {{ transform: "translate(0,0)" }}, duration: 0.9, ease: "power2.out" }}, tip);
+    lateBlk.forEach((b, i) => tl.to(b, {{ opacity: 1, y: 0, duration: 0.24, ease: "power2.out" }},
+                                     tip - 0.12 + i * 0.08));
     // 结论行（比的对象换了，结论就变了）：横杆落定之后再出，留到卡片最后——
     // 它挂通用 .ct-last 时被压到卡末 0.45s（实测帧里根本没出现），这行是这句话的落点，不能省。
     const note = c.querySelector(".bal-note");

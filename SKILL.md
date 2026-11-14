@@ -119,6 +119,11 @@ python3 scripts/bgm_gen.py --analyze <项目>/bgm.wav         # 量亮度/低频
 python3 scripts/render_hf.py --project <项目> --extractor own --quality looks --bgm auto
 python3 scripts/verify_film.py --project <项目>
 python3 scripts/test_scene_determinism.py             # 代码场景可重复渲染：同输入两遍逐帧一致，非确定源（无种子随机/时钟）混进场景即红（T-055）
+python3 scripts/preview_card.py --project <项目> --n 15 --at 0.9,3.4   # 只把那一格渲成样张（6–10 秒）：改卡片不用重渲整片
+python3 scripts/measure_geom.py --frame <帧.png> --what gold,order,shift  # 实体带 / 上下关系 / 斜率：几何靠量不靠看
+python3 scripts/measure_motion.py --video <场景.mp4> --fps 10             # 动帧占比 / 最长静止 / 帧差中位
+python3 scripts/scene_review.py --video <场景.mp4> --dur 4 --events <ev.json>   # 场景自审：动作密集采样 + 接触表 + 静音/响度/偏移 + 返工建议
+python3 scripts/blind_kit.py --project <项目> --n 15 --dry-run            # 三版盲测（旧卡/纯实拍/AI 场景）先看方案；去掉 --dry-run 就重渲+随机甲乙丙+问卷
 python3 scripts/test_sfx_variety.py                    # 事件级音效与同音色轮换：props.events 映射到全片时间、连续同名自动换变体、manifest 按实际文件留痕（T-055）
 python3 scripts/test_pip_judge.py                     # PiP 判据三层负样本（T-012：缺键/贴回失败/数量不足）
 python3 scripts/test_overlay_judge.py                 # 叠加态判据负样本（T-019 压脸/口播整屏暗场/重卡撞字幕 + T-042 压主体与主体量不到两条 warning）
@@ -776,6 +781,60 @@ python3 <SKILL_DIR>/scripts/verify_film.py --project <项目目录> [--style <st
 | 口播镜头中位 | 2.4s ±0.8 | 偏离太多不是风格问题，是没剪 |
 | 最长同介质连续 | ≤40s | 一条片 40 秒不换介质，观众会走 |
 | 黑帧 | 0 段（刻意留白除外） | 黑帧多半是渲染断了 |
+
+### 判词口径：几何靠像素聚类，动静靠帧差剖面
+
+两条从 2026-11-14 那场「天平卡倒着画」的事故里换来的手法。共同点：**不让读者替你看几何**。
+
+**① 几何一律用像素量，不用视觉模型描述。** 视觉模型能把「5 块砝码」读成 6 块、把倾斜读成水平，
+还能把倒着画的天平描述成「托盘挂在横杆下方」（它读的是常识里的天平，不是画面里的像素）。
+可信的只有两件事：字读不读得清、被谁挡住。几何/数量/上下关系必须量：
+
+```bash
+python3 <SKILL_DIR>/scripts/measure_geom.py --frame <帧.png> --what gold,order,shift
+```
+
+做法是**先用颜色把实体分开、再按行/列统计连续区间**：金色（横杆与砝码同一族渐变）按行扫 →
+一段连续的宽区间是杆、两簇并排的是左右砝码堆；`order` 直接报「A 是否在 B 上方」；
+`shift` 报两条水平线的斜率差（倾斜 → 回平）。一楼：判据只看「杆比码高还是低」「左右各有几簇」
+这种布尔与计数，不看美观；二楼才给 1080 原像素裁图请人看。**同一条判据要能拦住负样本**——
+把第一版倒画的天平丢回去，`order` 必须报红；报不出来的判据等于没写。
+
+**② 动静一律用帧差剖面判，不用「你看是不是太静」。** 代码画的画面最容易犯的错是「静止但因为颜色好看被当成高级」。
+`--probe` 那套 `luma` / `bright%` 看得出有没有东西，看不出有没有在动；要抽帧算帧差：
+
+```bash
+python3 <SKILL_DIR>/scripts/measure_motion.py --video <场景.mp4> --fps 10 --json <m.json>
+```
+
+三个读数写进复核报告：
+
+| 读数 | 怎么算 | 判据 | 看到什么该改 |
+|---|---|---|---|
+| 动帧占比 | 帧差 > 噪声底的帧 ÷ 总帧 | ≥ 0.85 | 不到 0.85 = 有大段在站桩，把动作拆细或加持续微动（呼吸/漂移/光斑） |
+| 最长静止 | 连续静止帧数 × 1/fps 的极大值 | < 1.2s | 超了就有一个「卡住了」的段落，观众会怀疑片卡了 |
+| 帧差中位 | 帧差的中位数（区分度） | 代码场景 1.2–6；实拍段天然更大（是镜头在动），给 `--median-band 6:20` | 太低 = 动得没分量（只漂了几个像素）；太高 = 抖动/频闪，像坏了 |
+
+静止帧的阈值不要写到帧差里，要写到**与该场景自身的噪声底**比（渲染/编码噪声常年在 0.5–1.0）：
+`still = diff < max(0.8, 中位数 × 0.25)`。否则纯色背景场景会恒报「一直在动」。
+两个量的完整用法见 [references/scene-art-standard.md](references/scene-art-standard.md)。
+
+### 效果评估：三版盲测（P4）
+
+补镜、换卡、换场景之后，要回答的不是「我喜不喜欢」，是「观众信不信」。做法写死在工具里：
+
+```bash
+python3 <SKILL_DIR>/scripts/blind_kit.py --project <项目> --n 15 --dry-run   # 先看实验设计
+python3 <SKILL_DIR>/scripts/blind_kit.py --project <项目> --n 15            # 重渲三版 + 出问卷
+```
+
+三版同窗同长、同字幕、同响度，只有包装不同：**旧模板（文字卡）/ 纯实拍（去掉包装）/ 现在的 AI 场景**。
+跑完得到 `ab/p4/`：`盲测-甲/乙/丙.mp4`、`key.json`（唯一对照表，不给观众看）、`问卷.md`、`评分表.csv`。
+五个问题（看懂 / 说服 / 专业 / 出戏 / 节奏）与判据在脚本顶部写死，**跑之前定、跑完不许改**；
+标签用种子钉死，同一格每次跑出的甲乙丙一致，可复核也不可作弊。
+
+两条纪律：① 少于 5 个观众只报读数、不做结论；② 先定判据再看分——看完再定标准，
+测出来的就不是观众的看法，是我们自己的期待。
 
 ### C 段踩过的坑（都是真机实测）
 

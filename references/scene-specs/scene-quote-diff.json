@@ -1,0 +1,54 @@
+{
+ "scene_id": "quote_diff",
+ "kind": "informational",
+ "purpose": "把「两份报价看着差不多、其实差在一格」演出来：总价那一行同字号同位置（46,800 / 46,300），逐项展开材料／施工范围／质保／验收之后，乙那张的「质保」是一格凹下去的空白。",
+ "beats": {
+  "subject": "两张摊在桌面上的报价单（甲 / 乙）。纸是实物：下沿有切面的厚度、纸下有投影、上窄下宽有透视。",
+  "action": "先后落桌（0.44s / 0.72s）→ 四条对比项一项一项浮上纸面 → 两张纸推到并排、行行对齐（5.76s 起）。",
+  "change": "总价几乎没差别；唯一那处差别是乙那张「质保」那一格没有字，只剩一个凹下去、带阴影的空白窗口。",
+  "camera": "不运镜：景别固定，节奏全由纸自己的位移给（落桌—让开—并排）。落定后只剩一条窗光在桌面上走。",
+  "audience": "先跟着总价读成「差不多」，再被空白那一格拦住，最后自己得出结论：比价不是比总价。",
+  "sound": "四处出声：两张纸落桌（foley-paper-touch / foley-paper-slide）、第一项开始写（writing-pen-draw）、推到并排就位（foley-card-slide）。空白被看见那一下留白，不出声。"
+ },
+ "claim_source": {
+  "asset_id": "",
+  "start": 0.0,
+  "end": 0.0,
+  "evidence": "顾客不是只看价格，而是根本不知道两份报价差在哪里。",
+  "source_kind": "brief"
+ },
+ "audio": {
+  "events": [
+   {
+    "id": "quote-drop-a",
+    "t": 0.44,
+    "name": "foley-paper-touch",
+    "intent": "第一张报价单落桌，纸角碰到桌面"
+   },
+   {
+    "id": "quote-drop-b",
+    "t": 0.72,
+    "name": "foley-paper-slide",
+    "intent": "第二张滑上桌，压在前一张边上"
+   },
+   {
+    "id": "quote-rows",
+    "t": 1.96,
+    "name": "writing-pen-draw",
+    "intent": "第一项（材料）被写到纸上——逐项展开的起点"
+   },
+   {
+    "id": "quote-align",
+    "t": 5.76,
+    "name": "foley-card-slide",
+    "intent": "两张纸推到并排就位"
+   }
+  ]
+ },
+ "review": {
+  "visual": "pending（自测读数见 self_check；签收要另一个工位重跑）",
+  "audio": "pending",
+  "truth": "pending",
+  "self_check": "自测读数（签收请另一个工位重跑，本工位不判收）：measure_motion 12fps 540x960 → 动帧 1.00 / 最长静止 0.00s / 帧差中位 4.06；30fps → 1.00 / 0.00s / 1.85；gen_scene --probe 1080x1920 → 收尾 87.2%（峰值 86.3%）· 最长静止 0.00s · 动帧 100%；t=7.8 帧自量 → 两张纸中心距 464.4px（中缝 +10.8px）、行中心对齐差 ≤0.1px、第3行「质保」value 格：甲 47px 墨迹 vs 乙 146px 横贯整格的凹槽阴影（格内均值 213.5 vs 184.5，空白格 7923px = 纸面 2.72%）；确定性：同参数两遍渲染 mp4 哈希一致。"
+ }
+}

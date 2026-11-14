@@ -387,7 +387,7 @@ def main() -> int:
     r = sh([PY, str(ROOT / "scripts" / "test_cards_meta.py")])
     must("记事本判据回归", r.returncode == 0, (r.stderr or r.stdout).strip()[-400:])
 
-    print("㉙ 其余九支离线合同单测（台词真值/口播洁净度/内容守卫/叠加态/面板光感/呼吸停留/静音拆条/P4盲测/场景确定性）")
+    print("㉙ 离线合同单测（台词真值/口播洁净度/内容守卫/叠加态/面板光感/呼吸停留/静音拆条/P4盲测/场景确定性/几何判据/音效轮换）")
     for _tname in (
         "test_evidence_guard.py",
         "test_speech_hygiene.py",
@@ -398,6 +398,8 @@ def main() -> int:
         "test_breath_split.py",
         "test_blind_negative.py",
         "test_scene_determinism.py",
+        "test_measure_geom.py",
+        "test_sfx_variety.py",
     ):
         r = sh([PY, str(ROOT / "scripts" / _tname)])
         must(_tname, r.returncode == 0, (r.stderr or r.stdout).strip()[-300:])
