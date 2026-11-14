@@ -41,11 +41,8 @@ TOTAL = 3.5                          # 一句话 3.5 秒 > HOLD_MAX(3.2)
 
 
 def _ffmpeg() -> str:
-    c = Path("~/.cutskills/opt/ffmpeg-zimg/bin/ffmpeg").expanduser()
-    if c.exists():
-        return str(c)
-    import shutil
-    return shutil.which("ffmpeg") or "ffmpeg"
+    from libs import ffmpeg_bin
+    return ffmpeg_bin()
 
 
 def make_speech(path: Path, gap: tuple[float, float]) -> None:

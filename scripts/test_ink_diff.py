@@ -168,8 +168,8 @@ def synthetic(tmp: Path) -> list[str]:
 def real_films(tmp: Path) -> list[str]:
     """真片补跑：有素材就跑，没有就 SKIP（不许静默当通过）。"""
     fails: list[str] = []
-    proj79 = HERE.parent / "references" / "packtest-2026-11-08" / "proj79"
     from libs import find_project  # noqa: E402
+    proj79 = find_project("proj79") or Path("/nonexistent/proj79")
     naming = find_project("qizao-naming-01") or Path("/nonexistent/qizao-naming-01")
     ground = find_project("qizao-ground-01") or Path("/nonexistent/qizao-ground-01")
     if not (proj79 / "out" / "film-hf.mp4").exists():

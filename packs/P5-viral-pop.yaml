@@ -1,0 +1,118 @@
+# 包装包 · P5 高赞网感包（百万剪辑师高对比精致风）
+# 适合漏斗流破圈、快节奏科普、避坑盘点与干货拆解：高锐度黑金红对比 + 胶囊花字 + 电影微暗角
+name: P5-viral-pop
+label: 高赞网感（百万博主风）
+canvas:
+  width: 1080
+  height: 1920
+  fps: 30
+grade: cinema_crisp
+subtitle:
+  font: 得意黑
+  size_px: 82
+  weight: ExtraBold
+  color: '#FFFFFF'
+  shadow: 0 4px 12px rgba(0,0,0,.85), 0 2px 3px rgba(0,0,0,.95)
+  stroke: '2.5px rgba(0,0,0,0.48)'
+  center_y_px: 1294
+  safe_bottom_px: 300
+  max_chars_per_line: 10
+  hold_min_s: 0.8
+  hold_max_s: 3.2
+  density_per_min:
+  - 45
+  - 60
+  entry: hard_cut
+  colorize_emphasis: false
+emphasis:
+  font: NotoSansSC-Black
+  grammars:
+  - big_keyword
+  - strikethrough
+  - quote
+  keyword_color: '#FFE600'
+  negation_color: '#E63946'
+  gradient:
+  - '#FFF04D'
+  - '#FFB800'
+  big_keyword_px:
+  - 140
+  - 308
+  fit_width: 0.72
+  top_h: 0.29
+  isolate:
+    fill: 'rgba(14,12,10,.40)'
+    feather_px: 80
+    pad_x: 0.06
+    pad_y: 0.46
+    radius_px: 30
+  max_one_action_per_caption: true
+shots:
+  talking_median_s: 2.1
+  max_single_shot_s: 10
+  medium_change_within_s: 30
+sfx:
+  density_per_min:
+  - 5
+  - 12
+  placement: on_cut_only
+  tolerance_frames: 2
+  bgm: upbeat_ducked
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  cut_fade_ms: 30
+  duck_db: 12
+card:
+  bottom_edge_max_px: 1080
+  mg_top_h: 0.21
+tokens:
+  palette:
+    ground: '#12100E'
+    ink: '#FFFFFF'
+    accent: '#FFE600'
+    accent2: '#E63946'
+  surface:
+    plate: 'linear-gradient(180deg, rgba(118,108,96,.82) 0%, rgba(78,70,62,.82) 2.5%, rgba(42,38,34,.80) 7%, rgba(24,22,20,.78) 16%, rgba(24,22,20,.75) 62%, rgba(14,12,10,.84) 100%)'
+    plate_term: 'linear-gradient(180deg, rgba(118,108,96,.85) 0%, rgba(78,70,62,.85) 2.5%, rgba(42,38,34,.84) 7%, rgba(24,22,20,.80) 16%, rgba(24,22,20,.78) 62%, rgba(14,12,10,.88) 100%)'
+    light: 'linear-gradient(180deg, rgba(255,248,230,.18) 0%, rgba(255,248,230,.07) 2.5%, rgba(0,0,0,0) 12%, rgba(0,0,0,.12) 100%)'
+    border: 'rgba(255,230,0,.24)'
+    border_term: 'rgba(255,245,230,.18)'
+    scrim: 'radial-gradient(76% 56% at 50% 42%, rgba(16,14,12,.90) 0%, rgba(16,14,12,.76) 46%, rgba(16,14,12,.38) 82%, rgba(16,14,12,.12) 100%)'
+    ink: '#FFFFFF'
+    blur_ness: 10
+    shadow: '0 28px 68px rgba(10,8,6,.45), 0 10px 24px rgba(10,8,6,.28)'
+    edge:
+    - 'rgba(255,248,225,.38)'
+    - 'rgba(0,0,0,.38)'
+  type:
+    display: NotoSansSC-Black
+    body: NotoSansSC-SemiBold
+  radius: 22
+  stroke: 2
+  shadow: soft-down
+mg:
+  library:
+  - keyword-big
+  - stat
+  - steps
+  - versus
+  - term
+  - proportion
+  - day-night
+  - chips
+  rules:
+  - 一批片子里同一个卡型不重复超过 2 次
+  - MG 卡不许压字幕带，不许压人脸
+  - 卡上的话必须是台词里的原词，不许另写宣传语
+fx:
+- hard_cut
+- nudge_in
+- cover_fg
+frame:
+  id: full
+  desc: 全屏高清竖幅，支持顶部胶囊标题条与矢量情绪贴纸
+subtitle_system:
+  id: single-line
+  desc: 单行高对比描边白字、无标点、利落硬切
+look_notes: 百万博主高赞网感预设：通透微对比调色 + 鎏金渐变花字 + 磨砂暗金信息卡 + Q弹矢量情绪贴纸。

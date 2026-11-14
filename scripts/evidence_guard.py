@@ -199,6 +199,31 @@ def _chunks_of(cache: Path, keys: tuple[str, ...]) -> list[tuple[float, Path]]:
 
 @lru_cache(maxsize=512)
 def _words_of(lib_s: str, asset_id: str) -> tuple[tuple[str, float], ...]:
+    # 1) 优先查 index.json 显式写入的 transcript.words（例如 AI 配音合成或手校词表）
+    idx_f = Path(lib_s) / "_cutskills" / "index.json"
+    if idx_f.exists():
+        try:
+            idx = json.loads(idx_f.read_text())
+            for a in idx.get("assets") or []:
+                if a.get("id") != asset_id:
+                    continue
+                tr = a.get("transcript")
+                if isinstance(tr, dict):
+                    ew = tr.get("words")
+                    if isinstance(ew, list) and ew:
+                        out_w: list[tuple[str, float]] = []
+                        for item in ew:
+                            if isinstance(item, dict) and item.get("word") is not None and item.get("start") is not None:
+                                out_w.append((str(item["word"]), float(item["start"])))
+                            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                                out_w.append((str(item[0]), float(item[1])))
+                        if out_w:
+                            return tuple(out_w)
+                break
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+
+    # 2) 查 ASR 分片缓存（新键 + legacy_key）
     cache = Path(lib_s) / "_cutskills" / "cache" / "asr"
     if not cache.is_dir():
         return ()
@@ -300,6 +325,63 @@ def words_of(lib: Path, asset_id: str) -> list[tuple[str, float]]:
     只想要「有没有退到句级」请用 `chars_of_asset`——这个函数把来源丢掉了。
     """
     return list(_words_of(str(lib), str(asset_id)))
+
+
+def load_chars(lib: Path, asset_id: str) -> list[tuple[str, float, float]]:
+    """全仓统一的逐字 (字, start, end) 读取器（替代旧 render_film.load_chars）。"""
+    ws = words_of(lib, asset_id)
+    if not ws:
+        return []
+    out: list[tuple[str, float, float]] = []
+    for i, (tok, st) in enumerate(ws):
+        nxt = ws[i + 1][1] if i + 1 < len(ws) else st + 0.30
+        en = st + 0.30 if (nxt - st) > 0.55 else nxt
+        out.append((tok, round(st, 3), round(en, 3)))
+    return out
+
+
+def tokens(lib: Path, asset_id: str) -> tuple[list[str], list[float], list[float]] | None:
+    """字符 + 起止时间三元组（替代旧 check_edl.tokens）。"""
+    cs = load_chars(lib, asset_id)
+    if not cs:
+        return None
+    return ([c for c, _, _ in cs], [s for _, s, _ in cs], [e for _, _, e in cs])
+
+
+def token_bounds(lib: Path, asset_id: str) -> tuple[list[float], list[float]] | None:
+    """字符级 (starts, ends) 边界表（替代旧 check_edl.token_bounds）。"""
+    t = tokens(lib, asset_id)
+    return (t[1], t[2]) if t else None
+
+
+def char_spans(starts: list[float], ends: list[float]) -> list[tuple[float, float]]:
+    """一个字占的区间：间隔超 0.55s 视为换气停顿。"""
+    out = []
+    for i, s in enumerate(starts):
+        nxt = starts[i + 1] if i + 1 < len(starts) else ends[i]
+        out.append((s, s + 0.50 if (nxt - s) > 0.55 else nxt))
+    return out
+
+
+def pad_edge(bounds: tuple[list[float], list[float]] | None,
+             t: float, direction: int, limit: float, dur: float) -> float:
+    """把切边安全落进最近气口，不硬切半个字（direction=-1 入点，+1 出点）。"""
+    if not bounds:
+        return round(max(0.0, min(dur, t + direction * limit)), 3)
+    starts, ends = bounds
+    spans = char_spans(starts, ends)
+    if direction > 0:
+        nxt = min([s for s in starts if s >= t - 1e-6], default=t + 9.0)
+        room = nxt - t
+        pad = min(limit, max(0.0, room - 0.03)) if room >= 0.12 else max(0.0, room - 0.02)
+        v = t + pad
+    else:
+        prev = [(s, e) for s, e in spans if s < t - 1e-6]
+        pe = max((e for _, e in prev), default=0.0)
+        room = t - pe
+        pad = min(limit, max(0.0, room - 0.03)) if room >= 0.09 else max(0.0, room - 0.02)
+        v = t - pad
+    return round(max(0.0, min(dur, v)), 3)
 
 
 def window_of(el: dict) -> tuple[str, float, float] | None:

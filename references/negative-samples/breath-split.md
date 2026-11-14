@@ -65,8 +65,8 @@
 ```bash
 cd <仓库>
 python3 scripts/test_breath_split.py                 # 上面第 1、3 节四条断言
-P=/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/qizao-ground-01
-python3 scripts/silence.py "/Users/jerry/Downloads/柒造Video/素材/20261009_木格架口播_必用_熊工口播2.MOV" 1685.73 1693.56
+P="<素材库>/_cutskills/projects/qizao-ground-01"
+python3 scripts/silence.py "<素材库>/20261009_木格架口播_必用_熊工口播2.MOV" 1685.73 1693.56
 python3 scripts/render_hf.py --project "$P" --no-render --force   # 重算 out/subs.json（产线入口）
 python3 scripts/check_subs.py --project "$P"          # 停留 ✅ / 结论：过
 ```

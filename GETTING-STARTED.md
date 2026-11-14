@@ -1,104 +1,73 @@
-# 上手一页纸 · 复制这套仓库到你的机器
+# 上手一页纸 · 把 CutSkills 复制到任何电脑即刻出片
 
-**一句话**：一个素材文件夹 + 一句话需求 → 索引一次 → 纸面剪辑 → 代码补缺口 → 渲染出带包装的成片。
-你（人）只在两处出现：**给意图**、**确认方案**。其余由脚本和你的 AI 工位完成。
-
-建议的用法：把这一页连同仓库一起交给你的 AI 编码助手，让它照着带你走完前四步。
+**一句话定位**：一套面向**不懂拍摄、不懂剪辑、不懂包装**创作者的 AI 互动式短视频创作与剪辑生产系统。
+无论你**只有一个模糊想法**（从零出选题、写脚本、教你怎么拿手机拍，甚至直接 AI 配音 + 代码画画面），还是**已经拍好一堆杂乱素材**，都能通过跟 AI 对话做出百万剪辑师级网感成片。
 
 ---
 
 ## 第 0 步 · 系统前提（macOS）
 
-| 依赖 | 用途 | 装法 |
+| 依赖 | 用途 | 安装命令 |
 |---|---|---|
-| python3 ≥ 3.9 | 产线本体 | 自带或 `brew install python` |
-| node ≥ 22 | 渲染层 hyperframes | `brew install node` |
-| ffmpeg ≥ 6 | 抽帧 / 调色 / 混音 | `brew install ffmpeg zimg`（HDR 素材要自编带 zimg 的版本，见 `references/ffmpeg-zimg.md`；没有 HDR 素材可先用 brew 版） |
+| `python3 ≥ 3.10` | 编导、识别与验收脚本 | `brew install python` |
+| `node ≥ 20` | HyperFrames 浏览器动效渲染 | `brew install node` |
+| `ffmpeg ≥ 6` | 音视频切段、调色与响度混音 | `brew install ffmpeg zimg`（若有 iPhone HDR 素材，按 `references/ffmpeg-zimg.md` 编译带 zscale 版更佳） |
 
-## 第 1 步 · 装脚本依赖（全落一个目录，不散装）
+## 第 1 步 · 一键安装运行时依赖（集中存放，绝不污染全局）
 
 ```bash
-bash scripts/runtime.sh install   # hyperframes / pillow / numpy 等，装进 ~/.cutskills
-bash scripts/runtime.sh check     # 真跑一遍 -version，看缺什么
+bash scripts/runtime.sh install   # 自动安装 hyperframes / pillow / numpy 等至 ~/.cutskills
+bash scripts/runtime.sh check     # 检查各组件状态
 ```
 
-## 第 2 步 · 填你自己的路径（唯一要改的配置）
+## 第 2 步 · 可选路径配置与体检
+
+本仓库**已内置精选 CC0 免版权配乐与 24 条高频网感音效**（`assets/audio/`），零配置即可直接出片！若你有自己的大容量素材库或外置音乐库，复制一份配置：
 
 ```bash
-cp config.example.json config.json   # 已 gitignore，不会进包
+cp config.example.json config.json   # 已加入 .gitignore，绝不泄漏私人路径
+python3 scripts/doctor.py            # 体检全 ✅ 即可开工
 ```
 
-四个字段：`libs`（素材库根目录列表）、`bgm_lib` / `sfx_lib`（CC0 音乐/音效库，没有可先留空）、`out_dir`（产出总表目录）。
+## 第 3 步 · 两种打开方式（直接把仓库挂载给你的 AI 助手即可）
 
-然后体检：
+将本目录软链或复制到 AI 工具的 skills 目录（如 `~/.cola/skills/cutskills` 或 `~/.claude/skills/cutskills`），直接用大白话跟 AI 对话：
 
+### 方式 A：从「一个想法」开始（上游选题 → 脚本 → 拍片指导或零拍摄直出）
+> 你说：「我是做茶楼/装修/工作室的，帮我想几个能火的短视频选题，教我怎么拍，或者直接帮我做一条！」
+
+后台对应流水线：
 ```bash
-python3 scripts/doctor.py            # 全 ✅ 就开工；❌ 会告诉你去哪补
+source scripts/runtime.sh env
+# 1. 出 3 套双流向选题 + 黄金3秒钩子 + 《小白 10 分钟拍片卡》(shoot-guide.md)
+python3 scripts/ideate.py --project <项目目录> --topic "你的行业或想法" --guide
+# 2. 若选择零拍摄直接出片：AI 配音自动合成并生成字级时间戳 → 转时间轴 → 卡点 → 渲染
+python3 scripts/voiceover.py --project <项目目录> --library <素材库> --from-ideation
+python3 scripts/ideate.py --project <项目目录> --to-plan --vo-asset "_vo/<项目名>.wav"
+python3 scripts/timeline.py --project <项目目录> --library <素材库>
+python3 scripts/beat_sync.py --project <项目目录> --snap
+python3 scripts/plan_card.py --project <项目目录> --approve "认可"
+python3 scripts/render_hf.py --project <项目目录> --library <素材库>
 ```
 
-## 第 3 步 · 素材库索引一次，反复取用
+### 方式 B：从「一堆现成素材」开始（多模态索引 → 挑好句剪废片 → 网感包装成片）
+> 你说：「我把拍好的视频放在 `/path/to/素材` 了，帮我剪一条 45 秒强网感的口播成片。」
 
-把原始素材（随便什么文件夹结构）放进一个「素材库根目录」，然后：
-
+后台对应流水线：
 ```bash
-python3 scripts/index_assets.py --library "<素材库根目录>"
-```
-
-它会逐个素材探规格、抽帧、词级转写、分级标注（哪些可用 / 不可用 / 缺什么），
-全部写进 `<库>/_cutskills/index.json`。**素材文件夹本身不需要重命名**。
-
-## 第 4 步 · 从一句话需求到成片
-
-```bash
-# ① 建项目：五问——给谁看 / 他现在信什么 / 要他怎么变 / 多长 / 什么风格
-python3 scripts/init_project.py --library "<素材库>" --slug 我的片 \
-    --intent "你的一句原话，别改写" [--duration 45] [--avoid "竞品品牌名"]
-
-# ② 纸面剪辑 → 方案卡 → 你批准后才动第一帧（渲染前无批准会拒绝执行）
-python3 scripts/render_hf.py --project "<库>/_cutskills/projects/我的片" --segments 3 --no-render
-
-# ③ 批准方案后渲染
-python3 scripts/render_hf.py --project "<库>/_cutskills/projects/我的片"
-
-# ④ 验收（硬指标 + 逐格接触表 + 总门禁）
-python3 scripts/verify_film.py --project "<库>/_cutskills/projects/我的片"
-python3 scripts/gate.py         --project "<库>/_cutskills/projects/我的片"
-
-# ⑤ 收工清理（渲 → 验 → 清；只删可重建物，成片与真值源全留）
+source scripts/runtime.sh env
+python3 scripts/index_assets.py --library "<素材库>"
+python3 scripts/init_project.py --library "<素材库>" --slug my-film --intent "你的原话需求"
+# AI 编导挑 take、排分镜、生成方案卡等你点头，确认后渲染 + 验收 + 清理过程垃圾
+python3 scripts/plan_card.py --project "<素材库>/_cutskills/projects/my-film" --approve "认可"
+python3 scripts/render_hf.py --project "<素材库>/_cutskills/projects/my-film"
+python3 scripts/verify_film.py --project "<素材库>/_cutskills/projects/my-film"
 python3 scripts/tidy.py --apply
 ```
 
-## 还不用真素材？先跑通链路
+## 第 4 步 · 一键端到端自检与打包分享给朋友
 
 ```bash
-python3 scripts/selftest.py
+python3 scripts/selftest.py     # 自动合成测试语音与画面、真渲染一条成片并跑完全部离线单测
+python3 scripts/pack_dist.py    # 打出零私人路径的干净 zip 分发包
 ```
-
-用**合成素材**从头到尾出一条片并跑完 30 项自测（约 1–2 分钟 + 首次装依赖）。
-它证明的是「链路没断」，不是「片子好看」。
-
-## 想给 AI 工位用？
-
-把整个仓库（含本文件）放进你的 skill 目录（如 `~/.claude/skills/cutskills/`）。
-`SKILL.md` 是工位读的完整说明书：四层流程、判据口径、渲前九道闸门、出错码表。
-
-## 常见坑（都是真撞过的）
-
-- **HDR / 杜比视界素材渲出来偏亮偏灰**：系统 ffmpeg 没有 zscale。自编带 zimg 的版本，`scripts/runtime.sh check` 会替你验证自编那份还能不能跑。
-- **本地转写（coli）不在 PATH**：有 Cola.app 就 `python3 scripts/fetch_coli.py` 重抽；没有它渲染退到 whisper，慢且丢词级时间戳（字幕断句变差）。
-- **渲染被拒绝（退出码 4–9）**：这是九道渲前闸门在工作——方案未批准(4) / 声音在前(5) / 卡准入(6) / 叠加态(7) / 大字压脸(8) / 锚词对不上(9)。看报错里的那一行，改对应的东西，**不要绕过**。
-- **字幕/卡面/音效的阈值看着像拍脑袋**：它们全部有出处（参考片标定或行业换算），口径集中在各脚本头部注释；改阈值前先读那几行。
-- **换机器后某天突然全坏**：先跑 `bash scripts/runtime.sh check`——多半是 brew 把 ffmpeg 的动态库换掉了。
-
-## 目录速览
-
-```
-scripts/        产线本体（约 130 个脚本，每个头部注释写清为什么存在）
-styles/ plans/ packs/   风格层：字幕/调色 token、节奏档位、包装子系统
-references/     判据出处、事故复盘、美术标准（scene-art-standard.md 值得先读）
-vendor/         第三方工程借鉴（production-board 看板）
-assets/         gsap 等前端运行时
-```
-
-极简主义条款：**配置只有 config.json 一处；依赖只有 $CUTSKILLS_HOME 一处；
-脚本里不许出现任何人的家目录。** 发现违反这三条的，当场修。

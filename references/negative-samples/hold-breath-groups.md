@@ -16,7 +16,7 @@
 记进某个字的时长里（`ground-01` 那句「其中有」的「有」占了 1689.60–1691.22），
 拿间隔猜停顿，就会把「真停过 1.2 秒」当成「连着讲的」。
 
-跑法（素材库默认 `/Users/jerry/Downloads/柒造Video/素材`，可用 `CUTSKILLS_LIB` 换）：
+跑法（素材库从 `config.json` 或环境变量 `CUTSKILLS_LIB` 解析，无真素材时自动跑离线合成合同断言）：
 
 ```bash
 python3 scripts/test_hold_breath.py

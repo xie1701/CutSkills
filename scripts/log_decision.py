@@ -36,16 +36,17 @@ def load_rows(text: str) -> list[str]:
 
 
 def shape_of(proj: Path) -> str:
-    """结论前面挂上当时的片子状态：段数 / 时长，以后回看才知道那条决定影响多大。"""
-    edl_f = proj / "edl.json"
-    if not edl_f.exists():
+    """结论前面挂上当时的片子状态：格数 / 时长，以后回看才知道那条决定影响多大。"""
+    tl_f = proj / "timeline.json"
+    if not tl_f.exists():
         return ""
     try:
-        segs = json.loads(edl_f.read_text()).get("segments") or []
-        if segs:
-            total = sum(s["out"] - s["in"] for s in segs)
-            return f"<sub>{len(segs)} 段 / {total:.1f}s</sub>"
-    except (json.JSONDecodeError, KeyError, TypeError):
+        tl = json.loads(tl_f.read_text())
+        els = tl.get("elements") or []
+        total = float(tl.get("duration_s") or 0)
+        if els:
+            return f"<sub>{len(els)} 格 / {total:.1f}s</sub>"
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         pass
     return ""
 

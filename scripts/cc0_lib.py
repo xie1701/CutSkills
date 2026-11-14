@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""从 CC0 库里挑 BGM 和音效——不再自己合成。
+"""从 CC0 库挑 BGM 和音效——外置全量库优先，未配置时自动退回随仓迷你包。
 
-Jerry 2026-11-09 17:37：「音效和BGM用现有的素材吧，不要自己生成了」。
-两个库都带机器可读目录，比合成靠谱得多：每首 BGM 标了类目/时长/中文标签，
-每条音效标了**人声下要降多少 dB**（`under_voiceover_db`）和**同步点在哪一秒**
-（`sync_at_s`，意思是"这条音效里最该对上画面的那一点距文件开头多少秒"）。
-
-有了这两个字段，混音就不该再拍脑袋：
-    音效起始时间 = 画面时刻 − sync_at_s
-    音效增益     = under_voiceover_db（+ 全局微调）
-垫乐也一样：先按 -28 LUFS 归一，再让人声 12:1 压住它。
-
-两个库的位置可以用环境变量盖掉：
-    CUTSKILLS_BGM_LIB / CUTSKILLS_SFX_LIB
+设计原则：
+1. 音效起始时间 = 画面时刻 − sync_at_s（打击峰值精准踩在切点/动作点上）
+2. 音效增益 = under_voiceover_db（人声下合理退让）
+3. BGM 先按 -28 LUFS 归一，再由人声 sidechain 压住；时长不够时由渲染器无缝循环
+4. 跨电脑零配置可用：没有配外置库时自动回退到仓库自带的 `assets/audio/{bgm,sfx}`（CC0 1.0）
 """
 from __future__ import annotations
 
@@ -23,75 +16,96 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from libs import load_config  # noqa: E402  私有路径的唯一入口（config.json）
+from libs import REPO, load_config  # noqa: E402
 
-_cfg = load_config()
-BGM_LIB = Path(os.environ.get("CUTSKILLS_BGM_LIB")
-               or _cfg.get("bgm_lib")
-               or (Path.home() / "Downloads" / "cc0-bgm-library")).expanduser()
-SFX_LIB = Path(os.environ.get("CUTSKILLS_SFX_LIB")
-               or _cfg.get("sfx_lib")
-               or (Path.home() / "Downloads" / "cc0-sfx-library")).expanduser()
+BUILTIN_BGM = REPO / "assets" / "audio" / "bgm"
+BUILTIN_SFX = REPO / "assets" / "audio" / "sfx"
 
-# 授权口径（2026-11-14 补）：成片要能发布，用了哪个文件、什么许可必须有留痕。
-# 两个库都是 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名），
-# 出处文件由库自己带：BGM 看 SOURCES.md（逐首核过），SFX 看 LICENSE-CC0.txt。
-# 换库的人必须同步改这两个字段——manifest 只负责照抄，不负责猜。
+
+def _resolve_audio_lib(env_key: str, cfg_key: str, builtin: Path) -> Path:
+    cfg = load_config()
+    raw = (os.environ.get(env_key) or str(cfg.get(cfg_key) or "")).strip()
+    if raw:
+        cand = Path(raw).expanduser()
+        if (cand / "catalog.csv").exists():
+            return cand
+    return builtin
+
+
+BGM_LIB = _resolve_audio_lib("CUTSKILLS_BGM_LIB", "bgm_lib", BUILTIN_BGM)
+SFX_LIB = _resolve_audio_lib("CUTSKILLS_SFX_LIB", "sfx_lib", BUILTIN_SFX)
+
 LICENCE = "CC0 1.0 Universal"
 LICENCE_PROOF = {"bgm": "SOURCES.md", "sfx": "LICENSE-CC0.txt"}
 
 
 def licence_of(path: str | Path) -> str | None:
-    """给一个素材文件路径，回它的许可口径。库外的回 None（调用方必须显式处理）。"""
+    """给一个素材文件路径，返回它的许可口径。库外的返回 None。"""
     p = Path(path)
     try:
-        if p.resolve().is_relative_to(BGM_LIB.resolve()) or p.resolve().is_relative_to(SFX_LIB.resolve()):
-            return LICENCE
+        rp = p.resolve()
+        for root in (BGM_LIB, SFX_LIB, BUILTIN_BGM, BUILTIN_SFX):
+            if root.exists() and rp.is_relative_to(root.resolve()):
+                return LICENCE
     except OSError:
         pass
     return None
 
-# 情绪 → 类目 / 中文标签。不是"我觉得好听"，是对着库里的选曲指南定的：
-# 口播讲解要律动稳、没旋律抢注意力；治愈/希望要环境感；紧张要压迫。
+
 MOODS: dict[str, dict] = {
-    "clear": {          # 讲清楚一件事：稳、不抢
-        "cats": ["activities", "jazzhop", "chillhop"],
-        "tags": ["舒缓", "书写/阅读"],
-        "why": "口播讲解：律动稳、无明显旋律",
+    "upbeat": {
+        "cats": ["funk-soul", "chillhop"],
+        "tags": ["律动", "活力", "轻快"],
+        "why": "强网感/漏斗流破圈：律动鲜明、适合卡点快切",
     },
-    "warm": {           # 手艺、现场、人情
+    "warm": {
         "cats": ["activities", "seasonal-weather"],
         "tags": ["暖光", "居家"],
-        "why": "生活感与暖光，配手艺现场",
+        "why": "烟火人情与手艺探店：温暖松弛、拉近信任",
     },
-    "hopeful": {        # 收尾、向好
-        "cats": ["ambient", "seasonal-weather", "activities"],
-        "tags": ["治愈", "清晨"],
-        "why": "明亮但不喧哗，落在片尾",
+    "clear": {
+        "cats": ["activities", "jazzhop", "chillhop"],
+        "tags": ["舒缓", "书写/阅读"],
+        "why": "知识科普与老板口播：节奏稳、不抢台词",
     },
-    "minimal": {        # 几乎听不见
-        "cats": ["ambient"],
+    "hopeful": {
+        "cats": ["asian-lofi", "ambient-lofi", "seasonal-weather", "activities"],
+        "tags": ["治愈", "清晨", "雨"],
+        "why": "故事升华与真诚收尾：明亮治愈、不喧哗",
+    },
+    "tense": {
+        "cats": ["hybrid", "late-night", "跨曲风"],
+        "tags": ["悬念", "深夜", "预告"],
+        "why": "行业揭秘与避坑反转：有悬念张力",
+    },
+    "minimal": {
+        "cats": ["ambient-lofi", "late-night"],
         "tags": ["氛围", "梦幻"],
-        "why": "只托底，几乎察觉不到",
-    },
-    "tense": {          # 反差、揭穿
-        "cats": ["hybrid", "cinematic"],
-        "tags": ["悬念", "预告"],
-        "why": "有压迫感，用在揭晓前",
+        "why": "极简纪实托底：几乎不察觉旋律",
     },
 }
 
-# 画面事件 → 音效。key 是我们 EDL 里的 `CARD_SFX` 名字与 gen 种类。
 SFX_MAP: dict[str, str] = {
     "keyword": "pop-medium-in",
     "card": "pop-medium-in",
+    "title": "whoosh-fast-soft",
+    "sticker": "pop-medium-in",
     "behind": "impact-light-firm",
     "cutout": "impact-light-firm",
     "idcard": "whoosh-medium-soft",
     "gen": "appear-materialise",
     "whoosh": "whoosh-medium-soft",
+    "swish": "swish-medium",
     "pop": "pop-medium-in",
     "impact": "impact-light-firm",
+    "punch": "boom-cinematic-hit",
+    "flash": "whoosh-fast-hard",
+    "riser": "riser-short-smooth",
+    "ding": "notification-chime",
+    "shimmer": "shimmer-sparkle",
+    "money": "money-coins",
+    "click": "click-soft",
+    "celebration": "celebration-chime",
 }
 
 _cache: dict[str, list[dict]] = {}
@@ -114,10 +128,7 @@ def sfx_available() -> bool:
 
 
 def pick_bgm(mood: str = "clear", need_s: float = 60.0, seed: str = "") -> dict | None:
-    """挑一首：类目对得上、时长够、没被同一批片子用过。
-
-    返回 {path, title, dur, why}。挑不到就返回 None（调用方要能接受这种情况）。
-    """
+    """按情绪挑一首配乐；若单曲短于 need_s 仍可返回（渲染层支持无缝循环）。"""
     if not bgm_available():
         return None
     spec = MOODS.get(mood) or MOODS["clear"]
@@ -125,66 +136,70 @@ def pick_bgm(mood: str = "clear", need_s: float = 60.0, seed: str = "") -> dict 
     cand = [r for r in rows
             if r["category"] in spec["cats"]
             and float(r["duration_s"] or 0) >= need_s + 5]
-    if not cand:                       # 时长不够就放宽到「够用就行」
-        cand = [r for r in rows if float(r["duration_s"] or 0) >= need_s]
+    if not cand:
+        cand = [r for r in rows if r["category"] in spec["cats"]]
+    if not cand:
+        cand = rows
     if not cand:
         return None
     tagged = [r for r in cand if any(t and t in (r.get("tags_zh") or "") for t in spec["tags"])]
     pool = tagged or cand
     rnd = random.Random(seed or f"{mood}-{int(need_s)}")
     r = rnd.choice(pool)
-    return {"path": str(BGM_LIB / r["file"]), "title": r["title"], "dur": float(r["duration_s"]),
-            "category": r["category_zh"], "why": spec["why"], "licence": LICENCE}
+    return {
+        "path": str(BGM_LIB / r["file"]),
+        "title": r["title"],
+        "dur": float(r["duration_s"] or 60.0),
+        "category": r.get("category_zh") or r.get("category") or "",
+        "why": spec["why"],
+        "licence": LICENCE,
+    }
 
 
 def pick_sfx(name: str, nth: int = 0) -> dict | None:
-    """按事件名取一条音效，带回它的同步点和人声下的增益。
-
-    nth 是**同音色疲劳轮换**用的：连续播同一事件名时传 1、2、…，在同 family
-    （id 第一段 `-` 前缀相同的所有 catalog 条目，按 catalog 顺序）里取
-    ``pool[nth % len(pool)]``——同 family 只有 1 条时 nth 循环回同一条，不算错。
-    **确定性**：同一份 catalog 下，同一 (name, nth) 永远返回同一条，不掷骰子。
-    nth <= 0 时行为与旧版完全一致（按 id 精确匹配，查不到才同 family 兜底）。
-    """
+    """按事件名取一条音效，支持 nth 同家族轮换防听觉疲劳。"""
     if not sfx_available():
         return None
     want = SFX_MAP.get(name, name)
     rows = _rows(SFX_LIB / "catalog.csv")
+    fam = want.split("-")[0]
     if nth and nth > 0:
-        fam = want.split("-")[0]
-        pool = [r for r in rows if r["id"].startswith(fam + "-")]
+        pool = [r for r in rows if r["id"].startswith(fam + "-") or r["id"] == fam]
         if not pool:
-            return None
-        hit = pool[nth % len(pool)]
+            pool = [r for r in rows if r["id"].startswith("pop-")] or rows
+        hit = pool[nth % len(pool)] if pool else None
     else:
         hit = next((r for r in rows if r["id"] == want), None)
-        if hit is None:                # 兜底：同类里挑第一条
-            fam = want.split("-")[0]
-            hit = next((r for r in rows if r["id"].startswith(fam + "-")), None)
         if hit is None:
-            return None
-    return {"path": str(SFX_LIB / hit["file"]), "id": hit["id"],
-            "dur": float(hit["duration_s"] or 0),
-            "sync_at": float(hit["sync_at_s"] or 0),
-            "gain_db": float(hit["under_voiceover_db"] or -6),
-            "use": hit["use_zh"], "licence": LICENCE}
+            hit = next((r for r in rows if r["id"].startswith(fam + "-") or r["id"] == fam), None)
+        if hit is None:
+            hit = next((r for r in rows if r["id"].startswith("pop-")), None)
+    if hit is None:
+        return None
+    return {
+        "path": str(SFX_LIB / hit["file"]),
+        "id": hit["id"],
+        "dur": float(hit["duration_s"] or 0),
+        "sync_at": float(hit["sync_at_s"] or 0),
+        "gain_db": float(hit["under_voiceover_db"] or -6),
+        "use": hit.get("use_zh") or "",
+        "licence": LICENCE,
+    }
 
 
 if __name__ == "__main__":
     import argparse
     import json
-    ap = argparse.ArgumentParser(description="看看这套库会挑出什么")
-    ap.add_argument("--bgm", nargs="?", const="clear")
+    ap = argparse.ArgumentParser(description="预览 CC0 音乐与音效匹配结果")
+    ap.add_argument("--bgm", nargs="?", const="upbeat")
     ap.add_argument("--moods", action="store_true")
     ap.add_argument("--sfx")
-    ap.add_argument("--dur", type=float, default=60.0)
+    ap.add_argument("--dur", type=float, default=45.0)
     a = ap.parse_args()
     if a.moods:
-        for m, s in MOODS.items():
+        for m in MOODS:
             p = pick_bgm(m, a.dur, seed=m)
-            print(f"{m:8} → {p['title'] if p else '（库里没有）'}")
-            if p:
-                print(f"           {p['category']} · {p['dur']:.0f}s · {p['why']}")
+            print(f"{m:8} → {p['title'] if p else '（空）'} ({p['category'] if p else ''})")
     elif a.sfx:
         print(json.dumps(pick_sfx(a.sfx), ensure_ascii=False, indent=1))
     elif a.bgm:

@@ -1,20 +1,54 @@
 #!/usr/bin/env python3
-"""库与项目的解析：影子和工程页两处入口共用这一份，不各写一套。"""
+"""库、项目与运行环境的唯一解析入口。
 
+别人复制这份仓库后只改一件事：把 config.example.json 复制成 config.json，
+填自己的素材库 / 外置音乐音效库 / 产出目录。脚本里不许再出现任何人的家目录，
+所有 ~/.cutskills 路径一律通过 cutskills_home() 解析（尊重 $CUTSKILLS_HOME）。
+"""
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import os
+import shutil
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+CONFIG_PATH = REPO / "config.json"
+
+
+def cutskills_home() -> Path:
+    """统一依赖根目录：优先 $CUTSKILLS_HOME，默认 ~/.cutskills。"""
+    raw = (os.environ.get("CUTSKILLS_HOME") or "").strip()
+    return Path(raw).expanduser() if raw else (Path.home() / ".cutskills")
+
+
+def ffmpeg_bin() -> str:
+    """优先用 $CUTSKILLS_HOME 里带 zscale/libzimg 的 ffmpeg，否则退 PATH。"""
+    cand = cutskills_home() / "opt" / "ffmpeg-zimg" / "bin" / "ffmpeg"
+    if cand.exists() and os.access(cand, os.X_OK):
+        return str(cand)
+    return shutil.which("ffmpeg") or "ffmpeg"
+
+
+def hf_bin() -> str:
+    """本地装好的 hyperframes 优先，绝不默认走联网 npx。"""
+    env = (os.environ.get("CUTSKILLS_HF") or "").strip()
+    if env:
+        return env
+    for c in (
+        cutskills_home() / "npm" / "node_modules" / ".bin" / "hyperframes",
+        REPO / "node_modules" / ".bin" / "hyperframes",
+        Path("/opt/homebrew/bin/hyperframes"),
+    ):
+        if c.exists() and os.access(c, os.X_OK):
+            return str(c)
+    return shutil.which("hyperframes") or "npx --yes hyperframes"
 
 
 def resolve_lib(proj: Path, given: str | Path | None = None, *, strict: bool = False) -> Path:
     """项目 → 素材库根目录（单一真值源）。
 
     优先级：显式 `--library` > 沿祖先目录向上找 `_cutskills/index.json` > 环境变量 `CUTSKILLS_LIB`。
-    `strict=True` 时若找不到索引则直接 `SystemExit` 报明原因；否则退回 `proj.parents[2]`。
     """
     if given:
         return Path(given).expanduser().resolve()
@@ -28,23 +62,15 @@ def resolve_lib(proj: Path, given: str | Path | None = None, *, strict: bool = F
     if strict:
         raise SystemExit(
             f"找不到素材库：{cand}/_cutskills/index.json 不存在。\n"
-            f"  项目默认要建在 <库>/_cutskills/projects/<slug> 下；\n"
-            f"  放在别处就加 --library \"<素材库根目录>\"。"
+            f"  项目默认建在 <库>/_cutskills/projects/<slug> 下；\n"
+            f"  放在别处请加 --library \"<素材库根目录>\"。"
         )
     return cand
-# ---- 配置：整个产线唯一的私有路径入口 --------------------------------
-#
-# 别人复制这份仓库后只改一件事：把 config.example.json 复制成 config.json，
-# 填自己的素材库 / CC0 库 / 产出目录。脚本里不许再出现任何人的家目录。
-# 环境变量（CUTSKILLS_LIB / CUTSKILLS_BGM_LIB / CUTSKILLS_SFX_LIB）仍可临时覆盖。
-
-CONFIG_PATH = REPO / "config.json"
 
 
 def load_config() -> dict:
-    """读 config.json（无则空 dict，产线仍可用 --library 显式传）。"""
+    """读 config.json（无则返回空 dict）。"""
     try:
-        import json
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
@@ -67,26 +93,19 @@ def config_out_dir() -> str:
     return str(Path(d).expanduser()) if d else str(Path.home() / "CutSkills-产出")
 
 
-DEFAULT_LIBS = (
-    config_libs()
-    or _expand(os.environ.get("CUTSKILLS_LIB"))
-    or [str(REPO / "references" / "packtest-2026-11-08")]   # 盲测夹具 proj79（合成素材，无需真语料）
-)
+DEFAULT_LIBS = config_libs() or _expand(os.environ.get("CUTSKILLS_LIB"))
 
-# 项目名 → 一句话（名字是给人看的，缩写在库里，含义写在这儿）
-PROJECT_NOTES = {
-    "dianzan": "「点赞茶楼」· 珠海金湾 600㎡ 粤语口播（牛哥）",
-    "qizao-ground": "柒造 · 地面施工（熊工讲进口 vs 国产的漆）",
-    "qizao-protect": "柒造 · 保护与收边（边角细节怎么贴）",
-    "qizao-naming": "柒造 · 「柒造」这名字的来历",
-    "qizao-lime-baxis": "柒造 · B 轴试验片（代码画的连续场景 + 人物画中画，13.9s）",
-    "proj79": "打包试验片 · 六个包装 token 的对照（79s）",
-    "selftest": "自检用的合成素材片（不交付，验证链路没断）",
+PROJECT_NOTES: dict[str, str] = {
+    "dianzan": "「点赞茶楼」· 珠海金湾 600㎡ 粤语探店/老板口播",
+    "qizao-ground": "柒造 · 地面施工（进口 vs 国产漆对比）",
+    "qizao-protect": "柒造 · 成品保护与收边工艺",
+    "qizao-naming": "柒造 · 品牌名字来历",
+    "qizao-lime-baxis": "柒造 · B 轴连续代码叙事场景 + 人物画中画",
+    "selftest": "全链路自检合成样片",
 }
 
 
 def _pick(text: str) -> str:
-    """按项目名前缀找一句人话说明。"""
     for key in sorted(PROJECT_NOTES, key=len, reverse=True):
         if text.startswith(key):
             return PROJECT_NOTES[key]
@@ -108,7 +127,6 @@ def find_projects(libs: list[str]) -> list[Path]:
             for sub in sorted(base.iterdir()):
                 if sub.is_dir() and (sub / "out").is_dir() and (sub / "timeline.json").exists():
                     out.append(sub)
-    # 同一项目可能被两个入口扫到
     seen, uniq = set(), []
     for p in out:
         if p.resolve() in seen:
@@ -118,14 +136,7 @@ def find_projects(libs: list[str]) -> list[Path]:
     return uniq
 
 
-
-
 def find_project(slug: str) -> Path | None:
-    """按名字在 config.json 声明的各库里找项目目录；找不到返回 None。
-
-    给测试与文档示例用：真语料在本机有就补跑，没有就明说跳过，
-    不许把路径写死在任何人的家目录里。
-    """
     for lib in config_libs():
         p = Path(lib) / "_cutskills" / "projects" / slug
         if p.is_dir():

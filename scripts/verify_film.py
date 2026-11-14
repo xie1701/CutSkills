@@ -34,10 +34,15 @@ KW_FLOOR_BEHIND = 0.0008
 KW_FLOOR_KEYWORD = 0.004
 
 
+def _pixels(im) -> list:
+    fn = getattr(im, "get_flattened_data", None) or im.getdata
+    return list(fn())
+
+
 def dark_ratio(im) -> float:
     """深底占比：像素 < 46（L 模式）的比例。供「代码画面真的在画面上」用，
     也供 selftest 的负样本调用——实拍帧必须量出低值，不然判据就是假的。"""
-    px = list(im.getdata())
+    px = _pixels(im)
     return sum(1 for v in px if v < 46) / max(1, len(px))
 
 
@@ -55,7 +60,7 @@ def color_share(im, hexs, box, tol: int = 64) -> float:
     """
     r0, g0, b0 = (int(hexs.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
     crop = im.crop(box).convert("RGB")
-    px = list(crop.getdata())
+    px = _pixels(crop)
     n = sum(1 for r, g, b in px
             if abs(r - r0) <= tol and abs(g - g0) <= tol and abs(b - b0) <= tol)
     return n / max(1, len(px))
@@ -624,14 +629,14 @@ def main() -> int:
         style_path = (root / "styles" / f"{edl.get('style_pack') or 'talking-head-v1'}.yaml")
     style = yaml.safe_load(style_path.read_text())
     film = (proj / a.film) if (a.film and not Path(a.film).is_absolute()) else (
-        Path(a.film).expanduser().resolve() if a.film else proj / "out" / "film.mp4")
+        Path(a.film).expanduser().resolve() if a.film else proj / "out" / "film-hf.mp4")
     if not a.film:
-        cands = [x for x in (proj / "out" / "film.mp4", proj / "out" / "film-hf.mp4")
+        cands = [x for x in (proj / "out" / "film-hf.mp4", proj / "out" / "film.mp4")
                  if x.exists()]
         if cands:
             film = max(cands, key=lambda x: x.stat().st_mtime)
     if not film.exists():
-        print(f"没有成片：{film}（先跑 render_film.py）", file=sys.stderr)
+        print(f"没有成片：{film}（先跑 render_hf.py）", file=sys.stderr)
         return 2
     info = probe(film)
     v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
@@ -789,7 +794,7 @@ def main() -> int:
             _cr, _cg, _cb = (int(_chex.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
             _light = (_cr + _cg + _cb) / 3 > 128
             cim = im.convert("RGB").crop((0, y0, W, y1))
-            px = list(cim.getdata())
+            px = _pixels(cim)
             if _light:
                 hit = sum(1 for r, g, b in px if r > 200 and g > 200 and b > 200)
             else:
@@ -1029,7 +1034,7 @@ def main() -> int:
                 add("身份卡烧进画面", f"{mid:.1f}s 处白字占比 {whites * 100:.2f}%",
                     "green" if whites > 0.002 else "red", "")
             else:
-                px = list(im.convert("L").crop((0, 760, W, 1040)).getdata())
+                px = _pixels(im.convert("L").crop((0, 760, W, 1040)))
                 dark = sum(1 for v_ in px if v_ < 80) / max(1, len(px))
                 add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
                     "green" if dark > 0.12 else "red", "")
@@ -1121,7 +1126,7 @@ def main() -> int:
                         "" if level == "green" else
                         f"EDL 里有大字「{card.get('text')}」，画面 {kw_hex} 色几乎为零")
                 else:
-                    px = list(im.crop((0, 760, W, 1040)).getdata())
+                    px = _pixels(im.crop((0, 760, W, 1040)))
                     dark = sum(1 for v in px if v < 80) / max(1, len(px))
                     add("字卡烧进画面", f"{mid:.1f}s 处深色占比 {dark * 100:.1f}%",
                         "green" if dark > 0.12 else "red",

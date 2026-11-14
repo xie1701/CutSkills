@@ -1,65 +1,39 @@
 # AGENTS.md · 多工位协作的四条铁律
 
-这个仓库会有多个 AI 工具轮流改（Cola / Claude Code / Codex / Cursor / Gemini…），人只在关键处拍板。
-下面四条不是建议，是接入条件：**违反的那次改动一律打回**，不管结果多漂亮。
+本仓库支持多个 AI 工具协作开发与维护（Cola / Claude Code / Codex / Cursor / Gemini 等），人类用户只在关键节点拍板。
+以下四条是硬性准入条件，违反的改动一律打回。
 
 ---
 
 ## ① 谁的活谁开
 
-任务只能由**领取它的那个工位**开分支、开改。没有「顺手帮别人改一下」。
-
-- 别人名下的分支（`ai/<别人>/T-xxx`）、`TASKS.md` 里挂在别人名下的任务，一律不碰。
-- 确实要接手，先走交接：`HANDOFF.md` 里写清「T-xxx 从 A 工位转给 B 工位，原因、当前进度、
-  已知坏在哪」，再由 B 工位重新领。
-- 一个任务 = 一个分支 = 一个工位。**不许两个工位在同一个分支上推。**
+- 别人名下的分支（`ai/<别人>/T-xxx`）、`docs/ai-collab/TASKS.md` 里挂在别人名下的任务，一律不越界修改。
+- 接手需先在 `docs/ai-collab/HANDOFF.md` 写明交接原因、进度与已知问题。
+- 一个任务 = 一个分支 = 一个工位。
 
 ## ② 验收归别人
 
-**不许拿自己的报告当验收。**
+- 施工工位自测只能推到 **待复核**，不能自己推到 **判收**。
+- 复核方必须**亲自重跑验证命令与原像素测量**，不轻信口头总结。
 
-- 开工位跑出来的 `verify-report.md`、自己写的「我修好了」，只能把任务推到 **待复核**，
-  不能推到 **判收**。
-- 签收由另一个工位或人来做，并且**自己重跑一遍命令**，不看对方截图、不看对方结论。
-- 复核方判 **打回** 时必须写「哪一条、哪个数字、复现命令」，不许只说「不行」。
+## ③ 改配置与脚本必须同步主干契约
 
-## ③ 改 CI/配置必须同时改主干
+本仓库的自动化门禁由自身校验脚本承担：
 
-本仓库没有 `.github`。**CI = 仓库自己的校验脚本**：
-
-| 层 | 命令 |
+| 层级 | 命令 |
 |---|---|
-| 链路没断 | `python3 scripts/selftest.py` |
-| 旧样片没退化 | `python3 scripts/golden.py` |
-| 文档与代码对账 | `python3 scripts/audit_skill.py` |
-| 项目级校验 | `scripts/check_timeline.py` / `check_subs.py` / `check_sfx.py` / `check_packs.py` / `verify_film.py` |
+| 端到端渲染与回归总自检 | `python3 scripts/selftest.py` |
+| 说明书与全仓代码对账 | `python3 scripts/audit_skill.py` |
+| 项目级渲前/渲后总门禁 | `python3 scripts/gate.py --project <项目>` + `python3 scripts/verify_film.py --project <项目>` |
+| 跨机可移植打包自检 | `python3 scripts/pack_dist.py` |
 
-配置面：`scripts/runtime.sh`、`deps.json`、`.gitignore`、`references/cli.md`（生成物）。
+配置面：`scripts/runtime.sh`、`deps.json`、`config.example.json`、`.gitignore`、`references/cli.md`（自动生成物）。
 
-**改了其中任何一个，必须在同一次合并里把受影响的文档和基线一起改**：
+- 脚本参数变动 → 必须重跑 `python3 scripts/gen_cli_ref.py` 刷新 `references/cli.md`（严禁手改）；
+- 脚本增删或行为改变 → 必须同步更新 `SKILL.md` / `GETTING-STARTED.md`，并确保 `audit_skill.py` 为 **🔴 0 · 🟡 0**。
 
-- 参数变了 → 重跑 `python3 scripts/gen_cli_ref.py` 重生成 `references/cli.md`（**不许手改**）；
-- 判据变了 → 重跑 `golden.py --init` 校准基线，并在 `TASKS.md` 写清「哪几条判据动了、为什么」；
-- 脚本改了 → 同一次合并里更新 `SKILL.md` / `STATUS.md` 里对应的段落。
+## ④ 不许为了让校验通过去改弱产品行为、放宽断言、跳过用例
 
-不许出现「脚本是新行为、文档还写着旧行为」。这类不一致本身就是审查抓到过的头号病。
-
-## ④ 不许为了让校验通过去改产品行为、放宽断言、跳过用例
-
-红就是红。三条明令禁止：
-
-1. 不许放宽阈值、删断言、skip 用例、把 `--force` / `--no-render` / `|| true` 当常规手段来换绿灯；
-2. 不许改产品行为去迎合判据（例如为了过「字幕最宽 92%W」把字号调小到看不清）；
-3. 不许把红改写成黄、或在报告里只贴绿灯。
-
-判据本身确实错了，就**单开一个任务改判据**，并在 `TASKS.md` 写两件事：
-「判据错在哪」+「用什么负样本证明它错了、改完还能抓住」。
-
----
-
-## 动手之前（顺序不能反）
-
-1. 读 `docs/ai-collab/PROTOCOL.md` —— 我是哪个工位、用哪个分支前缀、哪些目录我能写；
-2. 读 `docs/ai-collab/HANDOFF.md` —— 上一位交到哪、环境版本戳、这一版改了什么；
-3. 读 `docs/ai-collab/TASKS.md` —— 我的任务号、当前状态、基线红黄不许变多；
-4. 说「**开工**」才动业务代码，说「**收工**」才结束一轮（口令细节见 `docs/ai-collab/START-STOP.md`）。
+1. 严禁随意调松阈值、删断言、skip 用例，或把 `--force` 当常规手段换取绿灯；
+2. 严禁为了迎合判据而伤害成片观感（例如把字号缩到看不清）；
+3. 若判据本身有缺陷，须立专项修正并附上正负样本回归测试。

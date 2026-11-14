@@ -38,13 +38,11 @@ LIST_RE = re.compile(r"Port\s+(\d+)\s+\S+\s+(.+?)\s+\(PID\s+(\d+)\)")
 
 def hf_bin() -> str:
     """hyperframes 的绝对路径：先找本机钉住的安装，再退回 PATH。"""
-    cand = Path.home() / ".cutskills" / "npm" / "node_modules" / ".bin" / "hyperframes"
-    if cand.exists():
-        return str(cand)
-    found = shutil.which("hyperframes")
-    if not found:
-        raise SystemExit("找不到 hyperframes——先跑 `source scripts/runtime.sh env && scripts/runtime.sh install`")
-    return found
+    from libs import hf_bin as _hf
+    b = _hf()
+    if b.startswith("npx"):
+        raise SystemExit("找不到本地 hyperframes——先跑 `source scripts/runtime.sh env && scripts/runtime.sh install`")
+    return b
 
 
 def hf_dir(proj: Path) -> Path | None:

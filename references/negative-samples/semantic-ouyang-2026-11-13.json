@@ -1,6 +1,6 @@
 {
  "_why": "T-017 语义常识校对的回归样本：欧阳茶楼三片（dianzan-a/b/c）的 out/subs.json 逐字复制。A5 事故就出在这三片——「大约有十万米高」「我哋嘅效果好先」「大咧先可以用入」「生万鱼池」「讲下下」。复制而不引用外部路径，是为了干净机器上也能跑这条合同测试；字段只留判据用得上的，值不做任何规整。",
- "_source": "2026-11-13 实读 /Users/jerry/Downloads/ouyangTestCut/_cutskills/projects/<slug>/out/subs.json（哈希见 _sha12）",
+ "_source": "2026-11-13 实读 ouyangTestCut/_cutskills/projects/<slug>/out/subs.json（哈希见 _sha12）",
  "films": {
   "dianzan-a": {
    "_sha12": "8014fba937a0",

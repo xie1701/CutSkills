@@ -62,10 +62,10 @@ def main() -> int:
         if missing:
             print(f"包里缺：{'、'.join(missing)}", file=sys.stderr)
             return 2
-        leak = subprocess.run(["grep", "-rlIE", r"/Users/[a-zA-Z0-9_.-]+/", str(root / "scripts")],
-                              capture_output=True, text=True)  # -I 跳二进制：.so 里只有编译期构建路径，非运行时依赖
+        leak = subprocess.run(["grep", "-rlIE", r"/Users/[a-zA-Z0-9_.-]+/", str(root)],
+                              capture_output=True, text=True)  # -I 跳二进制：全仓扫描防任何私有家目录泄漏
         if leak.stdout.strip():
-            print(f"scripts 里仍有私有路径泄漏：\n{leak.stdout}", file=sys.stderr)
+            print(f"包内仍有私有路径泄漏：\n{leak.stdout}", file=sys.stderr)
             return 1
         n_files = len([n for n in names if not n.endswith("/")])
         print(f"✅ {zpath}")

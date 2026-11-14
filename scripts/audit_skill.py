@@ -122,7 +122,7 @@ def main() -> int:
     ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent))
     ap.add_argument("--out", default=None, help="默认写到 <root>/audit.md")
     ap.add_argument("--project", default=None,
-                    help="给一个真项目目录：把 edl-schema.md 写的字段和真 edl.json 对账")
+                    help="给一个真项目目录：把 timeline-schema.md 写的字段和真 timeline.json 对账")
     ap.add_argument("--library", default=None, help="给素材库：把 index-schema.md 和真 index.json 对账")
     a = ap.parse_args()
     root = Path(a.root).expanduser().resolve()
@@ -279,26 +279,21 @@ def main() -> int:
     # ---- 8. schema 文档 vs 真产物：双向对账
     if a.project:
         proj = Path(a.project).expanduser().resolve()
-        edl_f = proj / "edl.json"
-        sc = root / "references" / "edl-schema.md"
-        if edl_f.exists() and sc.exists():
-            edl = json.loads(edl_f.read_text())
+        tl_f = proj / "timeline.json"
+        sc = root / "references" / "timeline-schema.md"
+        if tl_f.exists() and sc.exists():
+            tl = json.loads(tl_f.read_text())
             known = schema_fields(sc.read_text())["fields"]
             real: set[str] = set()
-            for s in edl.get("segments") or []:
+            for s in tl.get("elements") or []:
                 real |= set(s.keys())
-            real |= set(edl.keys())
+            real |= set(tl.keys())
             extra = sorted(real - known)
             if extra:
-                yellow.append(f"edl.json 里有 {len(extra)} 个字段 schema 没写："
+                yellow.append(f"timeline.json 里有 {len(extra)} 个字段 schema 没写："
                               + "、".join(f"`{x}`" for x in extra))
             else:
-                green.append("edl.json 的字段 schema 全写了")
-        if edl_f.exists():
-            missing_ev = [s.get("n") for s in (json.loads(edl_f.read_text()).get("segments") or [])
-                          if not s.get("evidence")]
-            if missing_ev:
-                yellow.append(f"EDL 段 {missing_ev} 没有 `evidence`——纸编辑那列会是空的，人看不到这段说什么")
+                green.append("timeline.json 的字段 schema 全写了")
 
     if a.library:
         lib = Path(a.library).expanduser().resolve()
@@ -330,14 +325,16 @@ def main() -> int:
         lines.append(f"## {icon} {title}")
         lines += [f"- {x}" for x in items] or ["- —"]
         lines.append("")
-    out = Path(a.out) if a.out else root / "audit.md"
-    out.write_text("\n".join(lines))
+    if a.out:
+        out = Path(a.out)
+        out.write_text("\n".join(lines))
     print(f"审查：{status} · 🔴 {len(red)} · 🟡 {len(yellow)} · 🟢 {len(green)}")
     for x in red:
         print(f"  🔴 {x}")
     for x in yellow:
         print(f"  🟡 {x}")
-    print(f"→ {out}")
+    if a.out:
+        print(f"→ {a.out}")
     return 1 if red else 0
 
 

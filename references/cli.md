@@ -5,6 +5,20 @@
 
 说明书讲的是「为什么这样剪」，这里只有「有什么开关」。查它能干的、说明书没提的，看这里。
 
+## 0 · 环境与跨机分发
+
+### `doctor.py`
+*第一次跑产线之前的体检：缺什么、去哪补，一次说完。*
+
+（无参数）
+
+### `pack_dist.py`
+*把仓库打成可复制的分发包：CutSkills-<日期>.zip*
+
+| 参数 | 说明 |
+|---|---|
+| `--out` | （默认 str(Path.home() / 'Downloads' / 'CutSkills-dist')） |
+
 ## 其他
 
 ### `gen_cli_ref.py`
@@ -15,7 +29,80 @@
 | `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
 | `--out` | 默认写到 <root>/references/cli.md |
 
-## A · 索引
+## ★ 仓库自检与单测
+
+### `audit_skill.py`
+*审查：说明书说的话，和 scripts/ 干的事，对不对得上。*
+
+| 参数 | 说明 |
+|---|---|
+| `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
+| `--out` | 默认写到 <root>/audit.md |
+| `--project` | 给一个真项目目录：把 timeline-schema.md 写的字段和真 timeline.json 对账 |
+| `--library` | 给素材库：把 index-schema.md 和真 index.json 对账 |
+
+### `selftest.py`
+*V2 端到端全链路自测：从零造合成素材 → 索引/字表 → V5 时间轴（P5 网感包装+标题条+贴纸+冲击推镜+鼓点吸附）→ 拍板签锁 → HyperFrames 真渲染 → 像素/响度/同窗音效门禁 → 全部离线回归单测。*
+
+| 参数 | 说明 |
+|---|---|
+| `--dir` | （默认 f'/tmp/cutskills-selftest-{_station()}'） |
+| `--keep` | 跑完保留临时目录供查看成片 |
+
+### `test_v2_pipeline.py`
+*V2 核心模块离线契约单测：选题引擎 / AI 配音字表 / 鼓点吸附 / 矢量贴纸 / 内置 CC0 兜底 / 同窗音效门禁。*
+
+（无参数）
+
+## 1 · 上游选题、脚本与小白拍片卡
+
+### `ideate.py`
+*CutSkills · 上游选题、高网感脚本与小白拍片卡生成器（飞书双流向内容系统）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填**　项目目录 |
+| `--topic` | 一句话选题想法、产品或行业 |
+| `--persona` | 出镜人身份/人设（可选） |
+| `--audience` | 给谁看（可选） |
+| `--duration` | 期望时长（秒，默认 35）（默认 35） |
+| `--pick` | 选定第几套提案（1漏斗/2人设/3转化） |
+| `--hook` | 选定该提案的第几个钩子（1-3） |
+| `--guide` | 输出/刷新 shoot-guide.md 小白拍片卡 |
+| `--to-plan` | 将选定脚本一键转为 brief.json + plan.json |
+| `--vo-asset` | 绑定已生成的 AI 配音素材 ID |
+| `--show` | 打印 3 套提案概览 |
+
+### `voiceover.py`
+*CutSkills · AI 配音合成与精准字级时间戳入库引擎。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填**　项目目录 |
+| `--library` | 素材库目录（默认自动推导或在项目旁创建） |
+| `--from-ideation` | 直接读取项目 ideation.json 的选定脚本 |
+| `--lines` | 用 | 分隔的多句台词 |
+| `--script-file` | 纯文本台词文件（一行一句） |
+| `--audio` | 已有外部配音音频路径（跳过合成，直接切分对齐入库） |
+| `--engine` | （默认 'auto'） |
+| `--voice` | 音色名（如 Tingting / Sinji / 云端音色 ID）（默认 'Tingting'） |
+| `--rate` | 语速（字/分钟，默认 195 干脆口播感）（默认 195） |
+| `--breath` | 句间换气停顿秒数（默认 0.16s）（默认 0.16） |
+
+## 3 · 编导、卡点与方案拍板
+
+### `beat_sync.py`
+*CutSkills · BGM 鼓点/瞬态检测与百万剪辑师卡点吸附引擎（Beat Sync）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 项目目录 |
+| `--bgm` | BGM 音频文件路径，或 auto / upbeat / warm / clear（默认 'auto'） |
+| `--duration` | 分析时长上限（秒）（默认 60.0） |
+| `--snap` | 将项目 timeline.json 的弹性切点吸附到鼓点 |
+| `--max-shift` | 单处最大微调秒数（默认 0.18s）（默认 0.18） |
+
+## 2 · 素材多模态索引
 
 ### `index_assets.py`
 *CutSkills · 阶段 A：素材索引。*
@@ -34,8 +121,6 @@
 | `--l2-cause` | 排哪些候选进 L2 队列（默认 'mix'） |
 | `--l2-budget-note` | L2 覆盖率超 15% 时留一句原因（写进 _cutskills/l2_budget.json，跨轮保留） |
 | `--force` | 忽略指纹，全部重算 |
-
-## A · 索引（库）
 
 ### `media_spec.py`
 *CutSkills · 规格探测：把「这条素材是什么规格、剪辑时会踩什么坑」变成机器可判的字段。*
@@ -91,22 +176,20 @@
 | `--library` | **必填** |
 | `--quiet` | 开关 |
 
-## ★ 任何一段之后——自检
-
-### `audit_skill.py`
-*审查：说明书说的话，和 scripts/ 干的事，对不对得上。*
+### `cue_guard.py`
+*场记口令 / 指导语 / 重说 —— 检出并把它们挡在片子外面。*
 
 | 参数 | 说明 |
 |---|---|
-| `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
-| `--out` | 默认写到 <root>/audit.md |
-| `--project` | 给一个真项目目录：把 edl-schema.md 写的字段和真 edl.json 对账 |
-| `--library` | 给素材库：把 index-schema.md 和真 index.json 对账 |
+| `--scan` | — |
+| `--check` | — |
+| `--fix` | — |
+| `--words` | — |
 
-## B · 编导
+## 3 · 编导、卡点与方案拍板
 
 ### `init_project.py`
-*CutSkills · 阶段 B 起步：建一个剪辑项目。*
+*CutSkills · 建一个剪辑项目目录（初始化 intent.json / brief.json / decisions.md）。*
 
 | 参数 | 说明 |
 |---|---|
@@ -117,20 +200,31 @@
 | `--promise` | 看完要让观众相信 / 做什么 |
 | `--duration` | — |
 | `--aspect` | — |
+| `--pack` | 视觉包装包（默认 P1-warm，可选 P5-viral-pop 等）（默认 DEFAULTS['pack']） |
+| `--plan` | 剪辑骨架方案（默认 S1-conclude-fast）（默认 DEFAULTS['plan']） |
 | `--avoid` | 不许出现的内容，可多次（默认 []） |
 
-### `intake.py`
-*CutSkills · B 段入口检查：这次是「有需求的剪辑」，还是「一堆素材想变成片子」。*
+### `brief.py`
+*CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
 
 | 参数 | 说明 |
 |---|---|
-| `--library` | **必填** |
-| `--project` | **必填** |
-| `--intent` | 用户原话；给了会写进 intent.json |
-| `--script` | 用户提供的口播/旁白稿 |
-| `--reference` | 已有的成品或剪辑方案 |
-| `--derive` | 生成选题工作台 options.md |
-| `--verify` | 检查 options.md 里点名的素材是否存在 |
+| `--project` | **必填**　项目目录（<项目>/brief.json 落在它下面） |
+| `--set` | 非交互写入：audience / audience_present_state / change / length / style（默认 []） |
+| `--show` | 打印当前 brief |
+| `--reset` | 清空重来（旧文件备份为 brief.json.bak） |
+
+### `style_menu.py`
+*CutSkills · 风格菜单：把 4 套剪法 + 3 套包装摆给用户点，而不是让他写配置。*
+
+| 参数 | 说明 |
+|---|---|
+| `--list` | 开关 |
+| `--paths` | 样例给出绝对路径（聊天里要发文件时用） |
+| `--bars` | 开关 |
+| `--show` | — |
+| `--choose` | — |
+| `--project` | — |
 
 ### `search_library.py`
 *CutSkills · 在素材库里搜「哪段能当我这一段画面」。*
@@ -162,134 +256,16 @@
 | `--min-grade` | （默认 'backup'） |
 | `--max-chars` | （默认 60000） |
 
-### `make_edl.py`
-*CutSkills · 把剪辑计划落成 edl.json（自动吸附字界 + 自动留 padding）。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--plan` | 剪辑计划；--revert / --list 时不需要 |
-| `--library` | 默认取项目往上三层的素材库 |
-| `--pad-in` | （默认 0.06） |
-| `--pad-out` | （默认 0.09） |
-| `--revert` | 回到上一个版本（edl-history 里最新一份） |
-| `--list` | 列出历史版本 |
-
-### `preview_plan.py`
-*CutSkills · 计划的试算（dry-run）：不落 edl.json，直接看这一版会成什么样的片子。*
+### `pick_take.py`
+*CutSkills · 一个论点有好几个 take 时，选哪个。*
 
 | 参数 | 说明 |
 |---|---|
 | `--library` | **必填** |
-| `--project` | **必填** |
-| `--plan` | **必填** |
+| `--about` | **必填**　要找的论点关键词 |
+| `--top` | （默认 5） |
+| `--for` | talking=挑露脸镜头（排除画面 audio_only/ng）；vo=只取旁白声音（不管画面评级） |
 | `--json` | 开关 |
-| `--pad-in` | （默认 0.06） |
-| `--pad-out` | （默认 0.09） |
-
-### `check_edl.py`
-*CutSkills · 阶段 B 闸门：校验 edl.json。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | 默认从项目路径往上找 |
-| `--strict` | 开关 |
-
-### `render_paper_edit.py`
-*CutSkills · 视图生成：edl.json → paper-edit.md（按论点分节的三列稿）。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | 默认取项目往上三层的素材库 |
-
-### `view_diff.py`
-*CutSkills · 对账：视图被手改过没有，计划比上次改了什么。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--plan` | 只看 plan 与历史版本的差异 |
-
-### `gaps.py`
-*CutSkills · 缺口清单：这条片子缺什么，写到 gap.md 让人去补。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--blind` | 盲测回答文件，可多次（默认 []） |
-| `--library` | 给了就在库里反查：这个缺口是不是真没有画面 |
-| `--no-search` | 不查库（快，但缺口只报不验证） |
-
-### `log_decision.py`
-*CutSkills · 确认点留痕：把「人说了什么 → 我们做了什么 → 结果」记进 decisions.md。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--said` | 用户原话，别改写 |
-| `--did` | 据此改了什么（段号 + 动作） |
-| `--verdict` | （默认 'accepted'） |
-| `--show` | 开关 |
-
-## C · 渲染
-
-### `render_film.py`
-*CutSkills · C 段：EDL → 成片。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | **必填** |
-| `--style` | — |
-| `--bgm` | 背景音乐（本地文件）。参考片全程铺底、不换曲；没有 BGM 的片，人声一停就是录音棚空场，这是看着不像的一半 |
-| `--crf` | （默认 18） |
-| `--no-punch` | 不做推镜切：口播长段保持一镜到底（口播中位会超标，只在刻意要长镜头时用） |
-
-## D · 验收
-
-### `verify_film.py`
-*CutSkills · D 段验收：拿成片和风格包对账。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | 素材库根（字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json |
-| `--style` | — |
-| `--film` | 成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4） |
-
-### `blind_test.py`
-*CutSkills · 盲测：把成片稿交给一个不知道内情的读者，看他读出来的是什么。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--score` | 裁判的回答文件，可多次（默认 []） |
-
-## B/D · 对照
-
-### `ab_open.py`
-*CutSkills · A/B 双开场：同一批素材、两种开头、其余完全不动。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | 默认取项目往上三层的素材库 |
-| `--variant` | 要生成哪几版，默认 A,B（默认 'A,B'） |
-| `--seconds` | 每条开场渲染多长（默认 10s）（默认 10.0） |
-| `--no-render` | 开关 |
-
-## 其他
-
-### `arrange.py`
-*CutSkills · 结构方案：把「倒不倒序」交给人选，而不是我替他定。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--choose` | — |
-| `--show` | 开关 |
 
 ### `audio_map.py`
 *CutSkills · 音频层：把一条片的声音切成「块」，块是所有时间安排的基准。*
@@ -301,313 +277,15 @@
 | `--out` | — |
 | `--show` | 开关 |
 
-### `bench.py`
-*CutSkills · 产线基准：量「产出变得可重复」这件事本身，不量这一条片好不好。*
+### `skeleton.py`
+*从参考片抽「节拍骨架」：切点、字幕带、大字、介质变化、推断的 beats、音频底子。*
 
 | 参数 | 说明 |
 |---|---|
-| `--library` | **必填** |
-| `--project` | **必填** |
-| `--plan` | 默认用项目里的 plan.json |
-| `--render-only` | 只量渲染+验收（改一段的返工成本） |
-| `--show` | 只打印历史 |
-
-### `bgm_gen.py`
-*CutSkills · 代码合成 BGM：按需求/观点的情绪出一段垫乐，不用去翻素材库。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | — |
-| `--mood` | （默认 'auto'） |
-| `--dur` | 秒；默认取 timeline 片长 |
-| `--out` | — |
-| `--moods` | 开关 |
-| `--analyze` | 只量一段 wav，不合成 |
-
-### `blind_kit.py`
-*效果评估（方案 P4）：同一格里「旧卡 / 纯实拍 / AI 场景」三版盲测套件。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--n` | **必填** |
-| `--out` | — |
-| `--card-template` | （默认 'compare'） |
-| `--variants` | （默认 'card,real,scene'） |
-| `--quality` | （默认 'looks'） |
-| `--dry-run` | 开关 |
-
-### `board_check.py`
-*看板数据的不变式检查，外加「导出 XML 后应该看到什么」的对照表。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--xml` | 打出 XML 应有的 clip 表 |
-| `--md` | 写成 board/check-report.md |
-
-### `board_from_timeline.py`
-*timeline.json v4 → 制作看板（board.js + board.html）。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--out` | 输出目录（相对项目，默认 board）（默认 'board'） |
-| `--title` | — |
-| `--no-build` | 只出 board.js，不生成 html |
-
-### `board_patch.py`
-*看板回传的「【制作看板评论…」→ 改写 timeline.json。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--file` | 评论文本文件；不给就读 stdin |
-| `--dry-run` | 开关 |
-
-### `brand_safety.py`
-*CutSkills · 品牌安全与第三方字样检测与处置引擎。*
-
-（无参数）
-
-### `brief.py`
-*CutSkills · 入口第一问：把「对话即需求」压成 brief.json 的四格。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填**　项目目录（<项目>/brief.json 落在它下面） |
-| `--set` | 非交互写入：audience / audience_present_state / change / length / style（默认 []） |
-| `--show` | 打印当前 brief |
-| `--reset` | 清空重来（旧文件备份为 brief.json.bak） |
-
-### `broll_split.py`
-*CutSkills · 一组片子的素材互斥：同一批素材剪两条，发出去不能是同一支片。*
-
-| 参数 | 说明 |
-|---|---|
-| `--projects` | **必填** |
-| `--json` | 开关 |
-
-### `calibrate.py`
-*CutSkills · 用参考片校准「声画同步」的阈值。*
-
-| 参数 | 说明 |
-|---|---|
-| `--video` | **必填** |
-| `--skeleton` | skeleton.json；不给就现场跑 skeleton.py |
-| `--cache` | （默认 str(Path.home() / '.cutskills/cache/calib')） |
-| `--tolerance` | （默认 80） |
-| `--tolerance-from` | 反推：要多宽的窗口才能让这支片自己达到这个同步率 |
-| `--json` | 开关 |
-
-### `calibrate_marks.py`
-*三幕时长标定：把 B 轴场景格的 marks 从「拍的比例」变成「跟着旁白走的」。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填**　项目 slug（--root 下的目录名） |
-| `--root` | （默认 os.environ.get('CUTSKILLS_PROJECTS', DEF_ROOT)） |
-| `--lib` | 素材根目录，默认 --root 的上两级 |
-| `--write` | 把采纳的新 marks 写回 timeline.json |
-
-### `card_layout.py`
-*CutSkills · 卡的叠加态布局器（原则 B7 图底主权 / B10 局部底衬）*
-
-（无参数）
-
-### `cc0_lib.py`
-*从 CC0 库里挑 BGM 和音效——不再自己合成。*
-
-| 参数 | 说明 |
-|---|---|
-| `--bgm` | — |
-| `--moods` | 开关 |
-| `--sfx` | — |
-| `--dur` | （默认 60.0） |
-
-### `check_cards.py`
-*CutSkills · 卡准入：一张卡凭什么能进片。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--json` | 开关 |
-
-### `check_keyword_text.py`
-*CutSkills · 大字（keyword / behind）裁判：压脸 / 可读性 / 单排宽度*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--film` | 顺手对一遍渲出的成片（字框改成从帧里量墨迹 bbox） |
-| `--pack-file` | 直接指定包装包 yaml（夹具用；缺省按 timeline.pack 找） |
-| `--json` | 开关 |
-
-### `check_overlay.py`
-*CutSkills · 叠加态裁判：卡压脸 / 口播整屏暗场 / 重卡撞字幕（原则 B7 + B9）*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--json` | 开关 |
-
-### `check_packs.py`
-*CutSkills · 包装包裁判：三套「衣服」的合同测试。*
-
-| 参数 | 说明 |
-|---|---|
-| `--packs` | — |
-| `--project` | 给了就顺手验「换 look 不动切点」 |
-| `--library` | — |
-| `--json` | 开关 |
-
-### `check_sfx.py`
-*音效到底听不听得见——量出来，别靠嘴说。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-
-### `check_subs.py`
-*CutSkills · 字幕裁判：去标点 / 呼吸组 / 单行宽度 / 强调色 / 硬切。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | 素材库根（量字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json |
-| `--json` | 开关 |
-
-### `check_timeline.py`
-*CutSkills · 校验 timeline.json（v4 元素时间轴）。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--timeline` | — |
-| `--library` | — |
-| `--strict` | 把 warning 当 error |
-| `--json` | 开关 |
-
-### `check_timing.py`
-*CutSkills · 声音在前（硬规则）：画面里的每一个字，都得等它那句话被说出来。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--json` | 开关 |
-
-### `compare_tones.py`
-*两条片子的影调对比：luma / G÷R / B÷R，不拿饱和度当指标。*
-
-| 参数 | 说明 |
-|---|---|
-| `--a` | **必填**　我们的成片 |
-| `--b` | **必填**　参考片（对标目标） |
-| `--fps` | 抽帧频率（每秒几帧）（默认 1.0） |
-| `--size` | 抽帧后缩放尺寸，两条片必须一样（默认 '270x480'） |
-| `--md` | 把报告写到这个 md 文件 |
-| `--json` | 开关 |
-
-### `content_guard.py`
-*CutSkills · 内容守卫：起尾余量（Handles）、视觉指代词、品类禁忌表。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--timeline` | 默认 <项目>/timeline.json |
-| `--library` | 默认从项目目录往上推三层 |
-| `--json` | 开关 |
-
-### `cue_guard.py`
-*场记口令 / 指导语 / 重说 —— 检出并把它们挡在片子外面。*
-
-| 参数 | 说明 |
-|---|---|
-| `--scan` | — |
-| `--check` | — |
-| `--fix` | — |
-| `--words` | — |
-
-### `doctor.py`
-*第一次跑产线之前的体检：缺什么、去哪补，一次说完。*
-
-（无参数）
-
-### `edge_audit.py`
-*边界审计：每一格的开头 / 结尾 / 中间，有没有「不干净」的东西。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-
-### `evidence_guard.py`
-*CutSkills · 台词真值守卫：timeline 里的 evidence 必须能由词级 ASR 复现。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--fix` | 用真值覆盖 evidence |
-| `--json` | 开关 |
-
-### `fetch_coli.py`
-*把 Cola.app 里打包的 `@marswave/coli` 抽成能跑的 CLI（T-023）。*
-
-（无参数）
-
-### `fonts.py`
-*字体表：别名 → 文件，以及**字号反算**。*
-
-| 参数 | 说明 |
-|---|---|
-| `--list` | 开关 |
-| `--size` | — |
-| `--width` | （默认 1080） |
-
-### `gate.py`
-*CutSkills 项目总门禁：集中运行现有检查器并汇总 error / warning。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | 素材库根；默认从项目祖先找 _cutskills/index.json |
-| `--projects` | broll_split 互斥检查的同组项目目录；dianzan-* 默认自动发现同组 |
-
-### `gen_scene.py`
-*用代码画画面——不是把字卡换个样式，是让画面本身把话讲完。*
-
-| 参数 | 说明 |
-|---|---|
-| `--scene` | （默认 'phase'） |
-| `--out` | **必填** |
-| `--dur` | （默认 5.0） |
-| `--fps` | 跟成片一致（talking-head-v1 是 30）（默认 30） |
-| `--size` | （默认 '1080x1920'） |
-| `--marks` | 词级节拍：逗号分隔的**成数**（0.2,0.39,0.42,0.74），由 ASR 字级时间戳算出来。空着就用脚本自己的默认比例——那样画面换形态的那一帧跟台词对不上。 |
-| `--probe` | 只量亮度剖面，不出片：每个场景都要「越演越有东西」，结尾比中间空就是节拍写错了（视觉模型判不了这个） |
-
-### `gen_sfx.py`
-*CutSkills · 合成音效素材：一次算完落盘，之后只读复用。*
-
-| 参数 | 说明 |
-|---|---|
-| `--name` | 只做这一个 |
-| `--force` | 已存在也重做 |
-| `--dir` | 输出目录（默认 $CUTSKILLS_HOME/assets/sfx） |
-
-### `golden.py`
-*CutSkills · golden 回归：加新能力之前，先证明旧样片没退化。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | 要纳入的项目目录，可多次（默认 []） |
-| `--add` | 加进清单（写进基线文件）（默认 []） |
-| `--only` | — |
-| `--init` | 用当前读数覆盖基线 |
+| `--video` | **必填**　参考片路径 |
+| `--out` | **必填**　输出 JSON 路径 |
+| `--transcript` | 可选：SRT/VTT/JSON 转写；不给就自动找同名字幕或 _cutskills/index.json |
+| `--json-only` | 不打印人类可读的表 |
 
 ### `hooks.py`
 *CutSkills · 第 2 层：先出前 3 秒的候选，再谈整条。*
@@ -625,10 +303,31 @@
 | `--vote` | 记真人投票：逗号分隔，A/B/C 顺序对应看片顺序，如 A,B,C |
 | `--check` | 校验前 3 秒策略合规性与通过性 |
 
-### `libs.py`
-*库与项目的解析：影子和工程页两处入口共用这一份，不各写一套。*
+### `timeline.py`
+*CutSkills · plan.json + brief.json → timeline.json（元素时间轴 v5）。*
 
-（无参数）
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--plan` | — |
+| `--brief` | — |
+| `--style` | — |
+| `--skeleton` | — |
+| `--fill` | 无画面论点自动补章节卡 |
+| `--fit-skeleton` | 超长口播段自动吸附字界收紧 |
+| `--dry-run` | 只打印，不落盘 |
+| `--show` | 查看当前时间轴摘要 |
+
+### `plan_card.py`
+*CutSkills · 剪辑与包装方案卡（动手渲染前的人类拍板门禁）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
+| `--approve` | 确认方案并签发 lock.json，放行 render_hf.py |
+| `--show` | 开关 |
 
 ### `lock.py`
 *方案锁：拍板的那一刻，把时间轴钉死。*
@@ -640,6 +339,346 @@
 | `--verify` | 开关 |
 | `--status` | 开关 |
 | `--note` | — |
+
+## 5 · 质量门禁与交付清理
+
+### `check_timeline.py`
+*CutSkills · 校验 timeline.json（v4 元素时间轴）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--timeline` | — |
+| `--library` | — |
+| `--strict` | 把 warning 当 error |
+| `--json` | 开关 |
+
+### `content_guard.py`
+*CutSkills · 内容守卫：起尾余量（Handles）、视觉指代词、品类禁忌表。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--timeline` | 默认 <项目>/timeline.json |
+| `--library` | 默认从项目目录往上推三层 |
+| `--json` | 开关 |
+
+### `evidence_guard.py`
+*CutSkills · 台词真值守卫：timeline 里的 evidence 必须能由词级 ASR 复现。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--fix` | 用真值覆盖 evidence |
+| `--json` | 开关 |
+
+### `speech_hygiene.py`
+*CutSkills · 口播洁净度：进片的声音里不许有片场残渣。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--json` | 开关 |
+
+### `edge_audit.py`
+*边界审计：每一格的开头 / 结尾 / 中间，有没有「不干净」的东西。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+
+## 4 · 网感包装与成片渲染
+
+### `render_hf.py`
+*主渲染链路：timeline.json → HyperFrames 合成（HTML + GSAP + SVG）→ mp4。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--style` | — |
+| `--segments` | 只渲前 N 段（0=全部）（默认 0） |
+| `--quality` | （默认 'looks'） |
+| `--workers` | （默认 '4'） |
+| `--grade` | CSS filter，例：saturate(1.5) contrast(1.1) |
+| `--no-render` | 只生成 HTML 并 lint |
+| `--no-sfx` | 不混卡片音效 |
+| `--no-loudnorm` | 开关 |
+| `--force` | 方案没拍板也硬渲（正常不该用） |
+| `--bgm` | BGM：auto＝用项目里的 bgm.wav（没有就从 CC0 库按情绪挑）；none＝不要；也可给文件（默认 'auto'） |
+| `--bgm-mood` | auto＝按 timeline/brief 情绪挑 BGM（默认）；也可指定（默认 'auto'） |
+| `--reuse-raw` | 复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染） |
+| `--hdr` | 按 HDR 出片（本机 ffmpeg 无 zscale，文字层会整片丢失，不建议） |
+| `--fg-layer` | 抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要（默认 'ffmpeg'） |
+| `--force-extract` | 开关 |
+| `--shot-match` | 逐镜把亮度/白平衡往参考片拉（0=不做，1=全拉）。默认 0.7（默认 0.7） |
+| `--extractor` | auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract（默认 'auto'） |
+| `--overscan` | 切片比画布大几倍（默认 1.2）：跳切推近靠 CSS 放大，切片不留富余就会越推越糊。1.0 = 不留富余（默认 1.2） |
+| `--punch` | 口播长段拆镜（跳切推近）：默认开。关掉用 --no-punch |
+| `--no-punch` | 不拆镜：一条长口播就一个镜头，「口播镜头中位」会顶在 4.9s |
+| `--no-cutout` | 不做人物抠像层（大字会压在人前面） |
+
+### `gen_scene.py`
+*用代码画画面——不是把字卡换个样式，是让画面本身把话讲完。*
+
+| 参数 | 说明 |
+|---|---|
+| `--scene` | （默认 'phase'） |
+| `--out` | **必填** |
+| `--dur` | （默认 5.0） |
+| `--fps` | 跟成片一致（talking-head-v1 是 30）（默认 30） |
+| `--size` | （默认 '1080x1920'） |
+| `--marks` | 词级节拍：逗号分隔的**成数**（0.2,0.39,0.42,0.74），由 ASR 字级时间戳算出来。空着就用脚本自己的默认比例——那样画面换形态的那一帧跟台词对不上。 |
+| `--probe` | 只量亮度剖面，不出片：每个场景都要「越演越有东西」，结尾比中间空就是节拍写错了（视觉模型判不了这个） |
+
+### `preview_card.py`
+*一张卡/一格代码画面的快速样张：改完立刻看，不用重渲整片。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 项目目录（从 timeline.json 取第 n 格） |
+| `--n` | 取第几格（timeline 的 n） |
+| `--gen` | 直接给元素 JSON |
+| `--pack` | （默认 'P1-warm'） |
+| `--at` | 相对卡片起点的秒数，逗号分隔（默认 '1.0'） |
+| `--out` | — |
+| `--dur` | --gen 模式下的卡片时长（默认 4.0） |
+
+### `stickers.py`
+*CutSkills · 百万剪辑师级动态表情贴纸、悬念标题条与镜头特效层（SVG + GSAP）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--list` | 打印全部 16 款贴纸 ID 与默认短签 |
+| `--json` | 以 JSON 输出目录 |
+| `--preview` | 生成一页所有贴纸的 HTML 预览卡目录 |
+
+## 5 · 质量门禁与交付清理
+
+### `gate.py`
+*CutSkills 项目总门禁：集中运行现有检查器并汇总 error / warning。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | 素材库根；默认从项目祖先找 _cutskills/index.json |
+| `--projects` | broll_split 互斥检查的同组项目目录；dianzan-* 默认自动发现同组 |
+
+### `verify_film.py`
+*CutSkills · D 段验收：拿成片和风格包对账。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | 素材库根（字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json |
+| `--style` | — |
+| `--film` | 成片路径（默认 out/film.mp4；HyperFrames 链路是 out/film-hf.mp4） |
+
+### `check_subs.py`
+*CutSkills · 字幕裁判：去标点 / 呼吸组 / 单行宽度 / 强调色 / 硬切。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | 素材库根（量字幕窗口里的真静音要用）；默认从祖先目录找 _cutskills/index.json |
+| `--json` | 开关 |
+
+### `check_cards.py`
+*CutSkills · 卡准入：一张卡凭什么能进片。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--json` | 开关 |
+
+### `check_overlay.py`
+*CutSkills · 叠加态裁判：卡压脸 / 口播整屏暗场 / 重卡撞字幕（原则 B7 + B9）*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--json` | 开关 |
+
+### `check_keyword_text.py`
+*CutSkills · 大字（keyword / behind）裁判：压脸 / 可读性 / 单排宽度*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--film` | 顺手对一遍渲出的成片（字框改成从帧里量墨迹 bbox） |
+| `--pack-file` | 直接指定包装包 yaml（夹具用；缺省按 timeline.pack 找） |
+| `--json` | 开关 |
+
+### `check_timing.py`
+*CutSkills · 声音在前（硬规则）：画面里的每一个字，都得等它那句话被说出来。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--json` | 开关 |
+
+### `check_sfx.py`
+*音效可听度检查：优先与混音前同包络底轨（stem-nosfx.m4a）同窗相减，按音色真实频段测瞬态净抬升（T-059）。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+
+### `check_packs.py`
+*CutSkills · 包装包裁判：三套「衣服」的合同测试。*
+
+| 参数 | 说明 |
+|---|---|
+| `--packs` | — |
+| `--project` | 给了就顺手验「换 look 不动切点」 |
+| `--library` | — |
+| `--json` | 开关 |
+
+### `sync_check.py`
+*CutSkills · 声画同步裁判：Audio-First 唯一能算的那三个数。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--map` | — |
+| `--timeline` | — |
+| `--tolerance` | （默认 TOL_MS） |
+| `--json` | 开关 |
+
+### `review_sheet.py`
+*生成逐格 IN/MID/OUT 审片接触表与卡片原像素裁图。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填**　项目目录，只读时间轴与已渲产物 |
+| `--force` | 更新已有 review/sheet.html 与同名生成帧 |
+
+### `showcase.py`
+*生成一张「看片导航页」：所有成片一处点开，顺带把命名规则和改片的正确姿势写在同一页上。*
+
+| 参数 | 说明 |
+|---|---|
+| `--out` | 输出目录（默认取 config.json 的 out_dir）（默认 config_out_dir()） |
+| `--library` | 要扫的库根（可多次） |
+
+### `studio.py`
+*一键起工程页：把 `cd <项目>/hf && hyperframes preview` 收成一条命令。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 项目名（dianzan-a / qizao-ground-01 …）或目录 |
+| `--library` | 要搜的库根（可多次） |
+| `--port` | 指定端口（默认 3100 起找空位） |
+| `--no-open` | 不自动开浏览器 |
+| `--print-cmd` | 只打印要跑的命令，不真起 |
+| `--list` | 列出开着的 studio |
+| `--stop` | 关掉某个项目的 studio |
+| `--stop-all` | 关掉全部 |
+| `--emit-launchers` | 给每支片写一个 .command |
+
+### `tidy.py`
+*收工清理：把「能重建的过程文件」和「必须留的交付物」分开，只删前者。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | 单个项目目录 |
+| `--library` | 库根（含 _cutskills/projects） |
+| `--tmp` | 只清 /tmp 残骸 |
+| `--apply` | 真删（默认演练） |
+
+## 其他
+
+### `brand_safety.py`
+*CutSkills · 品牌安全与第三方字样检测与处置引擎。*
+
+（无参数）
+
+### `broll_split.py`
+*CutSkills · 一组片子的素材互斥：同一批素材剪两条，发出去不能是同一支片。*
+
+| 参数 | 说明 |
+|---|---|
+| `--projects` | **必填** |
+| `--json` | 开关 |
+
+### `card_layout.py`
+*CutSkills · 卡的叠加态布局器（原则 B7 图底主权 / B10 局部底衬）*
+
+（无参数）
+
+### `cc0_lib.py`
+*从 CC0 库挑 BGM 和音效——外置全量库优先，未配置时自动退回随仓迷你包。*
+
+| 参数 | 说明 |
+|---|---|
+| `--bgm` | — |
+| `--moods` | 开关 |
+| `--sfx` | — |
+| `--dur` | （默认 45.0） |
+
+### `compare_tones.py`
+*两条片子的影调对比：luma / G÷R / B÷R，不拿饱和度当指标。*
+
+| 参数 | 说明 |
+|---|---|
+| `--a` | **必填**　我们的成片 |
+| `--b` | **必填**　参考片（对标目标） |
+| `--fps` | 抽帧频率（每秒几帧）（默认 1.0） |
+| `--size` | 抽帧后缩放尺寸，两条片必须一样（默认 '270x480'） |
+| `--md` | 把报告写到这个 md 文件 |
+| `--json` | 开关 |
+
+### `fetch_coli.py`
+*把 Cola.app 里打包的 `@marswave/coli` 抽成能跑的 CLI（T-023）。*
+
+（无参数）
+
+### `fonts.py`
+*字体表：别名 → 文件，以及**字号反算**。*
+
+| 参数 | 说明 |
+|---|---|
+| `--list` | 开关 |
+| `--size` | — |
+| `--width` | （默认 1080） |
+
+## 3 · 编导、卡点与方案拍板
+
+### `gaps.py`
+*CutSkills · 缺口清单：把时间轴里缺证据、用代码补画、或台词点图缺画面的地方汇总成 gap.md。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | 给了就在库里反查：这个缺口是不是真没有画面 |
+| `--no-search` | 不查库（快） |
+
+## 其他
+
+### `libs.py`
+*库、项目与运行环境的唯一解析入口。*
+
+（无参数）
+
+## 3 · 编导、卡点与方案拍板
+
+### `log_decision.py`
+*CutSkills · 确认点留痕：把「人说了什么 → 我们做了什么 → 结果」记进 decisions.md。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--said` | 用户原话，别改写 |
+| `--did` | 据此改了什么（段号 + 动作） |
+| `--verdict` | （默认 'accepted'） |
+| `--show` | 开关 |
+
+## 其他
 
 ### `measure_geom.py`
 *几何靠量，不靠视觉模型描述。*
@@ -674,96 +713,6 @@
 | `--box` | x,y,w,h（1080 原像素坐标，裁到卡面内） |
 | `--json` | 开关 |
 
-### `mix_sfx.py`
-*CutSkills · 按时间点把音效混进一条人声轨。*
-
-| 参数 | 说明 |
-|---|---|
-| `--audio` | **必填**　人声轨 wav（混音的底） |
-| `--cues` | **必填**　cues.json：[{t, name, gain_db}] |
-| `--out` | **必填**　输出 wav |
-| `--sfx-dir` | 音效目录（默认 $CUTSKILLS_HOME/assets/sfx） |
-| `--ceiling-db` | f'混后峰值硬顶（默认 {CEILING_DB} dBFS）。人声轨若已经过 loudnorm，它的样本峰本身就贴着 -1dBTP，硬顶设得更严只会把音效压没（默认 CEILING_DB） |
-
-### `pack_dist.py`
-*把仓库打成可复制的分发包：CutSkills-<日期>.zip*
-
-| 参数 | 说明 |
-|---|---|
-| `--out` | （默认 str(Path.home() / 'Downloads' / 'CutSkills-dist')） |
-
-### `pick_take.py`
-*CutSkills · 一个论点有好几个 take 时，选哪个。*
-
-| 参数 | 说明 |
-|---|---|
-| `--library` | **必填** |
-| `--about` | **必填**　要找的论点关键词 |
-| `--top` | （默认 5） |
-| `--for` | talking=挑露脸镜头（排除画面 audio_only/ng）；vo=只取旁白声音（不管画面评级） |
-| `--json` | 开关 |
-
-### `plan_card.py`
-*剪辑 + 包装方案：动手之前先让人看一遍、拍一次板。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
-| `--approve` | 人看过之后拍板：写 approval.json，render 才放行 |
-| `--show` | 开关 |
-
-### `preview_card.py`
-*一张卡/一格代码画面的快速样张：改完立刻看，不用重渲整片。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | 项目目录（从 timeline.json 取第 n 格） |
-| `--n` | 取第几格（timeline 的 n） |
-| `--gen` | 直接给元素 JSON |
-| `--pack` | （默认 'P1-warm'） |
-| `--at` | 相对卡片起点的秒数，逗号分隔（默认 '1.0'） |
-| `--out` | — |
-| `--dur` | --gen 模式下的卡片时长（默认 4.0） |
-
-### `refit_text.py`
-*把每一格的 `evidence` 按 ASR 字流重算——**改过剪切就必须重跑这一步**。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--check` | 只报差异，不写回 |
-
-### `render_hf.py`
-*C 段主链路：edl.json → HyperFrames 合成（HTML）→ mp4。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--style` | — |
-| `--segments` | 只渲前 N 段（0=全部）（默认 0） |
-| `--quality` | （默认 'looks'） |
-| `--workers` | （默认 '4'） |
-| `--grade` | CSS filter，例：saturate(1.5) contrast(1.1) |
-| `--no-render` | 只生成 HTML 并 lint |
-| `--no-sfx` | 不混卡片音效 |
-| `--no-loudnorm` | 开关 |
-| `--force` | 方案没拍板也硬渲（正常不该用） |
-| `--bgm` | BGM：auto＝用项目里的 bgm.wav（没有就从 CC0 库按情绪挑）；none＝不要；也可给文件（默认 'auto'） |
-| `--bgm-mood` | auto＝按 brief 里讲的事挑情绪（默认）；也可指定（默认 'auto'） |
-| `--reuse-raw` | 复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染） |
-| `--hdr` | 按 HDR 出片（本机 ffmpeg 无 zscale，文字层会整片丢失，不建议） |
-| `--fg-layer` | 抠像层在哪贴：ffmpeg＝浏览器渲完再用 overlay 贴回去（默认，稳）；browser＝写进 HTML 当 <video>（本机 alpha 会丢，会盖住大字）；none＝不要（默认 'ffmpeg'） |
-| `--force-extract` | 开关 |
-| `--shot-match` | 逐镜把亮度/白平衡往参考片拉（0=不做，1=全拉）。默认 0.7（默认 0.7） |
-| `--extractor` | auto=有 zscale 就自己切（HDR 才色调映射）；hf=退回 hyperframes measure extract（默认 'auto'） |
-| `--overscan` | 切片比画布大几倍（默认 1.2）：跳切推近靠 CSS 放大，切片不留富余就会越推越糊。1.0 = 不留富余（默认 1.2） |
-| `--punch` | 口播长段拆镜（跳切推近）：默认开。关掉用 --no-punch |
-| `--no-punch` | 不拆镜：一条长口播就一个镜头，「口播镜头中位」会顶在 4.9s |
-| `--no-cutout` | 不做人物抠像层（大字会压在人前面） |
-
 ### `render_style_preview.py`
 *CutSkills · 包装样张：用 token 画四张「同一条片不同层」的示意帧，30 秒出全套。*
 
@@ -772,14 +721,6 @@
 | `--pack` | **必填** |
 | `--out` | — |
 | `--mg` | 另外真渲三张 MG 卡（stat/term/versus），需要 hyperframes |
-
-### `review_sheet.py`
-*生成逐格 IN/MID/OUT 审片接触表与卡片原像素裁图。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填**　项目目录，只读时间轴与已渲产物 |
-| `--force` | 更新已有 review/sheet.html 与同名生成帧 |
 
 ### `scene_review.py`
 *场景自审：给一段场景视频（或成片里的一格）出一份「每条判据都带读数」的复核报告。*
@@ -802,25 +743,6 @@
 | `--check` | 校验项目里全部 scene_spec 引用 |
 | `--init` | — |
 
-### `schema_upgrade.py`
-*CutSkills · timeline.json v4 → v5 迁移。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--timeline` | （默认 'timeline.json'） |
-| `--write` | 开关 |
-| `--plan` | — |
-| `--pack` | — |
-
-### `selftest.py`
-*端到端自测：从零造一个小素材库，把 A→B→C→D 整条链跑一遍。*
-
-| 参数 | 说明 |
-|---|---|
-| `--dir` | （默认 f'/tmp/cutskills-selftest-{_station()}'） |
-| `--keep` | 跑完不删（想看成片时用） |
-
 ### `shot_match.py`
 *逐镜归一：把每一镜的亮度与白平衡往目标值拉一部分，别整片一个平均值糊过去。*
 
@@ -832,94 +754,20 @@
 | `--crf` | （默认 16） |
 | `--json` | 把每镜的增益写到这个文件 |
 
-### `showcase.py`
-*生成一张「看片导航页」：所有成片一处点开，顺带把命名规则和改片的正确姿势写在同一页上。*
-
-| 参数 | 说明 |
-|---|---|
-| `--out` | 输出目录（默认取 config.json 的 out_dir）（默认 config_out_dir()） |
-| `--library` | 要扫的库根（可多次） |
-
 ### `silence.py`
 *真实静音探针：给定素材与窗口，量出里面**真有**几段没声音。*
 
 （无参数）
-
-### `skeleton.py`
-*从参考片抽「节拍骨架」：切点、字幕带、大字、介质变化、推断的 beats、音频底子。*
-
-| 参数 | 说明 |
-|---|---|
-| `--video` | **必填**　参考片路径 |
-| `--out` | **必填**　输出 JSON 路径 |
-| `--transcript` | 可选：SRT/VTT/JSON 转写；不给就自动找同名字幕或 _cutskills/index.json |
-| `--json-only` | 不打印人类可读的表 |
-
-### `snap_cuts.py`
-*CutSkills · 切点吸附：把一个切点的 100ms 级漂移，用「挪声音」而不是「裁画面」修掉。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--apply` | 真写回 timeline.json |
-| `--max-delta` | （默认 0.25） |
-
-### `speech_hygiene.py`
-*CutSkills · 口播洁净度：进片的声音里不许有片场残渣。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--json` | 开关 |
 
 ### `stability.py`
 *画面稳定度曲线：某一秒的这个人，是站定了在说话，还是正在转头挥手。*
 
 （无参数）
 
-### `studio.py`
-*一键起工程页：把 `cd <项目>/hf && hyperframes preview` 收成一条命令。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | 项目名（dianzan-a / qizao-ground-01 …）或目录 |
-| `--library` | 要搜的库根（可多次） |
-| `--port` | 指定端口（默认 3100 起找空位） |
-| `--no-open` | 不自动开浏览器 |
-| `--print-cmd` | 只打印要跑的命令，不真起 |
-| `--list` | 列出开着的 studio |
-| `--stop` | 关掉某个项目的 studio |
-| `--stop-all` | 关掉全部 |
-| `--emit-launchers` | 给每支片写一个 .command |
-
-### `style_menu.py`
-*CutSkills · 风格菜单：把 4 套剪法 + 3 套包装摆给用户点，而不是让他写配置。*
-
-| 参数 | 说明 |
-|---|---|
-| `--list` | 开关 |
-| `--paths` | 样例给出绝对路径（聊天里要发文件时用） |
-| `--bars` | 开关 |
-| `--show` | — |
-| `--choose` | — |
-| `--project` | — |
-
 ### `subs.py`
 *CutSkills · 字幕：按呼吸组切、去标点、单行、强调词变色。*
 
 （无参数）
-
-### `sync_check.py`
-*CutSkills · 声画同步裁判：Audio-First 唯一能算的那三个数。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--map` | — |
-| `--timeline` | — |
-| `--tolerance` | （默认 TOL_MS） |
-| `--json` | 开关 |
 
 ### `test_anchor_miss.py`
 *锚词对不上时的合同测试（T-034）：**不许静默回落**。*
@@ -933,16 +781,6 @@
 
 ### `test_behind_band.py`
 *T-041（追加）回归：behind / cutout 大字的「取样带 + 基线」缺一条就假红。*
-
-（无参数）
-
-### `test_blind_negative.py`
-*CutSkills · 盲测收口与阴性防误杀测试套件 (P4)*
-
-（无参数）
-
-### `test_board_clips.py`
-*T-010 回归：clips.ov 对账不许被 overlay 推歪（主轨起点只看视频格）。*
 
 （无参数）
 
@@ -1031,11 +869,6 @@
 
 （无参数）
 
-### `test_regression_ng.py`
-*旧版 dianzan-a/b/c 硬伤回归负样本。*
-
-（无参数）
-
 ### `test_scene_determinism.py`
 *T-055 回归：代码场景必须可重复渲染（相同输入 → 逐帧一致）。*
 
@@ -1086,57 +919,7 @@
 
 （无参数）
 
-### `thesis.py`
-*CutSkills · 观点先行：先定「一句话讲完什么」，再回头挑素材。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--lib` | 素材库根目录；默认从项目路径往上找 _cutskills |
-| `--init` | 开关 |
-| `--match` | 开关 |
-| `--show` | 开关 |
-
-### `tidy.py`
-*收工清理：把「能重建的过程文件」和「必须留的交付物」分开，只删前者。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | 单个项目目录 |
-| `--library` | 库根（含 _cutskills/projects） |
-| `--tmp` | 只清 /tmp 残骸 |
-| `--apply` | 真删（默认演练） |
-
-### `timeline.py`
-*CutSkills · plan.json + brief.json → timeline.json（元素时间轴 v4）。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--library` | — |
-| `--plan` | — |
-| `--brief` | — |
-| `--style` | — |
-| `--skeleton` | — |
-| `--fill` | 没有画面的论点插章节卡补位 |
-| `--fit-skeleton` | 长过骨架 p90 的元素裁到字界 |
-| `--from-edl` | 把 v2 edl.json 升成 v4 |
-| `--dry-run` | 只打印，不落盘 |
-| `--show` | 开关 |
-
 ### `visual_grade.py`
 *CutSkills · 口播段「声 / 画」双评级与露脸门禁（T-015 · 原则 A2）。*
 
 （无参数）
-
-### `yield_card.py`
-*CutSkills · 良率卡：一条片出片时打一张卡，累积成趋势。*
-
-| 参数 | 说明 |
-|---|---|
-| `--project` | **必填** |
-| `--style` | — |
-| `--hook` | hooks.json（前 3 秒 A/B 结果） |
-| `--blind` | blind.json（盲测聚合结果） |
-| `--no-verify` | 不重跑 verify_film，读旧报告 |
-| `--json` | 开关 |

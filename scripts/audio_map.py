@@ -31,8 +31,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lexicon  # noqa: E402
-from make_edl import resolve_lib  # noqa: E402
-from check_edl import tokens as char_tokens  # noqa: E402  词级时间戳只有这一处来源
+from evidence_guard import tokens as char_tokens  # noqa: E402
+from libs import ffmpeg_bin, resolve_lib  # noqa: E402
 
 GAP_MS = 240           # 字间停顿 ≥ 这个就算一口气断了
 MAX_CHARS = 9          # 一口气通常 5–9 字；超过就再切一刀
@@ -44,11 +44,6 @@ PUNCT = "，。！？、；：…—"
 
 def load(p: Path, default=None):
     return json.loads(p.read_text()) if p.exists() else default
-
-
-def ffmpeg_bin() -> str:
-    import os
-    return os.environ.get("CUTSKILLS_FFMPEG") or "ffmpeg"
 
 
 def read_text_wav(path: Path) -> tuple[list[float], int]:

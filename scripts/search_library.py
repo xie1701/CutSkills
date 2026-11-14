@@ -250,7 +250,7 @@ def main() -> int:
                      "why": "", "_hit": r["where"] + ":" + (r["tag"] or r["text"])[:20]}
                     for r in rows]
         print(json.dumps(snippets, ensure_ascii=False, indent=1))
-        print("// why 是空的：理由要你填（run check_edl 会拦套话）。beat 先写 1，归到哪个论点你定。",
+        print("// why 是空的：理由要你填（check_timeline 会拦套话）。beat 先写 1，归到哪个论点你定。",
               file=sys.stderr)
         return 0
 
@@ -278,7 +278,7 @@ def main() -> int:
         print(f"| {GRADE_CN.get(r['grade'], r['grade'])} | {r['asset']} | {tc} | "
               f"{r['where']} | {text} | {conf} |")
     print()
-    print("时间码是**素材内时间**，不是成片时间。要用就写进 plan.json，padding 交给 make_edl.py。")
+    print("时间码是**素材内时间**，不是成片时间。要用就写进 plan.json，padding 交给 timeline.py。")
     return 0
 
 

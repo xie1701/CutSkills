@@ -91,7 +91,7 @@ def plan_project(proj: Path) -> list[tuple[int, str, Path]]:
     out, hf = proj / "out", proj / "hf"
     film_hf = out / "film-hf.mp4"
 
-    for f in ("_hf_raw.mp4", "_hf_bed.mp4", "_hf_fg.mp4"):
+    for f in ("_hf_raw.mp4", "_hf_voc.mp4", "_hf_bed.mp4", "_hf_fg.mp4", "_hf_sfx.mp4"):
         q = out / f
         if q.exists():
             rows.append((_size(q), f"中间层 out/{f}（重渲即得）", q))

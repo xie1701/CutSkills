@@ -22,9 +22,8 @@ def _ffmpeg() -> str:
     global _FF
     if _FF:
         return _FF
-    import shutil
-    cand = Path("~/.cutskills/opt/ffmpeg-zimg/bin/ffmpeg").expanduser()
-    _FF = str(cand) if cand.exists() else (shutil.which("ffmpeg") or "ffmpeg")
+    from libs import ffmpeg_bin
+    _FF = ffmpeg_bin()
     return _FF
 
 

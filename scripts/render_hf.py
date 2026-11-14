@@ -1,53 +1,42 @@
 #!/usr/bin/env python3
-"""C 段主链路：edl.json → HyperFrames 合成（HTML）→ mp4。
-
-为什么要换掉 ffmpeg 合成层（2026-11-08）：那一层没有布局引擎。所有坑都是同一件事的
-变体——用 PIL 量墨迹高反算字号、没有 libass 只能画 PNG 再 overlay、静止图要 -loop 1、
-叠加不钉 -t 会漂、渐变参数要穿三层函数且丢了一句错都不报。HTML 里这些是 CSS。
+"""主渲染链路：timeline.json → HyperFrames 合成（HTML + GSAP + SVG）→ mp4。
 
 分工：
-- **素材标准化**仍归 ffmpeg（`hyperframes measure extract` 走的就是它）：HDR→709、旋转、切段。
-- **字幕切条与字级对齐**仍用 render_film.build_cues——那里的逻辑是踩出来的
-  （按字裁段窗口、逐字对字、换气收口、纯标点不成条）。这一层不重写。
-- **合成、排版、动效**交给浏览器。
+- **素材标准化**归 ffmpeg：HDR→bt709 色调映射、旋转、切段、逐镜调色校白平衡。
+- **字幕切条与字级对齐**走 `subs.build` + `evidence_guard.chars_of_asset` 单一真值入口。
+- **合成、排版、动效、标题条、矢量情绪贴纸、镜头光效**交给浏览器（HyperFrames + GSAP）。
 
 用法：
-    python3 scripts/render_hf.py --project <项目> --library <库> [--segments 3]
+    python3 scripts/render_hf.py --project <项目> [--library <库>] [--quality looks] [--bgm auto]
 """
 from __future__ import annotations
 
 import argparse, html as _html, json, os, re, shutil, subprocess, sys, time
+from functools import lru_cache
 from pathlib import Path
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor"))
+import yaml  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from make_edl import resolve_lib                      # noqa: E402
+from libs import ffmpeg_bin as _libs_ffmpeg, hf_bin as _libs_hf, resolve_lib  # noqa: E402
+from evidence_guard import load_chars as _eg_load_chars  # noqa: E402
 import lock as lockmod                                 # noqa: E402
 import lexicon                                        # noqa: E402
 import subs                                            # noqa: E402
 import card_layout                                     # noqa: E402  B7 叠加态布局（T-019）
-from render_film import load_chars                    # noqa: E402
+import stickers as stickers_mod                        # noqa: E402  网感标题条/贴纸/VFX
 
 SKILL = Path(__file__).resolve().parent.parent
-def _resolve_hf() -> str:
-    """先找**本地装好的** hyperframes，找不到才退回 npx。
 
-    以前这里默认 "npx --yes hyperframes"：哪怕 ~/.cutskills 里已经装好，
-    每次 lint 还是要连 npm registry（实测握手 43 秒），还会撞 _npx 的锁与
-    ENAMETOOLONG。「依赖只装一次」被渲染器一句话击穿，属于配置写一套、跑另一套。
-    """
-    env = (os.environ.get("CUTSKILLS_HF") or "").strip()
-    if env:
-        return env
-    cands = [Path.home() / ".cutskills/npm/node_modules/.bin/hyperframes",
-             SKILL / "node_modules/.bin/hyperframes",
-             Path("/opt/homebrew/bin/hyperframes")]
-    for c in cands:
-        if c.exists() and os.access(c, os.X_OK):
-            return str(c)
-    w = shutil.which("hyperframes")
-    return w or "npx --yes hyperframes"
+
+def load_chars(lib: Path, aid: str) -> list[tuple[str, float, float]]:
+    """统一走 evidence_guard.load_chars 单一真值入口（含 transcript.words / 新键 / legacy_key）。"""
+    return _eg_load_chars(lib, aid)
+
+
+def _resolve_hf() -> str:
+    return _libs_hf()
 
 
 HF = _resolve_hf()
@@ -140,6 +129,8 @@ GRADE = {
     "paper_neutral": "eq=saturation=0.72:contrast=0.96:gamma=1.04:brightness=0.020",
     # 暗调：压暗、抬对比、保住高光（暗底单强调色，画面要沉下去）
     "dark_punch": "eq=saturation=0.86:contrast=1.12:gamma=0.86:brightness=-0.070",
+    # 百万博主通透网感调色：微提对比与质感通透度，肤色干净不发黄溢出
+    "cinema_crisp": "eq=saturation=0.96:contrast=1.06:gamma=0.95:brightness=-0.020",
 }
 
 # HLG / PQ → 场景线性（npl=100 是把 100% 白当参考）→ hable 压到 SDR 亮度 → bt709。
@@ -150,14 +141,11 @@ TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,"
 
 
 def ffmpeg_bin() -> str:
-    """优先 CUTSKILLS_FFMPEG，其次运行时目录里自编的那支，最后 PATH 上的。"""
+    """优先 CUTSKILLS_FFMPEG，其次 $CUTSKILLS_HOME 自编 ffmpeg-zimg，最后 PATH。"""
     env = os.environ.get("CUTSKILLS_FFMPEG")
     if env and Path(env).exists():
         return env
-    own = Path.home() / ".cutskills/opt/ffmpeg-zimg/bin/ffmpeg"
-    if own.exists():
-        return str(own)
-    return shutil.which("ffmpeg") or "ffmpeg"
+    return _libs_ffmpeg()
 
 
 _ZSCALE: dict[str, bool] = {}
@@ -233,25 +221,15 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
 # ------------------------------------------------------------------ 时间轴
 
 def load_elements(proj: Path) -> tuple[list[dict], str]:
-    """读时间轴。**优先 timeline.json（v4）**，没有就回落到 edl.json（v2）。
-
-    v2 是「镜头列表」，表达不了代码生成的格子和刻意的空。v4 把每一格叫 element，
-    带 kind（clip / image / gen / silence）——渲的时候就不再假设「一定有个视频」。
-    """
+    """读取项目的 timeline.json 元素列表。"""
     tlp = proj / "timeline.json"
-    if tlp.exists():
-        tl = json.loads(tlp.read_text())
-        els = tl.get("elements") or []
-        if not els:
-            raise SystemExit(f"{tlp} 里一个元素都没有")
-        return els, "timeline.json"
-    edl = json.loads((proj / "edl.json").read_text())
-    els = []
-    for s in edl["segments"]:
-        el = {k: v for k, v in s.items() if k != "n"}
-        el.update({"n": s["n"], "kind": "clip", "track": "video"})
-        els.append(el)
-    return els, "edl.json"
+    if not tlp.exists():
+        raise SystemExit(f"找不到 {tlp}——请先运行 `python3 scripts/timeline.py --project {proj}`")
+    tl = json.loads(tlp.read_text())
+    els = tl.get("elements") or []
+    if not els:
+        raise SystemExit(f"{tlp} 里一个元素都没有")
+    return els, "timeline.json"
 
 
 def el_dur(el: dict) -> float:
@@ -1583,6 +1561,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
 .mg-chips-wrap .mg-tail {{ font-family:"SC-Sub"; font-weight:600; font-size:{mg_step}px;
   color:rgba(var(--surface-ink-rgb),.88); margin-top:{mg_gap}px; }}
 {gen_css}
+{pkg_css}
 </style>
 </head>
 <body>
@@ -1594,6 +1573,7 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
     <div id="grade"></div>
 {gens}
 {cards}
+{pkg_html}
 {fg}
     <div id="caplayer">
 {caps}
@@ -1788,6 +1768,7 @@ document.querySelectorAll(".gen").forEach((c) => {{
     tl.to(c, {{ opacity: 0, duration: 0.2, ease: "power1.in" }}, t + d - 0.2);
   }}
 }});
+{pkg_js}
 window.__timelines["main"] = tl;
 tl.seek(0);
 </script>
@@ -2116,7 +2097,7 @@ def esc(t: str) -> str:
 
 
 def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, grade,
-               punch_map=None,
+               punch_map=None, pkg=None,
                fg_by_seg=None, fg_mode="browser", gens=None, scenes=None, audios=None,
                gen_spans=None, kw_top_override=None,
                mg_lo=None, mg_hi=None, mg_pad=None, mg_pad2=None, mg_gap=None,
@@ -2433,6 +2414,9 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         videos=v_html, caps=c_html, cards="\n".join(card_html), fg=fg_html,
         s_html=s_html, a_html=a_html,
         gens="\n".join(gens or []), gen_css=GEN_CSS,
+        pkg_css=(pkg or {}).get("css") or "",
+        pkg_html=(pkg or {}).get("html") or "",
+        pkg_js=(pkg or {}).get("js") or "",
         cap_entry=entry, cap_tween=tween)
 
 
@@ -2442,9 +2426,9 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 # 名字对应 cc0_lib.SFX_MAP；增益由库里的 under_voiceover_db 给，不再拍脑袋写 -11。
 # 增益在库给的值上**再抬 1 dB**：垫乐进来之后同一处音效更难听出来（实测同一条
 # whoosh 在无垫乐时抬 18 dB、有垫乐时只剩 8–9 dB）。90ms duck 只能管住入场那一瞬。
-CARD_SFX = {"keyword": ("pop-medium-in", 0.0), "behind": ("impact-light-firm", 0.0),
-            "cutout": ("impact-light-firm", 0.0), "idcard": ("whoosh-medium-soft", 0.0),
-            "gen": ("appear-materialise", -1.0)}
+CARD_SFX = {"keyword": ("pop-medium-in", 1.5), "behind": ("impact-light-firm", 1.0),
+            "cutout": ("impact-light-firm", 1.0), "idcard": ("whoosh-medium-soft", 0.5),
+            "gen": ("appear-materialise", 0.0)}
 
 # 音效落在连续人声上，光靠调增益听不出来（实测只涨 1–3 dB）：得让声音给它让位。
 # 90ms、-6dB，耳朵听不出人声被压，但音效的瞬态就露出来了。
@@ -2532,36 +2516,77 @@ def rotate_sfx(events: list[dict]) -> list[dict]:
 
 
 def sfx_spec(name: str, nth: int = 0) -> dict | None:
-    """取一条音效的规格：文件、同步点、人声下的增益。
-
-    优先 CC0 库（带 sync_at 与 under_voiceover_db，插进去就能对上画面）；
-    库不在才退回本地合成的那三条，并且明确说一声。
-    nth>0 走 cc0_lib 的同 family 轮换（同音色疲劳轮换，见 cc0_lib.pick_sfx）；
-    本地合成回退只有三条固定文件，没有变体可轮，nth 被忽略。
-    """
-    try:
-        import cc0_lib
-    except ImportError:
-        cc0_lib = None
-    if cc0_lib and cc0_lib.sfx_available():
+    """取一条音效的规格：文件、同步点、人声下的增益（外置 CC0 库优先，自动回退内置 CC0 包）。"""
+    import cc0_lib
+    if cc0_lib.sfx_available():
         return cc0_lib.pick_sfx(name, nth)
-    home = Path(os.environ.get("CUTSKILLS_HOME") or (Path.home() / ".cutskills"))
-    d = home / "assets" / "sfx"
-    alias = {"pop-medium-in": "pop", "impact-light-firm": "impact",
-             "whoosh-medium-soft": "whoosh", "appear-materialise": "whoosh"}
-    f = d / f"{alias.get(name, name)}.wav"
-    if not f.exists():
-        subprocess.run([sys.executable, str(Path(__file__).with_name("gen_sfx.py"))],
-                       check=False, capture_output=True, text=True)
-    if not f.exists():
-        return None
-    print(f"  ⚠ 音效库没接上，用本地合成的 {f.name}", file=sys.stderr)
-    return {"path": str(f), "id": name, "sync_at": 0.0, "gain_db": -9.0}
+    return None
 
 
-def mix_sfx(film: Path, events: list[dict], dst: Path) -> int:
+def coalesce_sfx(events: list[dict], min_gap: float = 0.25) -> list[dict]:
+    """合并 250ms 内扎堆的自动包装音效（如 0.0s 开场推镜 + 0.0s 标题条 + 0.22s 贴纸），
+    避免同一拍叠三声打成一团并连续压低人声。场景显式事件（ev-*）一律保留不合并。"""
+    prio = {"punch": 5, "impact": 4, "impact-light-firm": 4, "flash": 4,
+            "whoosh": 3, "whoosh-medium-soft": 3, "title": 2, "money": 2,
+            "celebration": 2, "ding": 1, "pop": 1, "pop-medium-in": 1}
+    kept: list[dict] = []
+    for e in sorted(events, key=lambda x: float(x["t"])):
+        is_explicit = str(e.get("for") or "").startswith("ev-")
+        if not kept or is_explicit or str(kept[-1].get("for") or "").startswith("ev-"):
+            kept.append(e)
+            continue
+        if float(e["t"]) - float(kept[-1]["t"]) >= min_gap:
+            kept.append(e)
+            continue
+        # 250ms 内撞车：留优先级更高的那一声
+        p_new = prio.get(str(e.get("name") or ""), 1)
+        p_old = prio.get(str(kept[-1].get("name") or ""), 1)
+        if p_new > p_old:
+            kept[-1] = e
+    return kept
+
+
+@lru_cache(maxsize=128)
+def _sfx_peak_db(path_s: str) -> float:
+    """实测音效文件自身峰值电平（dBFS），消除不同 CC0 录音之间差出 12–16 dB 的原始电平差。"""
+    import array
+    import math
+    import wave
+    try:
+        with wave.open(path_s, "rb") as wf:
+            sw = wf.getsampwidth()
+            raw = wf.readframes(wf.getnframes())
+        if sw == 2 and raw:
+            arr = array.array("h")
+            arr.frombytes(raw)
+            pk = max((abs(x) for x in arr), default=0) / 32768.0
+            if pk > 1e-6:
+                return 20.0 * math.log10(pk)
+    except Exception:
+        pass
+    # 非 16-bit WAV 兜底走 ffmpeg 解码单声道 s16le
+    try:
+        r = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", path_s,
+                            "-f", "s16le", "-ac", "1", "-ar", "24000", "-"],
+                           capture_output=True)
+        if r.returncode == 0 and r.stdout:
+            import array
+            import math
+            arr = array.array("h")
+            arr.frombytes(r.stdout[:len(r.stdout) - (len(r.stdout) % 2)])
+            pk = max((abs(x) for x in arr), default=0) / 32768.0
+            if pk > 1e-6:
+                return 20.0 * math.log10(pk)
+    except Exception:
+        pass
+    return -6.0
+
+
+def mix_sfx(film: Path, events: list[dict], dst: Path, stem_out: Path | None = None) -> int:
     """把音效按时间点混进成片音轨。**必须发生在响度归一之前**——
-    归一之后再混，音效会被一起抹平（实测 whoosh 只涨 1–3 dB，等于没打）。"""
+    归一之后再混，音效会被一起抹平（实测 whoosh 只涨 1–3 dB，等于没打）。
+    每条音效先按实测峰值对齐至 -3.0 dBFS 基准再加上事件微调增益，避免 -17 dBFS 的轻音被口播吞没；
+    若传入 `stem_out`，同步导出经过相同让位包络的干净底音轨，供 check_sfx 同窗净抬升测量。"""
     if not events:
         return 1
     have = []
@@ -2583,20 +2608,29 @@ def mix_sfx(film: Path, events: list[dict], dst: Path) -> int:
         f"volume=volume={DUCK_DB}:enable='between(t,{max(0.0, float(e['t']) - 0.02):.3f},"
         f"{max(0.0, float(e['t']) - 0.02) + DUCK_S:.3f})'"
         for e, _p, _s in have)
-    fc.append(f"[0:a]{duck or 'anull'}[bed]")
+    if stem_out is not None:
+        fc.append(f"[0:a]{duck or 'anull'},asplit=2[bed][bedref]")
+    else:
+        fc.append(f"[0:a]{duck or 'anull'}[bed]")
     mixins.append("[bed]")
-    for i, (e, _p, spec) in enumerate(have, 1):
+    for i, (e, p, spec) in enumerate(have, 1):
         # 起始时刻 = 画面时刻 − sync_at：库里的 sync_at 是「最该对上画面的那一点」，
         # 直接按画面时刻起播会让打击点晚半拍（whoosh 能晚 200ms 以上）。
         start = max(0.0, float(e["t"]) - float(spec.get("sync_at") or 0))
         ms = int(round(start * 1000))
-        gain = float(e.get("gain_db") if e.get("gain_db") is not None
-                     else (spec.get("gain_db") or -9.0))
+        rel_gain = float(e.get("gain_db") if e.get("gain_db") is not None
+                         else (spec.get("gain_db") or -3.0))
+        pk_db = _sfx_peak_db(str(p))
+        # 对齐至 -2.5 dBFS 基准（封顶补 +18 dB 防底噪放大），适配 -18 LUFS 人声底轨
+        norm_boost = max(-12.0, min(18.0, -2.5 - pk_db))
+        gain = round(norm_boost + rel_gain, 2)
         fc.append(f"[{i}:a]adelay={ms}|{ms},volume={gain}dB[s{i}]")
         mixins.append(f"[s{i}]")
     fc.append(f"{''.join(mixins)}amix=inputs={len(mixins)}:duration=first:normalize=0[aout]")
     cmd += ["-filter_complex", ";".join(fc), "-map", "0:v:0", "-map", "[aout]",
             "-c:v", "copy", "-ar", "48000", "-ac", "2", str(dst)]
+    if stem_out is not None:
+        cmd += ["-map", "[bedref]", "-vn", "-c:a", "aac", "-b:a", "128k", str(stem_out)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not dst.exists():
         return 1
@@ -2636,7 +2670,7 @@ def mix_bgm(film: Path, bgm: Path, dst: Path, total: float) -> int:
 
 def measure_audio(path: Path) -> tuple[float, float]:
     r = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+        [ffmpeg_bin(), "-hide_banner", "-nostats", "-i", str(path),
          "-af", "loudnorm=print_format=json", "-f", "null", "-"],
         capture_output=True, text=True)
     try:
@@ -2890,8 +2924,8 @@ def main():
     ap.add_argument("--bgm", default="auto",
                     help="BGM：auto＝用项目里的 bgm.wav（没有就从 CC0 库按情绪挑）；none＝不要；也可给文件")
     ap.add_argument("--bgm-mood", default="auto",
-                    choices=["auto", "clear", "warm", "minimal", "tense", "hopeful"],
-                    help="auto＝按 brief 里讲的事挑情绪（默认）；也可指定")
+                    choices=["auto", "upbeat", "clear", "warm", "minimal", "tense", "hopeful"],
+                    help="auto＝按 timeline/brief 情绪挑 BGM（默认）；也可指定")
     ap.add_argument("--reuse-raw", action="store_true",
                     help="复用 out/_hf_raw.mp4，只重做抠像层贴回与响度（不重跑浏览器渲染）")
     ap.add_argument("--hdr", dest="sdr", action="store_false",
@@ -2938,8 +2972,7 @@ def main():
 
     # 三正交里的「包装」：timeline.pack → packs/<id>.yaml；老项目没有 pack 就退回 styles/<style_pack>.yaml。
     # 这条顺序很重要——包装换了只换分层参数，**不许碰时间**（判据 41：换 look 切点序列不变）。
-    tl_doc = json.loads((proj / ("timeline.json" if tl_src == "timeline.json"
-                                 else "edl.json")).read_text())
+    tl_doc = json.loads((proj / "timeline.json").read_text())
     pack_id = str(tl_doc.get("pack") or "").strip()
     if not pack_id:                      # 菜单选过但还没回写时间轴：认 brief.json 的
         _bp = proj / "brief.json"
@@ -3055,6 +3088,12 @@ def main():
             else:
                 gens.append(gen_html(el, H, ct=gen_child_times(el, amap)))
                 gen_spans.append((round(t, 3), round(dur, 3)))
+                el["_dur_q"] = round(dur, 3)
+                if el.get("audio"):
+                    ac = get_audio_cell(lib, proj, el)
+                    if ac:
+                        audios.append({"n": el["n"], "src": f"clips/{ac['path'].name}",
+                                       "start": round(t, 3), "dur": ac["dur"]})
                 t = round(t + dur, 3)
         elif kind == "silence":
             t = round(t + dur, 3)
@@ -3500,11 +3539,12 @@ def main():
                              + "\n装法：把任意一份 gsap.min.js 放到本仓 assets/gsap.min.js 即可。")
         shutil.copy2(gsap_src, gsap_dst)
 
-    # 3) 写 HTML
+    # 3) 收集网感包装层（顶部悬念标题条 / 矢量动态情绪贴纸 / 镜头特效）并写 HTML
+    pkg = stickers_mod.collect_packaging(tl_doc, segs, total, W=W)
     html_txt = build_html(kw_top_override=kw_top_override, slug=proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
-                          punch_map=punch_map,
+                          punch_map=punch_map, pkg=pkg,
                           fg_mode=a.fg_layer, gens=gens, scenes=scenes, audios=audios,
                           gen_spans=gen_spans)
     (hf / "index.html").write_text(html_txt)
@@ -3614,6 +3654,19 @@ def main():
             print("  ！PiP 没贴上，成片只有代码场景没有人物小窗", file=sys.stderr)
         _mp.write_text(json.dumps(_mj, ensure_ascii=False, indent=1))
 
+    # 5.7) 人声底轨预归一至 -18 LUFS：无论来源是低电平领夹麦（-30 LUFS）还是高电平 TTS（-6 LUFS），
+    # 进入 BGM 侧链闪避（-28 LUFS）与音效混音（0 dB 档）前统一电平基准，彻底消除音效被大声 TTS 吞没。
+    if not a.no_loudnorm:
+        vnorm = proj / "out" / "_hf_voc.mp4"
+        r_vn = subprocess.run(
+            [ffmpeg_bin(), "-y", "-v", "error", "-i", str(raw),
+             "-c:v", "copy", "-af", "loudnorm=I=-18:TP=-2:LRA=11",
+             "-ar", "48000", "-ac", "2", str(vnorm)],
+            capture_output=True, text=True,
+        )
+        if r_vn.returncode == 0 and vnorm.exists() and probe(vnorm).get("w"):
+            raw = vnorm
+
     # 5.8) BGM：先归一，再让人声压住它
     bgm_p = None
     if a.bgm == "auto":
@@ -3642,7 +3695,8 @@ def main():
             except ImportError:
                 picked = None
             if picked:
-                r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", picked["path"],
+                r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-stream_loop", "-1",
+                                    "-i", picked["path"],
                                     "-t", f"{total:.3f}", "-ar", "48000", "-ac", "2",
                                     str(cand)], capture_output=True, text=True)
                 if r.returncode == 0 and cand.exists():
@@ -3654,10 +3708,6 @@ def main():
                           f"（{picked['category']}｜{picked['why']}）")
                 else:
                     picked = None
-            if not picked:
-                subprocess.run([sys.executable, str(Path(__file__).with_name("bgm_gen.py")),
-                                "--project", str(proj), "--mood", a.bgm_mood], check=False)
-                print("  ⚠ BGM 库没接上，退回代码合成", file=sys.stderr)
         bgm_p = cand if cand.exists() else None
     elif a.bgm and a.bgm != "none":
         bgm_p = Path(a.bgm).expanduser()
@@ -3708,16 +3758,19 @@ def main():
         # gen 元素还能自带 props.events（场景内相对秒的音效事件，方案 P2），
         # 防呆在 gen_props_sfx 里：坏数据警告后跳过，不炸渲。
         sfx_events.extend(gen_props_sfx(el))
+    sfx_events.extend(pkg.get("sfx") or [])
     sfx_events = [e for e in sfx_events if 0 <= e["t"] <= total]
+    sfx_events = coalesce_sfx(sfx_events, min_gap=0.25)
     # 同音色疲劳轮换要先按全片时间轴排好再算连续：稳定排序，同一构建顺序
     # 永远同一轮换序列（规则见 rotate_sfx）。
     sfx_events.sort(key=lambda e: float(e["t"]))
     rotate_sfx(sfx_events)
     if sfx_events and not a.no_sfx:
+        nosfx_stem = proj / "out" / "stem-nosfx.m4a"
         sxd = proj / "out" / "_hf_sfx.mp4"
-        if mix_sfx(raw, sfx_events, sxd) == 0:
+        if mix_sfx(raw, sfx_events, sxd, stem_out=nosfx_stem) == 0:
             raw = sxd
-            print(f"  音效 {len(sfx_events)} 处（每张卡入场一个，先混再归一）")
+            print(f"  音效 {len(sfx_events)} 处（每张卡/贴纸/光效精准卡点，先混再归一）")
         else:
             print("  ！音效没混上，成片不带音效", file=sys.stderr)
     (proj / "out" / "sfx.json").write_text(json.dumps(
@@ -3737,6 +3790,8 @@ def main():
             shutil.move(raw, dst)
         else:
             raw.unlink(missing_ok=True)
+    for _tmp_name in ("_hf_voc.mp4", "_hf_sfx.mp4"):
+        (proj / "out" / _tmp_name).unlink(missing_ok=True)
     # 响度写回 meta.json：lock.json 里记的是「拍板时的时长/格数」，响度只有渲完才知道。
     _mp = proj / "hf" / "meta.json"
     if _mp.exists():

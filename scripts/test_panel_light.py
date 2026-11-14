@@ -36,7 +36,7 @@ import measure_panel as MP            # noqa: E402
 from measure_panel import lstar       # noqa: E402
 
 ROOT = HERE.parent
-PACKS = ("P1-warm", "P2-paper", "P3-dark", "P4-canton-warm")
+PACKS = ("P1-warm", "P2-paper", "P3-dark", "P4-canton-warm", "P5-viral-pop")
 DL_MIN = 12.0                         # 可读性门槛（这个任务给的数）
 BGS = (0, 20, 40, 60, 80, 100)        # 背景 L* 档位：黑 / 暗场 / 中灰 / 亮场 / 白墙
 #   （L* 的上限就是 100，用 0–255 那套当档位是量错了一次——T-042 首版就踩过）

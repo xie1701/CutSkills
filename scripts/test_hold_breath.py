@@ -95,8 +95,12 @@ def test_logic_offline():
 
 
 def test_real_media(fix: dict) -> None:
-    lib = Path(os.environ.get("CUTSKILLS_LIB") or fix["library"]).expanduser()
-    if not (lib / "_cutskills" / "index.json").exists():
+    from libs import config_libs
+    env_lib = os.environ.get("CUTSKILLS_LIB") or fix.get("library") or ""
+    cands = [Path(env_lib).expanduser()] if env_lib else [Path(p) for p in config_libs()]
+    lib = next((p for p in cands if (p / "_cutskills" / "index.json").exists()
+                and any((p / c["asset"]).exists() for c in fix["cases"])), None)
+    if lib is None:
         print("  ℹ 素材库不在这台机器上，跳过真实素材用例（判据逻辑上面已经跑过）")
         return
     cases = fix["cases"]

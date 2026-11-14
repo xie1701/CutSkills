@@ -1,6 +1,6 @@
 {
-  "_note": "「字幕停留」判据的呼吸组样本（T-029，2026-11-13）。全部取自本机真实素材：src_in 是素材绝对时间（秒），dur 是字幕窗口长度。跑法：python3 scripts/test_hold_breath.py。素材库默认 /Users/jerry/Downloads/柒造Video/素材，可用 CUTSKILLS_LIB 指到别处；素材不在本机时这几条会跳过（判据逻辑本身另有不出网的用例）。",
-  "library": "/Users/jerry/Downloads/柒造Video/素材",
+  "_note": "「字幕停留」判据的呼吸组样本（T-029，2026-11-13）。全部取自真实素材：src_in 是素材绝对时间（秒），dur 是字幕窗口长度。跑法：python3 scripts/test_hold_breath.py。素材库从 config.json 或 CUTSKILLS_LIB 自动定位；素材不在本机时跳过（判据逻辑本身另有离线用例）。",
+  "library": "",
   "cases": [
     {
       "id": "P1",

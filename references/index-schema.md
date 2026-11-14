@@ -44,7 +44,9 @@
 | `silence` | `[[start, end], …]`，-35dB / ≥0.4s 的静音段 |
 | `transcript` | `{engine, lang, phrases: [{start, end, text}], word_count, chunked, speech_ratio, lexicon_fixes}`；无语音为 `null` |
 | `text_head` | 转写开头的头 80 字，给 `search_library` 和人在 CSV 里扫一眼用；不打开 JSON 也能大概看出这支讲了什么 |
-| `bytes` | 字节数（算体积和存储估算用；和 `uid` 里的 size 同源，不要拿它判断变没变） |
+| `bytes` / `size_bytes` | 字节数（算体积和存储估算用；和 `uid` 里的 size 同源，不要拿它判断变没变） |
+| `usable` | 布尔值，该素材整体是否可直接入片（AI 配音或清洗过的片段标记为 `true`） |
+| `l0_seconds` | L0 元数据与抽帧探针耗时（秒） |
 | `segments` | 分级取用段；L2 合并后会覆盖 L0 的猜测 |
 | `l2_segments` | L2 写完的那些段的 `{in, out}` 区间清单；和 `segments` 分开存，是为了下次重扫 L0 时不把 agent 写的段覆盖掉 |
 | `renamed_at` | 最近一次被 `rename_assets.py` 改名的时戳。没改过就是 `null`；有它说明 `original_name` 才是原始编号 |

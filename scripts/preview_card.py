@@ -32,19 +32,13 @@ W, H, FPS = 1080, 1920, 30
 
 
 def _hf() -> str:
-    for c in (Path.home() / ".cutskills/npm/node_modules/.bin/hyperframes",
-              Path("/opt/homebrew/bin/hyperframes")):
-        if c.exists():
-            return str(c)
-    return "hyperframes"
+    from libs import hf_bin
+    return hf_bin()
 
 
 def _gsap() -> Path | None:
-    for c in (ROOT / "assets" / "gsap.min.js",
-              ROOT / "demo" / "pack-micro" / "hf" / "assets" / "gsap.min.js"):
-        if c.exists():
-            return c
-    return None
+    c = ROOT / "assets" / "gsap.min.js"
+    return c if c.exists() else None
 
 
 def _pack(name: str) -> dict:

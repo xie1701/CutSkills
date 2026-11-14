@@ -252,6 +252,43 @@
       "caveat": "遮罩比科技包弱，卡面后面的画面若过于花乱（杂树、人堆）字会吃不消，得挑挂角或退后",
       "preview": "styles/previews/P4-canton-warm.jpg",
       "status": "ready"
+    },
+    {
+      "id": "P5-viral-pop",
+      "name": "高赞网感（百万博主风）",
+      "one_line": "通透微对比调色 + 顶部磨砂胶囊标题条 + 鎏金渐变花字 + Q弹矢量贴纸",
+      "subtitle_system": {
+        "id": "single-line",
+        "desc": "单行 82px 高对比描边白字、无标点、硬切"
+      },
+      "mg_library": "cards-18",
+      "fx": [
+        "开场冲击推镜",
+        "硬切跳切",
+        "矢量情绪贴纸",
+        "鼓点卡点"
+      ],
+      "frame": "full",
+      "look": {
+        "palette": {
+          "ground": "#12100E",
+          "ink": "#FFFFFF",
+          "accent": "#FFE600",
+          "accent2": "#FF453A"
+        },
+        "type": {
+          "display": "NotoSansSC-Black",
+          "body": "NotoSansSC-SemiBold"
+        },
+        "radius": 22,
+        "stroke": 2,
+        "shadow": "soft-down"
+      },
+      "suits": "泛流量漏斗流破圈、避坑科普、干货盘点、高网感老板口播与零实拍AI出片",
+      "needs": "开篇前 3 秒必须有强结论或反差钩子；配 upbeat/warm 律动音乐卡点",
+      "caveat": "视觉抓人力极强，慢节奏文艺叙事慎用（文艺片选 P2-paper）",
+      "preview": "styles/previews/P5-viral-pop.jpg",
+      "status": "ready"
     }
   ]
 }

@@ -32,7 +32,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from make_edl import resolve_lib  # noqa: E402
+from libs import resolve_lib  # noqa: E402
 
 REJUDGE = re.compile(r"其实|不是|别|千万|记住|关键|问题是|说到底|本质")
 HOOK_MAX_S = 3.6

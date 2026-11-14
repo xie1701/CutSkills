@@ -39,14 +39,15 @@ SPEECH_PCT = 90       # 用窗口内 RMS 的 90 分位当「说话电平」
 REL_DB = -24.0        # 低于说话电平 24dB 才算没声音
 ABS_FLOOR = -70.0     # 绝对下限：整个窗口都低于这个，说明根本没有说话
 
-_CACHE_DIR = Path("~/.cutskills/cache/silence").expanduser()
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from libs import cutskills_home, ffmpeg_bin  # noqa: E402
+
+_CACHE_DIR = cutskills_home() / "cache" / "silence"
 _MEM: dict[str, list[tuple[float, float]]] = {}
 
 
 def _ffmpeg() -> str:
-    import shutil
-    c = Path("~/.cutskills/opt/ffmpeg-zimg/bin/ffmpeg").expanduser()
-    return str(c) if c.exists() else (shutil.which("ffmpeg") or "ffmpeg")
+    return ffmpeg_bin()
 
 
 def _envelope(src: Path, i: float, o: float) -> list[float] | None:

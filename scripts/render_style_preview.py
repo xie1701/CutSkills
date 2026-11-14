@@ -244,11 +244,8 @@ MG_AT = [2.0, 5.4, 9.2]          # 各卡中段：入场已经做完，看的才
 
 
 def _hf_bin() -> str:
-    for c in (Path.home() / ".cutskills/npm/node_modules/.bin/hyperframes",
-              Path("/opt/homebrew/bin/hyperframes")):
-        if c.exists():
-            return str(c)
-    return "hyperframes"
+    from libs import hf_bin
+    return hf_bin()
 
 
 def _gsap() -> Path | None:

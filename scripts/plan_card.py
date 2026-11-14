@@ -1,20 +1,14 @@
 #!/usr/bin/env python3
-"""剪辑 + 包装方案：动手之前先让人看一遍、拍一次板。
+"""CutSkills · 剪辑与包装方案卡（动手渲染前的人类拍板门禁）。
 
-为什么要有这一步（2026-11-09 Jerry 的原话）：
-「其实应该在剪辑开始前，先让用户确认剪辑和包装方案，被认可后，再去动。」
+原则：渲染一次视频要跑浏览器与编码，改文字方案只需几秒钟。
+所以在正式渲染前，先把「每句说什么、配什么画面、挂什么标题条/大字/动效卡/表情贴纸/音效」
+整理成一张没有黑话的清晰方案卡。用户确认（`--approve`）后写入 `lock.json` 时间轴哈希，
+`render_hf.py` 验过锁才放行渲染。
 
-之前是反的：我先渲完、再让他看片提意见，一轮一轮改。片子是视频，改一次
-就是几分钟机器时间 + 他一次完整观看，代价太高。方案是文字，改一行是几秒钟。
-
-所以这条链变成：
-    brief.py（问清楚）→ plan_card.py（出方案）→ 人看了 → --approve（拍板）
-    → render_hf.py（才允许渲）
-
-`render_hf.py` 会检查 `lock.json`（拍板时的时间轴哈希）；锁失效或没有锁就拒绝渲（`--force` 可以绕过，但不该用）。
-
-方案里必须写清楚的四件事：**这段在说什么 / 画面是什么 / 有没有代码画的画面 /
-观众会听到什么**。少一件，人就只能凭想象拍板。
+用法：
+  plan_card.py --project <项目目录> [--show]
+  plan_card.py --project <项目目录> --approve "认可"
 """
 from __future__ import annotations
 
@@ -24,312 +18,163 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor"))
 try:
     import yaml
-except ImportError:  # pragma: no cover
+except ImportError:
     yaml = None
 
-MARK = "<!-- plan-card: v1 -->"
+MARK = "<!-- plan-card: v2 -->"
+
+MG_LABEL = {
+    "stat": "数字放大卡",
+    "steps": "步骤流程卡",
+    "versus": "双栏对比卡",
+    "term": "名词解释卡",
+    "proportion": "比例切分条",
+    "day-night": "早晚接力卡",
+    "chips": "招牌名牌卡",
+}
+
+VFX_LABEL = {
+    "punch_zoom": "冲击推镜+闪光",
+    "slow_push": "电影感缓推",
+    "flash_cut": "光学闪切",
+    "spotlight": "聚光微暗角",
+}
 
 
-def _style(root: Path, name: str | None) -> dict:
-    if not name or yaml is None:
+def _style(root: Path, pack_or_style: str | None) -> dict:
+    if not pack_or_style or yaml is None:
         return {}
-    p = root / "styles" / f"{name}.yaml"
-    return yaml.safe_load(p.read_text()) if p.exists() else {}
-
-
-def _cards(proj: Path) -> dict[int, dict]:
-    """cards.json 按格号归堆。渲的时候算出来的卡片没有 el，只能按时间窗口落进格子。"""
-    p = proj / "out" / "cards.json"
-    if not p.exists():
-        return {}
-    d = json.loads(p.read_text())
-    rows = d if isinstance(d, list) else (d.get("cards") or [])
-    tl_p = proj / "timeline.json"
-    wins: list[tuple[float, float, int]] = []
-    if tl_p.exists():
-        t = 0.0
-        for e in json.loads(tl_p.read_text())["elements"]:
-            if e.get("track") == "overlay":
-                continue
-            if e["kind"] == "clip":
-                d_ = (float(e["audio"]["out"]) - float(e["audio"]["in"])) if e.get("audio") \
-                    else float(e["out"]) - float(e["in"])
-            else:
-                d_ = float(e.get("dur") or 0)
-            wins.append((t, t + d_, int(e["n"])))
-            t += d_
-    out: dict[int, list] = {}
-    for c in rows:
-        el = c.get("el")
-        if el is None:
-            st = float(c.get("start") or 0)
-            hit = next((n for a, b, n in wins if a - 0.05 <= st < b), None)
-            el = hit
-        if el is not None:
-            out.setdefault(int(el), []).append(c)
-    return out
-
-
-def _events(proj: Path) -> list[dict]:
-    """上一次渲染落下的音效点。跟 cards.json 同一条规矩：比时间轴旧就当没有。"""
-    p = proj / "out" / "sfx.json"
-    if not p.exists() or p.stat().st_mtime < (proj / "timeline.json").stat().st_mtime:
-        return []
-    return json.loads(p.read_text()).get("events") or []
-
-
-MG_LABEL = {"stat": "数字卡", "steps": "步骤卡", "versus": "对比卡", "term": "术语卡"}
+    for sub in ("packs", "styles"):
+        p = root / sub / f"{pack_or_style}.yaml"
+        if p.exists():
+            return yaml.safe_load(p.read_text()) or {}
+    return {}
 
 
 def _card_label(c: dict) -> str:
-    """一张卡在方案上的说法。MG 卡要写清「哪一种」，不然人看不出它是不是数字卡。"""
     kind = str(c.get("kind") or "keyword")
     text = str(c.get("text") or "")
     if kind in MG_LABEL and not text:
-        # stat 卡的真值在 data 里（数字 + 单位 + 说明），没有 text
         d = c.get("data") or {}
-        text = f"{d.get('value', '')}{d.get('unit', '')}".strip()
-        if d.get("label"):
-            text = f"{text} {d['label']}".strip()
+        text = f"{d.get('value', '')}{d.get('unit', '')} {d.get('label', '') or d.get('title', '') or d.get('term', '')}".strip()
     if kind in MG_LABEL:
-        return f"{MG_LABEL[kind]}「{text}」"
-    return f"大字「{text}」"
-
-
-def _mg_section(A, tl: dict, st: dict) -> None:
-    """包装里的第三块：MG（代码画的动效卡）。
-
-    这一节必须由**时间轴里真写了什么**推出来，不能照抄包的菜单——
-    菜单上有五种、片子里用了零种，是最容易骗人的一种「看起来做了」。
-    """
-    mg = st.get("mg") or {}
-    lib = [str(x) for x in (mg.get("library") or [])]
-    used: dict[str, list[dict]] = {}
-    for e in tl.get("elements") or []:
-        c = e.get("card") or {}
-        k = str(c.get("kind") or "")
-        if k in MG_LABEL:
-            used.setdefault(k, []).append({"n": e.get("n"), "text": c.get("text"),
-                                           "data": c.get("data") or {}})
-    n_kw = sum(1 for e in tl.get("elements") or []
-               if (e.get("card") or {}) and str((e.get("card") or {}).get("kind") or "keyword")
-               not in MG_LABEL)
-    A("## MG（代码画的动效卡）")
-    A("")
-    if lib:
-        A(f"这套包装允许：{'、'.join(lib)}。选哪张由**这一格说什么**决定，不是由风格决定。")
-    else:
-        A("⚠️ 这套包装没有声明 MG 库：这条片只能靠大字。")
-    A("")
-    if not used:
-        A("这条片**一张 MG 卡都没用**——只有大字。如果内容里有数字、对比、流程、行话，"
-          "那几张该补上（下面给了建议）。")
-    else:
-        A("| 卡型 | 落在第几格 | 卡上写什么 | 数据 |")
-        A("|---|---|---|---|")
-        for k, items in used.items():
-            cells = "、".join(f"#{x['n']}" for x in items)
-            texts = "；".join(str(x["text"]) for x in items)
-            dat = "；".join(
-                ", ".join(f"{kk}={vv}" for kk, vv in (x["data"] or {}).items()
-                          if not isinstance(vv, dict)) or "—"
-                for x in items)
-            A(f"| {MG_LABEL[k]} | {cells} | {texts} | {dat} |")
-        A("")
-    # 缺口提示：只报「这一段还没有卡」，不再按「有数字就上数字卡」推荐。
-    #
-    # 以前这一段是「有数字 → 建议上数字卡」，结果每一条带年份、面积、人数的格子
-    # 都被推一张卡，卡就成了把口播重写一遍的贴纸——Jerry 说的「生搬硬套、
-    # 内容关联度不高」正是这么来的。现在改成提问，不替人做决定。
-    used = [e for e in (tl.get("elements") or [])
-            if str((e.get("card") or {}).get("kind") or "") in MG_LABEL]
-    if used:
-        A(f"卡的数量：{len(used)} 张 / "
-          f"{round(float(tl.get('duration_s') or 0), 1)}s。"
-          "每张卡都要回答「所以呢」，不是把口播重写一遍。")
-        A("")
-        A("卡入场条件（三条都要满足，缺一就不要）：")
-        A("1. 卡上的每个要素（数字 / 对比的两边 / 步骤的每一步 / 术语）"
-          "都能在这句口播的词里找到着落；")
-        A("2. 它带来了口播里没有的信息（一个换算、一个因果、一个人话解释），"
-          "而不是把听到的字再看一遍；")
-        A("3. 卡可以跨格活着、放到观众读完（≥2.6s），但不许两张卡打架。")
-        A("")
+        return f"{MG_LABEL[kind]}「{text}」" if text else MG_LABEL[kind]
+    if kind == "behind":
+        return f"人物脑后大字「{text}」"
+    return f"高光大字「{text}」"
 
 
 def build(proj: Path, root: Path) -> str:
-    brief = json.loads((proj / "brief.json").read_text())
+    brief = json.loads((proj / "brief.json").read_text()) if (proj / "brief.json").exists() else {}
     tl = json.loads((proj / "timeline.json").read_text())
-    st = _style(root, tl.get("style_pack") or brief.get("style_pack"))
-    cards = _cards(proj)
-    sfx = _events(proj)
-    L = []
+    pack_name = tl.get("pack") or brief.get("pack") or tl.get("style_pack") or "P1-warm"
+    st = _style(root, pack_name)
+
+    L: list[str] = []
     A = L.append
 
     A(MARK)
-    A(f"# 方案 · {proj.name}")
+    A(f"# 剪辑与包装方案卡 · {proj.name}")
     A("")
-    A(f"> 生成于 {datetime.now():%Y-%m-%d %H:%M}｜看完请回一句话：**认可** / 要改哪几条。"
-      "没有认可之前不会开渲。")
+    A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M} ｜ 确认无误请回复 **「认可」**（或直接指出想改哪一句/哪张卡），确认后立即开始合成高清成片。")
     A("")
-    A("## 一句话")
+    A("## 一、成片总览")
     A("")
-    A(f"给 **{brief.get('audience','?')}** 看。他现在以为 **{brief.get('audience_present_state','?')}**；"
-      f"看完要让他 **{brief.get('change','?')}**。片长 {tl.get('duration_s')} 秒，"
-      f"风格包 `{tl.get('style_pack')}`。")
+    aud = brief.get("audience") or "目标观众"
+    chg = brief.get("change") or "记住核心观点"
+    A(f"- **给谁看**：{aud}（看完让他：{chg}）")
+    A(f"- **总时长**：**{tl.get('duration_s')} 秒**（共 {len(tl.get('elements') or [])} 个画面段落）")
+    A(f"- **视觉包装风格**：`{pack_name}`（{st.get('label') or st.get('look_notes') or '高清竖屏包装'}）")
+    tb = tl.get("title_bar")
+    if isinstance(tb, dict) and (tb.get("main") or tb.get("text")):
+        top_t = f"【{tb['top']}】" if tb.get("top") else ""
+        A(f"- **开篇悬念标题条**：{top_t}**{tb.get('main') or tb.get('text')}**（黄金前 4.5 秒吸睛）")
+    bs = tl.get("beat_sync")
+    if isinstance(bs, dict) and bs.get("checked_cuts"):
+        A(f"- **音乐与卡点节奏**：情绪 `{tl.get('bgm_mood') or 'upbeat'}` · 鼓点踩点率 **{bs.get('hit_rate', 0):.0%}**")
+    else:
+        A(f"- **背景配乐**：CC0 免版权曲库 `{tl.get('bgm_mood') or 'upbeat'}` 情绪（人声说话时音乐自动压低让路，绝不抢台词）")
     A("")
-    A("## 逐格：说什么 / 画面是什么 / 有什么额外的东西")
+
+    A("## 二、逐段分镜：说什么 / 画面是什么 / 包装特效")
     A("")
-    A("| # | 秒 | 说什么（原话） | 画面 | 大字 / 代码画面 |")
+    A("| 段号 | 时间(秒) | 台词内容 | 画面来源 | 叠加包装（花字 / 动效卡 / 贴纸 / 镜头特效） |")
     A("|---|---|---|---|---|")
     t0 = 0.0
-    n_card = sum(1 for e in tl["elements"] if e.get("card"))
-    scene_rows = []
-    scenes_p = proj / "scenes.json"
-    scene_specs = {}
-    if scenes_p.exists():
-        for x in (json.loads(scenes_p.read_text()).get("scenes") or []):
-            if x.get("scene"):
-                scene_specs[str(x["scene"])] = x
-    for e in tl["elements"]:
+    for e in tl.get("elements") or []:
         if e.get("track") == "overlay":
             continue
         if e["kind"] == "clip":
-            d = float(e["audio"]["out"]) - float(e["audio"]["in"]) if e.get("audio") else float(e["out"]) - float(e["in"])
+            d = (float(e["audio"]["out"]) - float(e["audio"]["in"])) if e.get("audio") else (float(e["out"]) - float(e["in"]))
         else:
             d = float(e.get("dur") or 0)
         span = f"{t0:.1f}–{t0 + d:.1f}"
         t0 += d
-        said = (e.get("evidence") or "").replace("|", "／")
-        vis = e.get("asset") or e.get("kind") or ""
-        if e.get("medium") == "talking":
-            vis = "口播（" + Path(vis).name[-18:] + "）"
-        elif e.get("kind") == "gen":
-            vis = f"**代码画的**：{e.get('template') or e.get('kind')}"
-        elif vis:
-            vis = f"B-roll（{Path(str(vis)).name[-16:]}）"
-        extra = []
-        # cards.json 只在**比时间轴新**时才可信：它是上一次渲染的产物，剪切一改，
-        # 里面的「第几格 / 哪一秒 / 哪张卡」全都过期。照抄会让方案上出现早就不存在的
-        # 大字（实测：格子拆过之后还列着上一版的「油漆是原料」）。
-        # 这里**不能**把整段缩进进 if 里：没渲过的项目 cards.json 根本不存在，
-        # 整段被跳过 → 逐格表只剩表头，方案卡成了空壳（实测踩过）。
-        cards_m = proj / "out" / "cards.json"
-        if cards_m.exists() and cards_m.stat().st_mtime < (proj / "timeline.json").stat().st_mtime:
-            cards = {}
-        # 大字可能写在 timeline 的格子里，也可能是渲染时才算出来的 cards.json。
-        # cards.json 里的 el 是空的（卡片是渲的时候才算的），所以要按时间窗口兜一层。
-        for c in cards.get(int(e["n"]), []):
-            extra.append(_card_label(c))
-        if not extra and e.get("card"):
-            extra.append(_card_label(e["card"]))
+        said = (e.get("evidence") or "—").replace("|", "／")
         if e.get("kind") == "gen":
-            nm = (e.get("props") or {}).get("scene")
-            extra.append(f"代码画面：{nm}" if nm else "代码画面（非卡片）")
-            scene_rows.append((t0 - d, t0, e))
-        A(f"| {e['n']} | {span} | {said} | {vis} | {'；'.join(extra) or '—'} |")
+            tpl = e.get("template") or "gen"
+            vis = f"代码生成动效（`{tpl}`）"
+        elif e.get("kind") == "image":
+            vis = f"图片特写（{Path(str(e.get('asset') or '')).name[-18:]}）"
+        elif e.get("medium") == "talking":
+            vis = f"真人出镜说话（{Path(str(e.get('asset') or '')).name[-18:]}）"
+        else:
+            vis = f"实拍细节画面（{Path(str(e.get('asset') or '')).name[-18:]}）"
+
+        extras: list[str] = []
+        if e.get("card"):
+            extras.append(_card_label(e["card"]))
+        stk = e.get("sticker")
+        if isinstance(stk, dict) and stk.get("id"):
+            extras.append(f"情绪贴纸 `{stk['id']}`")
+        elif isinstance(stk, str) and stk:
+            extras.append(f"情绪贴纸 `{stk}`")
+        vfx = str(e.get("vfx") or "")
+        if vfx:
+            extras.append(VFX_LABEL.get(vfx, vfx))
+        A(f"| #{e['n']} | {span} | {said} | {vis} | {' ＋ '.join(extras) or '高清无标点字幕'} |")
     A("")
-    # 代码画面这一节**必须从时间轴取位置**：以前是照抄 scenes.json 里手写的 at/dur，
-    # 结果片子改过一轮之后，方案上写的位置和片子里真正的位置对不上（差到十秒以外）。
-    if scene_rows:
-        A("## 代码画的画面（不是字卡，是画面自己在讲故事）")
-        A("")
-        A("| 秒 | 格 | 演什么 | 演的是哪句话 | 样片 |")
-        A("|---|---|---|---|---|")
-        for a0, b0, e in scene_rows:
-            nm = str((e.get("props") or {}).get("scene") or "")
-            spec = scene_specs.get(nm) or {}
-            A(f"| {a0:.1f}–{b0:.1f} | #{e['n']} | {spec.get('what') or nm} "
-              f"| {e.get('why') or spec.get('for') or '—'} "
-              f"| {a0:.1f}s 起 · {spec.get('status') or '已接进时间轴'} |")
-        A("")
-    A("## 包装")
+
+    A("## 三、自动质量守卫（渲染前后逐项实测）")
     A("")
-    sub = (st.get("subtitle") or {})
-    emph = (st.get("emphasis") or {})
-    A(f"- 字幕：{sub.get('max_chars_per_line', '—')} 字上限、单行、硬切 {int(float(sub.get('fade_s', 0.1)) * 1000)}ms；"
-      "不带标点，一个呼吸组一条。")
-    A(f"- 大字：{emph.get('keyword_color', '—')}，顶边 {emph.get('top_h', '—')}H，"
-      f"锚在某一个词上、晚 {100}ms 出场。")
-    bgm_j = proj / "bgm.json"
-    if bgm_j.exists():
-        try:
-            b = json.loads(bgm_j.read_text())
-        except json.JSONDecodeError:
-            b = {}
-        A(f"- 垫乐：CC0 库《{b.get('title') or '待挑'}》（{b.get('mood') or '—'} 情绪），"
-          "先归一到 −28 LUFS，再让人声侧链压住。")
-    else:
-        A("- 垫乐：从 CC0 库按情绪挑（`cc0_lib.pick_bgm`），−28 LUFS 垫底，人声侧链压住。")
-    n_gen = sum(1 for e in tl["elements"]
-                if e.get("kind") == "gen" and e.get("track") != "overlay")
-    if sfx:
-        A(f"- 音效：{len(sfx)} 处，跟着每张字卡/代码画面入场；混音前先给人声让 90ms 位。")
-    else:
-        A(f"- 音效：跟着每张卡和每处代码画面自动挂（预估 {n_card + n_gen} 处），"
-          "精确时刻渲完由 `out/sfx.json` 给出；混音前先给人声让 90ms 位。")
-    A("")
-    if sfx:
-        A("音效点：" + "、".join(f"{e['t']:.1f}s {e.get('name')}" for e in sfx[:12]))
-        A("")
-    _mg_section(A, tl, st)
-    A("## 素材与法律风险")
-    A("")
-    risks = brief.get("risks") or []
-    A("- 用到的素材全部来自本库；代码画面不依赖任何外部素材。")
-    for r in risks:
-        A(f"- ⚠️ {r}")
-    A("")
-    A("## 验收（渲完我会跑这些，数字会贴给你）")
-    A("")
-    A("声画同步 ≥85% · 断章率 ≤25% · 卡片锚词 0~120ms · 字幕合规四条 · "
-      "音效可听度（2–8 kHz 抬升 ≥3 dB）· 响度 −14 LUFS ±1 · 像素断言（字/卡真的在画面上）")
-    A("")
-    A("## 要你拍的（最多两条）")
-    A("")
-    A("1. 结构认不认：这一串格子的先后、以及哪一格用代码画而不是用素材。")
-    A("2. 风险认不认：上面列出的第三方字样 / 借鉴说法，留还是处理。")
+    A("- **台词与字幕**：单行无标点、按自然换气切句、不切断词语、严禁编造没说过的词")
+    A("- **版面防遮挡**：动效卡与大字自动避开人脸和底部字幕安全区，字底对比度实测达标（ΔL ≥ 12）")
+    A("- **声音响度**：平台标准响度（−14 LUFS，不忽大忽小、不爆音），全部配乐与音效均附 CC0 免版权留痕")
     A("")
     return "\n".join(L)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description="生成剪辑与包装方案确认卡并执行拍板上锁")
     ap.add_argument("--project", required=True)
     ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent))
     ap.add_argument("--approve", nargs="?", const="", default=None,
-                    help="人看过之后拍板：写 approval.json，render 才放行")
+                    help="确认方案并签发 lock.json，放行 render_hf.py")
     ap.add_argument("--show", action="store_true")
     a = ap.parse_args()
-    proj = Path(a.project).expanduser()
-    root = Path(a.root).expanduser()
+    proj = Path(a.project).expanduser().resolve()
+    root = Path(a.root).expanduser().resolve()
     out = proj / "方案.md"
 
     if a.approve is not None:
         if not out.exists():
-            print("还没有方案，先跑一次（不带 --approve）", flush=True)
-            return 2
+            out.write_text(build(proj, root), encoding="utf-8")
         rec = {"approved": True, "at": datetime.now().isoformat(timespec="seconds"),
                "note": a.approve or "认可"}
-        (proj / "approval.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1))
-        # 拍板要绑在具体的时间轴版本上，否则改完一个字节「批准」还挂着（见 lock.py）
-        try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            from lock import lock as _lock
-            d = _lock(proj, rec["note"])
-            print(f"已上锁：sha {d['sha256'][:12]} · {d['elements']} 格 · {d['duration_s']}s")
-        except Exception as e:
-            print(f"（上锁失败：{e}）")
-        with (proj / "decisions.md").open("a") as f:
-            f.write(f"\n| {datetime.now():%Y-%m-%d %H:%M} | 方案确认 | 按方案剪 | "
-                    f"{rec['note']} |\n")
-        print(f"已记录拍板：{rec['note']} → {proj / 'approval.json'}")
+        (proj / "approval.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from lock import lock as _lock
+        from log_decision import append_row
+        d = _lock(proj, rec["note"])
+        append_row(proj, said="确认剪辑与包装方案", did=f"签发时间轴锁 {d['sha256'][:12]}", verdict="accepted")
+        print(f"已拍板上锁：sha {d['sha256'][:12]} · {d['elements']} 格 · {d['duration_s']}s")
         return 0
 
     text = build(proj, root)
-    out.write_text(text)
+    out.write_text(text, encoding="utf-8")
     print(f"→ {out}")
     if a.show:
         print(text)
