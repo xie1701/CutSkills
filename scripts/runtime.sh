@@ -137,7 +137,7 @@ cmd_check() {
     fi
   fi
   # 前端运行时 gsap：2026-11-13 复核撞上——render_hf 里写死的 vendor 路径
-  # (/Users/jerry/.agents/skills/talking-head-recut/...) 本机已不存在，新建项目走到这一步
+  # （某个已删除的 skill 目录里的 vendor 副本）本机已不存在，新建项目走到这一步
   # 直接 SystemExit("缺 gsap")，而有 hf/assets/ 缓存的老项目完全看不出问题。
   echo "前端运行时（gsap）："
   REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

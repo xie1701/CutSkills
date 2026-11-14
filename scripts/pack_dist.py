@@ -2,15 +2,14 @@
 """把仓库打成可复制的分发包：CutSkills-<日期>.zip
 
 包 = `git archive HEAD`（只含已跟踪文件，天然不带渲染中间物与 config.json）
-  + SKILL.md（AI 工位读的完整说明书，从 Cola 侧入口复制进来）
-  + GETTING-STARTED.md、config.example.json（git archive 已含，这里只校验）
+  + 已含 SKILL.md（AI 工位说明书）、GETTING-STARTED.md、config.example.json（打完自检）
 
 用法：
   python3 scripts/pack_dist.py            # 打到 ~/Downloads/CutSkills-dist/
   python3 scripts/pack_dist.py --out DIR
 
 打完自检：zip 能解开、SKILL.md 与 GETTING-STARTED.md 在包根、
-包内 grep 不到任何 /Users/jerry 私有路径。
+包内 grep 不到任何写死的家目录路径。
 """
 from __future__ import annotations
 
@@ -23,7 +22,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-SKILL_MD = Path.home() / ".cola" / "skills" / "cutskills" / "SKILL.md"
 
 
 def main() -> int:
@@ -43,12 +41,11 @@ def main() -> int:
         return 2
     zpath.write_bytes(r.stdout)
 
-    # 2) 追加工位说明书（不进 git，是 Cola 侧的入口文档）
-    with zipfile.ZipFile(zpath, "a", zipfile.ZIP_DEFLATED) as z:
-        if SKILL_MD.exists():
-            z.write(SKILL_MD, "SKILL.md")
-        for must in ("GETTING-STARTED.md", "config.example.json"):
-            if not any(n == must for n in z.namelist()):
+    # 2) 关键文件校验（SKILL.md 工位说明书、上手页、配置样例都随 git 走，不另拼）
+    with zipfile.ZipFile(zpath) as z:
+        names = z.namelist()
+        for must in ("SKILL.md", "GETTING-STARTED.md", "config.example.json"):
+            if not any(n == must for n in names):
                 print(f"包里缺 {must}，先提交它", file=sys.stderr)
                 return 2
 

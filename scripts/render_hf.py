@@ -1014,7 +1014,7 @@ MASK_BIN = Path(__file__).resolve().parent / "native" / "person_mask"
 def GSAP_CANDIDATES() -> list[Path]:
     """gsap.min.js 的候选位置，按「离仓库近」排序。
 
-    以前这里写死 `/Users/jerry/.agents/skills/talking-head-recut/...`——那台机器换了工具链之后
+    以前这里写死某个 skill 目录里的 vendor 副本——那台机器换了工具链之后
     路径就没了，新建项目一走到这一步直接 `SystemExit("缺 gsap")`，而已有项目因为 hf/assets/ 里
     早拷过一份所以完全看不出问题（2026-11-13 T-018 复核时撞上）。所以改成候选表：
     仓库自带的优先，其次几个 skill 目录里的副本。

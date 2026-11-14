@@ -12,9 +12,12 @@
  */
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('/Users/jerry/.cutskills/npm/node_modules/puppeteer-core');
+const puppeteer = require(process.env.CUTSKILLS_PUPPETEER
+  || (process.env.CUTSKILLS_HOME || path.join(require('os').homedir(), '.cutskills'))
+      + '/npm/node_modules/puppeteer-core');
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = process.env.CUTSKILLS_CHROME
+  || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 (async () => {
   const [html, outDir] = process.argv.slice(2);

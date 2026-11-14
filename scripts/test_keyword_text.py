@@ -38,7 +38,8 @@ W, H = 1080, 1920
 FACE = [0.368, 0.294, 0.194, 0.109]
 TEXT = "四张图，介绍布局"
 DUR = 1.0
-REAL = Path("/Users/jerry/Downloads/ouyangTestCut/_cutskills/projects/dianzan-c")
+from libs import find_project  # noqa: E402
+REAL = find_project("dianzan-c") or Path("/nonexistent/dianzan-c")
 
 BASE_PACK = """
 name: {name}

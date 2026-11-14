@@ -242,13 +242,16 @@ def test_timeline_integration():
 
 
 def test_real_projects():
-    lib_index_f = Path("/Users/jerry/Downloads/柒造Video/素材/_cutskills/index.json")
-    if not lib_index_f.exists():
-        print("  ℹ 素材库 index 不存在，跳过真实素材对账")
+    from libs import config_libs
+    lib_dir = next((Path(x) for x in config_libs()
+                    if (Path(x) / "_cutskills" / "index.json").exists()), None)
+    if not lib_dir:
+        print("  ℹ config.json 里没有带索引的素材库，跳过真实素材对账")
         return
 
+    lib_index_f = lib_dir / "_cutskills" / "index.json"
     real_index = {x["id"]: x for x in json.loads(lib_index_f.read_text())["assets"]}
-    pdir = Path("/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects")
+    pdir = lib_dir / "_cutskills" / "projects"
 
     # 对账 qizao-ground-01
     ground_tl_f = pdir / "qizao-ground-01" / "timeline.json"

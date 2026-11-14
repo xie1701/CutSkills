@@ -37,8 +37,9 @@ INK_ROWS = (115, 204)          # 大字墨迹纵向范围
 INK_W = 270                    # 每行约 270 px 有墨 → 90 行 ≈ 24 300 px，实测 24 320
 SCENE_ROWS = (268, 335)        # 带子里「本来就有的黄」，实测 682 px
 SCENE_W = 10
-FILM = Path("/Users/jerry/Downloads/柒造Video/素材/_cutskills/projects/"
-            "qizao-ground-01/out/film-hf.mp4")
+from libs import find_project  # noqa: E402
+_p = find_project("qizao-ground-01")
+FILM = (_p / "out" / "film-hf.mp4") if _p else Path("/nonexistent/film-hf.mp4")
 
 
 def frame(with_text: bool = True, scene: bool = True) -> Image.Image:

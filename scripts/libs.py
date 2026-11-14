@@ -118,3 +118,16 @@ def find_projects(libs: list[str]) -> list[Path]:
     return uniq
 
 
+
+
+def find_project(slug: str) -> Path | None:
+    """按名字在 config.json 声明的各库里找项目目录；找不到返回 None。
+
+    给测试与文档示例用：真语料在本机有就补跑，没有就明说跳过，
+    不许把路径写死在任何人的家目录里。
+    """
+    for lib in config_libs():
+        p = Path(lib) / "_cutskills" / "projects" / slug
+        if p.is_dir():
+            return p
+    return None
