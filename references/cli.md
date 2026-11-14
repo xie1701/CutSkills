@@ -328,6 +328,7 @@
 | `--root` | （默认 str(Path(__file__).resolve().parent.parent)） |
 | `--approve` | 确认方案并签发 lock.json，放行 render_hf.py |
 | `--show` | 开关 |
+| `--source` | 这次拍板是谁发起的：human（默认，人手确认）/ agent-revise（改片重签）等。审计口径：机器代签绝不能冒充人工确认点（默认 'human'） |
 
 ### `lock.py`
 *方案锁：拍板的那一刻，把时间轴钉死。*

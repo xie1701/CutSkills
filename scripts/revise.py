@@ -79,7 +79,7 @@ def locate(tl: dict, text: str) -> tuple[dict | None, str]:
     if "结尾" in text or "最后" in text:
         if els:
             return els[-1], f"结尾（第{els[-1].get('n')}格，{els[-1].get('template')}）"
-    if "中间" in text or "中段" in text and els:
+    if ("中间" in text or "中段" in text) and els:
         mid = (float(els[0].get("at") or 0) + float(els[-1].get("at") or 0)) / 2
         best = min(els, key=lambda e: abs(float(e.get("at") or 0) - mid))
         return best, f"中段（第{best.get('n')}格，{best.get('template')}，最接近片中点）"
@@ -102,14 +102,20 @@ def plan_change(el: dict, text: str) -> tuple[dict | None, str]:
     tpl = el.get("template")
     card = _card_of(el)
 
-    # ---- 音效
+    # ---- 音效（总幅夹在 ±9dB：累计十个「大声点」就是 +30dB，渲染必削波）
     if re.search(r"音效|声音特效", text) and re.search(r"小声|太吵|太闹|轻点|小一点|低点", text):
-        props["sfx_gain_offset"] = round(float(props.get("sfx_gain_offset") or 0) - 3.0, 2)
+        cur = float(props.get("sfx_gain_offset") or 0)
+        if cur - 3.0 < -9.0:
+            return None, f"音效已经压到 {cur:+.0f}dB，再压就不是「小声」是「没声」了——到此为止"
+        props["sfx_gain_offset"] = round(cur - 3.0, 2)
         return props, (f"第{el.get('n')}格音效整体 −3dB（累计 offset {props['sfx_gain_offset']}）"
                        "——提醒：音效变轻可能掉到可听度门禁（净抬升 ≥2.5dB）以下，"
                        "渲后把 check_sfx 读数念给用户，由用户拍板要不要回一点")
     if re.search(r"音效|声音特效", text) and re.search(r"大声|响点|明显|强点|大一点", text):
-        props["sfx_gain_offset"] = round(float(props.get("sfx_gain_offset") or 0) + 3.0, 2)
+        cur = float(props.get("sfx_gain_offset") or 0)
+        if cur + 3.0 > 9.0:
+            return None, f"音效已经加到 {cur:+.0f}dB，再往上就要削波了——到此为止"
+        props["sfx_gain_offset"] = round(cur + 3.0, 2)
         return props, f"第{el.get('n')}格音效整体 +3dB（累计 offset {props['sfx_gain_offset']}）"
 
     # ---- 贴纸
@@ -136,9 +142,19 @@ def plan_change(el: dict, text: str) -> tuple[dict | None, str]:
         return None, (f"当前这格文案是「{cur}」。把你想说的原话发我，"
                       "格式：结尾那张卡换成<你的原话>，我改完自动重渲。")
 
-    # ---- 文案（gen 卡）。注意：必须是「换成/改成」二选一，不能写成字符类 [换成|改成]
-    #（那是 换/成/|/改 任一字符，会把「换个说法，改成X」切成「个说法，改成X」）
-    m = re.search(r"(?:换成|改成|改写为)\s*[「『\"]?(\S.*?)[」』\"]?(?:[。？！]|$)", text)
+    # ---- 文案（gen 卡）。
+    # 两条纪律（2026-11-15 对抗审查 P1）：
+    #   ① 意图门控——「音效换成鼓点」「背景音乐换成轻快的」里的「换成」不是在改卡面文案，
+    #      这类指令必须拦在前面，绝不静默改卡面；
+    #   ② 「换成/改成」是二选一，不能写成字符类 [换成|改成]（那是 换/成/|/改 任一字符，
+    #      会把「换个说法，改成X」切成「个说法，改成X」）；捕获组在标点处截断。
+    OTHER_INTENT = r"音效|音乐|背景乐|BGM|bgm|配音|口播|节奏|时长|贴纸|字幕|字色|颜色|字体"
+    if re.search(r"换成|改成|改写为", text) and re.search(OTHER_INTENT, text):
+        return None, ("这句「换成」听着不是改卡面文案（提到了音效/音乐/贴纸/节奏这类），"
+                      "我怕改错地方就没动手。改卡面请说「那张卡换成…」；"
+                      "改音效大小说「音效小声点/大声点」，换音效本身走 sound 库选型")
+    m = re.search(r"(?:换成|改成|改写为)\s*[「『\"]?([^。，,；;！!？?\n]+)",
+                  text)
     if m and re.search(r"换成|改成|改写为", text):
         new = m.group(1).strip()
         if not new:
@@ -243,7 +259,8 @@ def main() -> int:
     # 重签拍板锁（用户主动改片 = 新一次拍板；留痕在 revisions.jsonl）
     r = subprocess.run([sys.executable, str(HERE / "plan_card.py"),
                         "--project", str(proj),
-                        "--approve", f"改片重签：{a.instruction}"],
+                        "--approve", f"改片重签：{a.instruction}",
+                        "--source", "agent-revise"],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print(f"⚠ 拍板锁重签失败：{r.stderr[-300:]}", file=sys.stderr)
@@ -269,6 +286,10 @@ def main() -> int:
         f.write(json.dumps(rev, ensure_ascii=False) + "\n")
     tail = out.strip().splitlines()[-3:]
     print("\n".join(tail))
+    if r.returncode == 0:
+        print("⚠ 本次改片只跑了 check_timeline 静态守卫，**gate / scene_spec / check_sfx 都还没跑**——"
+              "由调用方（Agent）跑完把读数念给用户；改片重签在 decisions.md 里标了 agent-revise，"
+              "不冒充人工确认点。")
     return r.returncode
 
 

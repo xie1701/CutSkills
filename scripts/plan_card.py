@@ -154,6 +154,9 @@ def main() -> int:
     ap.add_argument("--approve", nargs="?", const="", default=None,
                     help="确认方案并签发 lock.json，放行 render_hf.py")
     ap.add_argument("--show", action="store_true")
+    ap.add_argument("--source", default="human",
+                    help="这次拍板是谁发起的：human（默认，人手确认）/ agent-revise（改片重签）等。"
+                         "审计口径：机器代签绝不能冒充人工确认点")
     a = ap.parse_args()
     proj = Path(a.project).expanduser().resolve()
     root = Path(a.root).expanduser().resolve()
@@ -163,13 +166,14 @@ def main() -> int:
         if not out.exists():
             out.write_text(build(proj, root), encoding="utf-8")
         rec = {"approved": True, "at": datetime.now().isoformat(timespec="seconds"),
-               "note": a.approve or "认可"}
+               "note": a.approve or "认可", "source": a.source}
         (proj / "approval.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from lock import lock as _lock
         from log_decision import append_row
         d = _lock(proj, rec["note"])
-        append_row(proj, said="确认剪辑与包装方案", did=f"签发时间轴锁 {d['sha256'][:12]}", verdict="accepted")
+        said = "确认剪辑与包装方案" if a.source == "human" else f"[{a.source}] {a.approve or '改片重签'}"
+        append_row(proj, said=said, did=f"签发时间轴锁 {d['sha256'][:12]}", verdict="accepted")
         print(f"已拍板上锁：sha {d['sha256'][:12]} · {d['elements']} 格 · {d['duration_s']}s")
         return 0
 

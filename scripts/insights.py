@@ -61,9 +61,16 @@ def _num(s: str, *, pct_col: bool = False) -> float | None:
     s = s.replace("%", "").replace(",", "").strip()
     if not s:
         return None
+    mul = 1.0
+    for unit, k in (("亿", 1e8), ("万", 1e4)):     # 平台导出常有「1.2万」
+        if s.endswith(unit):
+            s, mul = s[:-1].strip(), k
+            break
     try:
-        v = float(s)
+        v = float(s) * mul
     except ValueError:
+        return None
+    if v < 0:                        # 负播放/负互动只可能是坏数据，不许参与分位
         return None
     if pct:
         v /= 100.0
@@ -73,6 +80,10 @@ def _num(s: str, *, pct_col: bool = False) -> float | None:
         elif v > 1.0:                # 1.0–1.5 之间不可能是有效占比，坏值
             return None
         # 0–1.5 的裸数按占比原样（0.40 → 0.4）
+        if v > 1.0:
+            return None
+    if pct_col and not (0.0 <= v <= 1.0):
+        return None                  # 「占比」列归一后仍超出 0–100%：坏数据，不许进分位
     return v
 
 
@@ -125,6 +136,11 @@ def analyze(rows: list[dict]) -> dict:
     # 信号① 完播分差：赢家 vs 输家的平均观看占比差
     w_watch = [r["watch"] for r in winners if r["watch"] is not None]
     l_watch = [r["watch"] for r in losers if r["watch"] is not None]
+    n_watch = sum(1 for r in rows if r["watch"] is not None)
+    if n_watch < 3:
+        out["warnings"].append(
+            f"只有 {n_watch} 条能用的观看占比（空值/单位对不上的已剔除）——"
+            "完播类信号这条给不出结论，补上这列再说")
     if w_watch and l_watch:
         d = statistics.mean(w_watch) - statistics.mean(l_watch)
         sig = {"name": "完播分差", "value": round(d, 3)}
@@ -202,8 +218,9 @@ def render_report(an: dict, rows: list[dict]) -> str:
               "| 标题 | 播放 | 观看占比 | 互动率% | 类型 |", "|---|---:|---:|---:|---|"]
         for r in sorted(rows, key=lambda x: -x["views"])[:10]:
             w = f"{r['watch'] * 100:.0f}%" if r["watch"] is not None else "—"
-            L.append(f"| {r['title'][:24]} | {r['views']:.0f} | {w} | {r['inter_rate']} | "
-                     f"{r['topic_type'] or '—'} |")
+            safe = str(r["title"]).replace("|", "／").replace("\n", " ")[:24]
+            L.append(f"| {safe} | {r['views']:.0f} | {w} | {r['inter_rate']} | "
+                     f"{str(r['topic_type'] or '—').replace('|', '／')} |")
         L.append("")
     L += ["> 下一步闭环：把建议当**假设**——按下一条的选题做片、发布、再导数据回来，",
           "看信号是否兑现。连续两轮兑现的信号才值得固化成你的配比。", ""]

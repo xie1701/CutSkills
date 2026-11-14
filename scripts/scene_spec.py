@@ -36,40 +36,53 @@ REVIEW_OK = {"ok", "approved", "signed", "done"}
 
 
 def scene_sig(proj: Path, scene_id: str, spec: dict) -> dict:
-    """签收指纹：场景源码 SHA1 + 音效事件指纹（评审 G-04）。
+    """签收指纹：场景源码 SHA1 + 音效事件指纹 + 时间线（dur/marks）指纹。
 
-    签收不再是字符串口号：review 里必须同时存着「签收那一刻」的场景代码哈希与
-    音效事件指纹。代码改一个字节、锚点改一条，指纹就不再吻合，签收自动失效、
-    场景回到待审。没有代码文件的纯信息卡任务单不做此校验。
+    签收不再是字符串口号：review 里必须同时存着「签收那一刻」的三样东西。
+    代码改一个字节、锚点改一条、时间线改 0.05s，指纹就不再吻合，签收自动失效、
+    场景回到待审（评审 G-04 + §12.2 反证⑤）。
+
+    源码缺失的口径：**构造型场景（时间轴上真有 props.scene 在画它）源码被删不是
+    「没这回事」**——记 `scene_sha1="missing"` 让签收失效；纯信息卡从来就没有代码，
+    不记这一项（否则每个信息卡都会飙一条假过期）。2026-11-15 对抗审查 P2：
+    原来删掉已签收的 .py，签收会静默消失、还能被同名内置场景顶替。
     """
+    rv = spec.get("review") or {}
     src = proj / "scenes" / f"{scene_id}.py"
     out: dict = {}
+    is_drawn = bool(rv.get("scene_sha1"))     # 曾经签过代码 = 本来就该有代码
+    el = None
+    try:
+        tl = json.loads((proj / "timeline.json").read_text())
+        el = next((e for e in tl.get("elements") or []
+                   if (e.get("props") or {}).get("scene_spec") == scene_id
+                   or (e.get("props") or {}).get("scene") == scene_id), None)
+        if el is not None and (el.get("props") or {}).get("scene"):
+            is_drawn = True
+    except (OSError, ValueError, TypeError):
+        pass
     if src.exists():
         try:
             out["scene_sha1"] = hashlib.sha1(src.read_bytes()).hexdigest()[:12]
         except OSError:
             out["scene_sha1"] = "unreadable"
+    elif is_drawn:
+        out["scene_sha1"] = "missing"
     try:
         payload = json.dumps((spec.get("audio") or {}).get("events") or [],
                              ensure_ascii=False, sort_keys=True)
         out["events_sha1"] = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
     except (TypeError, ValueError):
         out["events_sha1"] = "unreadable"
-    # 时间线绑定（评审 §12.2 反证⑤）：场景元素在 timeline 里的 dur / marks 改动也必须
-    # 使签收失效——画面拍点变了、长度变了，旧签收就不能再背书新画面。
-    try:
-        tl = json.loads((proj / "timeline.json").read_text())
-        el = next((e for e in tl.get("elements") or []
-                   if (e.get("props") or {}).get("scene_spec") == scene_id
-                   or (e.get("props") or {}).get("scene") == scene_id), None)
-        if el is not None:
+    if el is not None:
+        try:
             tlp = json.dumps({"dur": el.get("dur"),
                               "marks": el.get("marks")
                               or (el.get("props") or {}).get("marks") or ""},
                              ensure_ascii=False, sort_keys=True)
             out["tl_sha1"] = hashlib.sha1(tlp.encode("utf-8")).hexdigest()[:12]
-    except (OSError, ValueError, TypeError, StopIteration):
-        pass                       # 没时间轴 / 纯信息卡：不绑定，保持旧行为
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -218,6 +231,15 @@ def main() -> int:
         spec = load(proj, sid)
         if spec is None:
             errs.append(f"gen-{el.get('n')} 引用的 scenes/{sid}.json 不存在")
+            continue
+        own_id = str(spec.get("scene_id") or "").strip()
+        if own_id and own_id != sid:
+            errs.append(f"gen-{el.get('n')} 引用的 scenes/{sid}.json 里 scene_id={own_id!r}"
+                        f"——文件名与自述不一致，签收无从谈起")
+            continue
+        if is_scene and str(props.get("scene") or "") != sid:
+            errs.append(f"gen-{el.get('n')} 的 props.scene={props.get('scene')!r} 与 "
+                        f"props.scene_spec={sid!r} 不是同一个场景——任务单对错了画面")
             continue
         n_checked += 1
         dur = float(el.get("dur") or (el.get("out", 0) - el.get("in", 0)))

@@ -47,9 +47,15 @@ def _spec_json(sid: str) -> str:
 
 
 def test_g01_new_scene_routes():
-    """G-01：项目级新场景（注册表里没有的名字）能从 scene_mp4 真渲出 mp4。"""
+    """G-01：项目级新场景（注册表里没有的名字）能从 scene_mp4 真渲出 mp4。
+
+    2026-11-15 对抗审查：临时目录必须落在 **/Users 下**——沙箱 profile 曾因
+    `deny /Users` 压过 `allow out.parent` 让真实项目场景一律渲染失败，而测试跑在
+    /var/folders 全绿，掩盖了 P0。用 home 下的临时目录防止再次「绿得虚假」。
+    """
     import render_hf
-    with tempfile.TemporaryDirectory(prefix="g01-") as td:
+    td = tempfile.mkdtemp(prefix="g01-", dir=str(Path.home()))
+    try:
         proj = Path(td)
         (proj / "scenes").mkdir()
         (proj / "hf" / "clips").mkdir(parents=True)
@@ -58,7 +64,9 @@ def test_g01_new_scene_routes():
         el = {"n": 1, "props": {"scene": "brand_new_scene"}, "dur": 0.5}
         out = render_hf.scene_mp4(proj, el, FPS=30, W=480, H=854)
         assert out.exists() and out.stat().st_size > 4096, f"新场景没渲出：{out}"
-        print("  ✅ G-01 项目级新场景直接进沙箱渲出 mp4")
+        print("  ✅ G-01 项目级新场景直接进沙箱渲出 mp4（/Users 下真实路径）")
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
 
 
 def test_g02_no_dir_scan():
@@ -69,9 +77,12 @@ def test_g02_no_dir_scan():
         marker = Path(td) / "MARKER.txt"
         (scenes / "target.py").write_text(
             GOOD_SCENE.replace("{sid}", "target"), encoding="utf-8")
+        # 冒名文件必须**语法合法**：副作用行插在 __future__ 之后（否则 SyntaxError，
+        # 「冒名也不许过」这条断言永远走不到真路径——2026-11-15 对抗审查 P2）
+        body = GOOD_SCENE.replace("{sid}", "NOT_target")
+        first, rest = body.split("\n", 1)
         (scenes / "sneaky.py").write_text(
-            f"MARKER = {json.dumps(str(marker))!r}\n"
-            "open(MARKER, 'w').write('pwned')\n" + GOOD_SCENE.replace("{sid}", "target"),
+            first + "\n" + f"open({json.dumps(str(marker))!r}, 'w').write('pwned')\n" + rest,
             encoding="utf-8")
         out = Path(td) / "out.mp4"
         r = subprocess.run(

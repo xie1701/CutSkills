@@ -661,6 +661,27 @@ SCENES = {"phase": scene_phase, "pour": scene_pour,
           "measure": scene_measure, "lime": scene_lime}
 
 
+def _peek_scene_id(path: Path) -> str | None:
+    """只解析不执行：从源码里取出顶层 `SCENE_ID = "..."` 字面量。
+
+    2026-11-15 对抗审查 P2：原来的校验在 exec_module **之后**，冒名文件的顶层
+    代码已经执行完了才被拒——校验顺序反了。先 AST 拎出字面量比对，对不上就
+    一行都不执行。拿不到字面量（动态表达式）返回 None，由调用方拒绝。
+    """
+    import ast
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == "SCENE_ID":
+                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                        return node.value.value
+    return None
+
+
 def _load_scene_file(path: Path) -> tuple[str, object] | None:
     """从任意路径加载一个场景模块（项目级 AI 场景用），返回 (SCENE_ID, scene())。"""
     import importlib.util
@@ -839,6 +860,12 @@ def main() -> int:
     if a.scene_file:
         # 沙箱专用入口：只执行静态检查过的这一个文件，绝不扫目录（评审 G-02）。
         sf = Path(a.scene_file).expanduser().resolve()
+        # 先比名字、再执行：冒名文件的顶层代码一行都不许跑（2026-11-15 对抗审查 P2）
+        peek = _peek_scene_id(sf)
+        if peek != a.scene:
+            print(f"✗ 场景文件声明的 SCENE_ID={peek!r} 与请求的 --scene {a.scene!r} 不一致，"
+                  "拒绝加载（文件未执行）", file=sys.stderr)
+            return 2
         got = _load_scene_file(sf)
         if not got:
             print(f"✗ 场景文件加载失败：{sf}", file=sys.stderr)

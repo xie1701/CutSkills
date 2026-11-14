@@ -2553,9 +2553,11 @@ def gen_props_sfx(el: dict, proj: Path | None = None) -> list[dict]:
                                for e in raw]
                 spec_pairs = [(s["t"], s["name"]) for s in spec_events]
             except Exception as e:                        # noqa: BLE001
-                print(f"  ⚠ 任务单 scenes/{sid}.json 读不出（{e}）", file=sys.stderr)
-                spec_pairs = None
-                spec_events = None
+                # 任务单存在却读不出 = 唯一真值源坏了。原来只打警告就退回 props.events
+                # 照渲，等于给 G-05 留了一条旁路（2026-11-15 对抗审查 P2）。
+                raise SystemExit(
+                    f"✗ 任务单 scenes/{sid}.json 存在但读不出（{e}）——渲停。\n"
+                    "  音效事件的唯一真值源坏了，不能拿 props.events 顶替（那正是 G-05 要拦的）")
     if evs is None:
         if spec_events:
             evs = spec_events
@@ -2898,9 +2900,12 @@ def write_sfx_manifest(proj: Path, sfx_events: list[dict]) -> Path | None:
         sfx_rows.append(row)
 
     rows_all = [r for r in ([bgm_row] + sfx_rows) if r]
-    n_unverified = sum(1 for r in rows_all if r.get("licence") is None)
-    lic_all = {r.get("licence") for r in rows_all}
-    if lic_all == {"CC0 1.0 Universal"}:
+    n_unverified = sum(1 for r in rows_all if r.get("licence") is None
+                       and r.get("source") != "procedural")
+    lic_all = {r.get("licence") for r in rows_all if r.get("source") != "procedural"}
+    if not lic_all:
+        summary = "无可核验素材（全片音效/音乐均为本地代码合成）"
+    elif lic_all == {"CC0 1.0 Universal"}:
         summary = ("全部 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名）")
     else:
         summary = (f"存在未核验或非 CC0 来源（{n_unverified} 条 licence=None）："

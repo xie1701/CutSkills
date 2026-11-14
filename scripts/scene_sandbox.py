@@ -50,6 +50,13 @@ IMPORT_ALLOW = {
     # 宿主模块：场景读 --marks 拍点的唯一正道（gen_scene.marks 是 trusted host）
     "gen_scene",
 }
+# 但把整个 gen_scene 放进来等于连它的 subprocess/tempfile/os 一起送人——场景写
+# `import gen_scene; gen_scene.subprocess.run([...])` 静态检查零命中、沙箱里真跑
+# （2026-11-15 对抗审查 P1 已复现）。所以 import 可以，**属性只许这几个**。
+GEN_SCENE_API = {"marks", "MARKS"}
+# 反射类调用一律拒：getattr(gen_scene, "subprocess") 是绕过属性检查的后门
+BANNED_CALLS = {"system", "popen", "eval", "exec", "compile", "__import__",
+                "getattr", "setattr", "vars", "globals", "locals"}
 # 这些名字哪怕出现在 import 里也必拒（防御白名单将来误加）
 IMPORT_DENY = {
     "socket", "ssl", "urllib", "http", "ftplib", "telnetlib", "smtplib",
@@ -99,8 +106,15 @@ def static_check(scene_file: Path) -> list[str]:
         elif isinstance(node, ast.Call):
             f = node.func
             name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
-            if name in ("system", "popen", "eval", "exec", "compile", "__import__"):
+            if name in BANNED_CALLS:
                 bad.append(f"line {node.lineno}: 调用 {name}()（被禁调用）")
+        elif isinstance(node, ast.Attribute):
+            # gen_scene.subprocess / gen_scene.os 这类属性链：只许 GEN_SCENE_API
+            base = node.value
+            if (isinstance(base, ast.Name) and base.id == "gen_scene"
+                    and node.attr not in GEN_SCENE_API):
+                bad.append(f"line {node.lineno}: gen_scene.{node.attr}"
+                           f"（只许 {', '.join(sorted(GEN_SCENE_API))}）")
     return bad
 
 
@@ -118,21 +132,57 @@ def _limits(cpu_s: int):
 
 
 def _sandbox_profile(scratch: Path, out: Path) -> str | None:
-    """macOS seatbelt profile：默认放开本地执行、拒网、写盘只许工作目录与产物路径。"""
+    """macOS seatbelt profile：拒网 + 写盘只许工作目录与产物目录。
+
+    2026-11-15 对抗审查 P0：旧写法 `(allow default)` + `(deny file-write* /Users)`
+    自相矛盾——seatbelt 里 **deny 永远压过 allow**，于是
+    `(allow file-write* (subpath out.parent))` 对 /Users 下的产物路径全部失效，
+    真实项目（都在 /Users 下）的项目级场景一律 Operation not permitted；
+    而测试跑在 /var/folders 临时目录，掩盖了实况。
+    改为**显式放行**：不开 allow default，只白名单读/执行/必要写盘——
+    这才是「默认拒绝」的正确写法。
+    """
     if not shutil.which("sandbox-exec"):
         return None
     return (
         "(version 1)\n"
-        "(allow default)\n"
-        "(deny network*)\n"
-        f"(allow file-write* (subpath \"{scratch}\") (subpath \"{out.parent}\"))\n"
-        "(deny file-write* (subpath \"/Users\"))\n"
+        "(deny network*)\n"                     # 网络：一律拒（沙箱存在的主要理由）
+        "(allow file-read*)\n"                  # 读：python/numpy/PIL 要读系统库与场景源码
+        "(allow process-exec*)\n"               # 执行：ffmpeg / python 自身
+        "(allow process-fork)\n"
+        "(allow signal)\n"
+        "(allow sysctl-read)\n"
+        "(allow file-write* "                   # 写：只许沙箱工作目录与产物目录
+        f'(subpath "{scratch}") (subpath "{out.parent}") '
+        '(subpath "/dev") (subpath "/private/var/folders"))\n'
     )
+
+
+def _scene_path(src_dir: Path, scene: str) -> Path | None:
+    """场景名 → 文件路径，**不许跳出 scenes 目录**。
+
+    2026-11-15 对抗审查 P2：`--scene "../x"` 原来能指到项目里任意 .py——只要那个
+    文件里的 SCENE_ID 恰好等于这个带 ../ 的字符串就能执行（沙箱仍在，但越界本身
+    就该拒）。名字只许 [A-Za-z0-9_-]，且 resolve 后必须仍在 scenes 下。
+    """
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", str(scene or "")) or ".." in str(scene):
+        return None
+    p = (src_dir / f"{scene}.py").resolve()
+    try:
+        p.relative_to(src_dir.resolve())
+    except ValueError:
+        return None
+    return p
 
 
 def render(args: argparse.Namespace) -> int:
     src_dir = Path(args.scenes_dir).expanduser().resolve()
-    scene_file = src_dir / f"{args.scene}.py"
+    scene_file = _scene_path(src_dir, args.scene)
+    if scene_file is None:
+        print(f"✗ 场景名不合法：{args.scene!r}（只许字母数字下划线横线，且必须在 scenes/ 内）",
+              file=sys.stderr)
+        return 2
     if not scene_file.exists():
         print(f"✗ 找不到场景源码：{scene_file}", file=sys.stderr)
         return 2
