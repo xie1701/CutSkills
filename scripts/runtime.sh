@@ -322,6 +322,63 @@ PY
   [ $changed -eq 0 ] && echo "  没有需要新装的东西。"
 }
 
+# 自编带 zscale 的 ffmpeg —— `install` **不碰这一项**（要编译十几分钟，不该塞进日常安装）。
+# 系统 brew 的 ffmpeg 没有 libzimg（实测 9.0.2 的 -filters 里没有 zscale），
+# 后果：HLG / 杜比视界素材压出来偏亮偏灰，高光削平、彩度掉一半。
+# 非 HDR 素材不受影响，所以这是 optional（doctor 报 ⚠️ 不是 ❌）。
+cmd_install_ffmpeg_zimg() {
+  local VER="${CUTSKILLS_FFMPEG_VER:-9.0.2}"
+  local DEST="$ROOT/opt/ffmpeg-zimg"
+  local WORK="${TMPDIR:-/tmp}/cutskills-ffmpeg-build"
+  if [ -x "$DEST/bin/ffmpeg" ] && "$DEST/bin/ffmpeg" -hide_banner -filters 2>/dev/null | grep -q ' zscale '; then
+    echo "  ✓ 已在 $DEST（带 zscale），不用重编"
+    return 0
+  fi
+  command -v brew >/dev/null 2>&1 || {
+    echo "✗ 没找到 brew。要么先装 Homebrew，要么把任何带 --enable-libzimg 的 ffmpeg 指给 CUTSKILLS_FFMPEG" >&2
+    return 2
+  }
+  command -v make >/dev/null 2>&1 && command -v cc >/dev/null 2>&1 || {
+    echo "✗ 缺编译器：xcode-select --install" >&2
+    return 2
+  }
+  # pkgconf 提供 pkg-config：没有它 configure 只会说「libass not found」，
+  # 而 libass 明明装着——按那句报错去查会查错方向（2026-11-15 第一次跑就栽在这）。
+  echo "→ 装编译依赖 zimg / libvorbis / pkgconf（其余 brew 里已有）"
+  brew install zimg libvorbis pkgconf >/dev/null 2>&1 || echo "  ! brew install 有报错，接着试编（可能已经装过）"
+  command -v pkg-config >/dev/null 2>&1 || {
+    echo "✗ pkg-config 还是不在 PATH（brew install pkgconf 之后要重开 shell）" >&2; return 2; }
+  mkdir -p "$WORK" && cd "$WORK" || return 2
+  if [ ! -f "ffmpeg-$VER.tar.xz" ]; then
+    echo "→ 下 ffmpeg $VER 源码"
+    curl -fsSL -o "ffmpeg-$VER.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$VER.tar.xz" || {
+      echo "✗ 下载失败（网络）。换源: CUTSKILLS_FFMPEG_VER=9.0.2 或挂代理重试" >&2; return 2; }
+  fi
+  rm -rf "ffmpeg-$VER" && tar xf "ffmpeg-$VER.tar.xz" && cd "ffmpeg-$VER" || return 2
+  echo "→ configure（约 1 分钟）"
+  PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig" ./configure --prefix="$DEST" \
+    --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib" \
+    --enable-gpl --enable-version3 --enable-libzimg --enable-libass --enable-libfreetype \
+    --enable-libharfbuzz --enable-libfontconfig --enable-libx264 --enable-libx265 \
+    --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libwebp \
+    --enable-libdav1d --enable-libsvtav1 --enable-libvmaf \
+    --enable-videotoolbox --enable-audiotoolbox --disable-doc >"$WORK/configure.log" 2>&1 || {
+    echo "✗ configure 失败，看 $WORK/configure.log 末尾：" >&2
+    tail -12 "$WORK/configure.log" >&2
+    echo "  常见：lame/lame.h 找不到 → 补 --extra-cflags=-I$(brew --prefix)/include；vorbis not found → brew install libvorbis" >&2
+    return 2; }
+  echo "→ make -j$(sysctl -n hw.ncpu 2>/dev/null || echo 4)（约 10–20 分钟，可去喝口水）"
+  make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" >"$WORK/make.log" 2>&1 && make install >"$WORK/make-install.log" 2>&1 || {
+    echo "✗ 编译失败，看 $WORK/make.log 末尾：" >&2; tail -12 "$WORK/make.log" >&2; return 2; }
+  if "$DEST/bin/ffmpeg" -hide_banner -filters 2>/dev/null | grep -q ' zscale '; then
+    echo "  ✅ 装好了：$DEST/bin/ffmpeg（带 zscale / tonemap）"
+    echo "     重开一个 shell 或重跑 \`source scripts/runtime.sh env\`，之后会自动优先用它"
+    return 0
+  fi
+  echo "✗ 编完了但没有 zscale，说明 libzimg 没被链上（brew install zimg 后再试）" >&2
+  return 2
+}
+
 # 把已有的散落缓存搬进来，并在原位置留软链——工具仍以为在 ~/.cache，实际只有一份
 cmd_adopt() {
   ensure_manifest
@@ -355,7 +412,7 @@ PY
 # install / adopt 依赖 ln -s、otool、pip --target 的 POSIX 语义，在那边硬跑会装出半截环境。
 if [ "$OS_KIND" = windows ]; then
   case "${1:-env}" in
-    install|adopt)
+    install|adopt|install-ffmpeg-zimg)
       echo "✗ runtime.sh $1 只跑在 macOS / Linux / WSL 上（当前 uname: $(uname -s 2>/dev/null)）" >&2
       echo "  Windows 请改用 PowerShell：" >&2
       echo "    体检：powershell -ExecutionPolicy Bypass -File install.ps1 -CheckOnly" >&2
@@ -369,10 +426,11 @@ case "${1:-env}" in
   env)     cmd_env ;;
   check)   cmd_check ;;
   install) cmd_install ;;
+  install-ffmpeg-zimg) cmd_install_ffmpeg_zimg ;;
   adopt)   cmd_adopt ;;
   path)    echo "$ROOT" ;;
   run)     shift; export PATH PYTHONPATH NODE_PATH XDG_CACHE_HOME HF_HOME TORCH_HOME; exec "$@" ;;
   *)
-    echo "用法: runtime.sh [env|check|install|adopt|path|run <cmd>]" >&2
+    echo "用法: runtime.sh [env|check|install|install-ffmpeg-zimg|adopt|path|run <cmd>]" >&2
     exit 2 ;;
 esac

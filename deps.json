@@ -27,7 +27,7 @@
     "darwin-arm64": {
      "status": "available",
      "package": "9.0.2 自编在 $CUTSKILLS_HOME/opt/ffmpeg-zimg（带 libzimg/libass/libharfbuzz/libvmaf）",
-     "install": "bash scripts/runtime.sh install；缺 zimg 依赖时 brew install ffmpeg zimg",
+     "install": "bash scripts/runtime.sh install-ffmpeg-zimg（编译约 10–20 分钟；`install` 不碰这一项）",
      "check": "scripts/runtime.sh check 会真的执行一次 -version 并检查 otool 的库路径",
      "notes": "2026-11-12 夜里 brew 把 Cellar 清空过，清单写着有、实际 dyld 起不来——所以只认「真跑过」"
     },

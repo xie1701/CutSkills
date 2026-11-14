@@ -50,7 +50,7 @@ CutSkills 是一套**跨电脑可复用、代码驱动、面向非专业用户**
 4. **锚词花字与修辞同构 MG 动效卡**：重点词放大撑满 70% 屏宽（支持人物抠像脑后穿插 `behind`），复杂关系自动匹配 7 类代码动效卡（`stat` 数字滚动 / `proportion` 比例条 / `day-night` 时段接力 / `versus` 对抗 / `steps` 步骤 / `term` 释义 / `chips` 招牌名牌，见 [mg-library.md](references/mg-library.md)）；没见过的主题用**场景锻造闭环**从对话直接长出新场景（[scene-forge.md](references/scene-forge.md)：任务单 → AI 写代码 → 沙箱受限渲染 → 量化自审 → 签收），及物理天平/代码连续场景（[scene-art-standard.md](references/scene-art-standard.md)）。
 5. **16 款矢量动态情绪贴纸**：拒绝廉价糊脸贴图，用 `stickers.py` 内置多层受光 SVG 矢量徽章 + GSAP 弹簧微摆动画，自动落在四角安全区，绝不遮脸或撞字幕。
 6. **先声夺人与鼓点卡点节奏**：画面跟着声音块重音走（[audio-first.md](references/audio-first.md)、[rhythm-bands.md](references/rhythm-bands.md)），弹性镜头自动吸附 CC0 配乐鼓点（`beat_sync.py`），每处花字/贴纸/切镜精准配 CC0 音效并自动轮换变体防听觉疲劳（[sfx.md](references/sfx.md)）。
-7. **五套正交视觉包装包 + 电影感逐镜调色**：支持对话一键切换 `P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（暗调极简）、`P4-canton-warm`（餐饮烟火）、`P5-viral-pop`（百万博主高赞网感），见 [styles/catalog.json](styles/catalog.json) 与 [talking-head-v1.yaml](styles/talking-head-v1.yaml)。HDR 素材自动色调映射（自编带 zscale 的 ffmpeg，`bash scripts/runtime.sh install` 装）并逐镜拉平亮度色温（`shot_match.py`）。
+7. **五套正交视觉包装包 + 电影感逐镜调色**：支持对话一键切换 `P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（暗调极简）、`P4-canton-warm`（餐饮烟火）、`P5-viral-pop`（百万博主高赞网感），见 [styles/catalog.json](styles/catalog.json) 与 [talking-head-v1.yaml](styles/talking-head-v1.yaml)。HDR 素材自动色调映射（需自编带 zscale 的 ffmpeg：`bash scripts/runtime.sh install-ffmpeg-zimg`；系统 ffmpeg 无 zscale，HDR 会压成偏亮偏灰）并逐镜拉平亮度色温（`shot_match.py`）。
 8. **广播级响度与全自动像素门禁**：人声 `12:1` 侧链压低背景音乐，整片响度精准归一至 `-14 LUFS ±1 / ≤ -1 dBTP`；渲染前后过十五道专业判据（[editorial-packaging-principles.md](references/editorial-packaging-principles.md)）。
 
 ---

@@ -379,10 +379,11 @@ def main() -> int:
     elif ffz.exists():
         r = subprocess.run([str(ffz), "-version"], capture_output=True, text=True)
         add(OK if r.returncode == 0 else BAD,
-            f"自编 ffmpeg（HDR→SDR）{'真跑通过' if r.returncode == 0 else '装了但跑不起来（brew 把动态库换掉了，重跑 bash scripts/runtime.sh install 修）'}")
+            f"自编 ffmpeg（HDR→SDR）{'真跑通过' if r.returncode == 0 else '装了但跑不起来（brew 把动态库换掉了，重跑 bash scripts/runtime.sh install-ffmpeg-zimg 修）'}")
     else:
         add(WARN, "自编 ffmpeg（HDR→SDR）没装——HLG/杜比视界素材压出来会偏亮偏灰；"
-                  f"`bash scripts/runtime.sh install` 装它")
+                  "装法：`bash scripts/runtime.sh install-ffmpeg-zimg`"
+                  "（要编译 10–20 分钟）；非 HDR 素材不受影响，可以先干别的")
 
     # 4b 节拍检测：纯 stdlib + ffmpeg，但要真跑一次
     ff_ok = bool(find_exe("ffmpeg", plat=plat) or os.environ.get("CUTSKILLS_FFMPEG"))

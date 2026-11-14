@@ -394,12 +394,38 @@ def ps1_structure_problems(text: str) -> list[str]:
     return problems
 
 
+def test_doctor_hints_are_runnable():
+    """医生开的每条「修法」都必须真能跑。
+
+    真事：doctor 对「自编 ffmpeg 没装」写着「`bash scripts/runtime.sh install` 装它」，
+    而 `install` 从头到尾没碰过这一项——用户照着跑一遍，病没治，还以为自己装好了。
+    这类「提示指着一个不存在的动作」比不提示更糟，所以把 doctor 里点名的 runtime.sh
+    子命令全部抓出来，逐个核存在于分发器里。
+    """
+    root = Path(__file__).resolve().parent.parent
+    doc = (root / "scripts" / "doctor.py").read_text()
+    rt = (root / "scripts" / "runtime.sh").read_text()
+    # runtime.sh 的分发器：`  xxx)` 分支名
+    dispatch = set(re.findall(r"^\s{2}([a-z][a-z-]+)\)\s", rt, re.M))
+    assert dispatch >= {"env", "check", "install", "adopt", "path", "run"}, dispatch
+    named = set(re.findall(r"runtime\.sh\s+([a-z][a-z-]+)", doc))
+    ghost = named - dispatch
+    assert not ghost, f"doctor 让用户跑的 runtime.sh 子命令不存在：{sorted(ghost)}（分发器里有 {sorted(dispatch)}）"
+    # 而且那个子命令得真有一份实现，不是只挂在用法串里
+    if "install-ffmpeg-zimg" in dispatch:
+        assert "cmd_install_ffmpeg_zimg()" in rt, "分发器有 install-ffmpeg-zimg 但没有 cmd_install_ffmpeg_zimg()"
+        body = rt.split("cmd_install() {", 1)[1].split("cmd_install_ffmpeg_zimg", 1)[0]
+        assert "--enable-libzimg" not in body, "日常 install 里不该塞编译 ffmpeg 的活（那要十几分钟）"
+    print(f"  ✅ 医生点名的 {len(named)} 个 runtime.sh 子命令都真实存在：{'/'.join(sorted(named))}")
+
+
 def main() -> int:
     print("▶ 平台抽象合同测试（未在 Windows 真机验证，测的是分支判定与清单一致性）")
     test_deps_platform_forks()
     test_doctor_platform_branches()
     test_scene_sandbox_refuses_on_windows()
     test_install_ps1_parity()
+    test_doctor_hints_are_runnable()
     print("✅ 全部通过")
     return 0
 

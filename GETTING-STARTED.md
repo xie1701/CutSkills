@@ -11,12 +11,13 @@
 |---|---|---|
 | `python3 ≥ 3.10` | 编导、识别与验收脚本 | `brew install python` |
 | `node ≥ 20` | HyperFrames 浏览器动效渲染 | `brew install node` |
-| `ffmpeg ≥ 6` | 音视频切段、调色与响度混音 | `brew install ffmpeg zimg`（若有 iPhone HDR 素材，`bash scripts/runtime.sh install` 会另装带 zscale 的自编版） |
+| `ffmpeg ≥ 6` | 音视频切段、调色与响度混音 | `brew install ffmpeg zimg`。**用 iPhone 拍的 HLG / 杜比视界素材**还要再跑一次 `bash scripts/runtime.sh install-ffmpeg-zimg`（自编带 zscale 的版本，10–20 分钟；系统版没有 zscale，HDR 压出来会偏亮偏灰。非 HDR 素材可以不跑） |
 
 ## 第 1 步 · 一键安装运行时依赖（集中存放，绝不污染全局）
 
 ```bash
 bash scripts/runtime.sh install   # 自动安装 hyperframes / pillow / numpy 等至 ~/.cutskills
+bash scripts/runtime.sh install-ffmpeg-zimg   # 仅当你用 iPhone HDR 素材才需要（编译 10–20 分钟）
 bash scripts/runtime.sh check     # 检查各组件状态
 ```
 
