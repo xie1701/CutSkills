@@ -97,7 +97,9 @@ def plan_change(el: dict, text: str) -> tuple[dict | None, str]:
     # ---- 音效
     if re.search(r"音效|声音特效", text) and re.search(r"小声|太吵|太闹|轻点|小一点|低点", text):
         props["sfx_gain_offset"] = round(float(props.get("sfx_gain_offset") or 0) - 3.0, 2)
-        return props, f"第{el.get('n')}格音效整体 −3dB（累计 offset {props['sfx_gain_offset']}）"
+        return props, (f"第{el.get('n')}格音效整体 −3dB（累计 offset {props['sfx_gain_offset']}）"
+                       "——提醒：音效变轻可能掉到可听度门禁（净抬升 ≥2.5dB）以下，"
+                       "渲后把 check_sfx 读数念给用户，由用户拍板要不要回一点")
     if re.search(r"音效|声音特效", text) and re.search(r"大声|响点|明显|强点|大一点", text):
         props["sfx_gain_offset"] = round(float(props.get("sfx_gain_offset") or 0) + 3.0, 2)
         return props, f"第{el.get('n')}格音效整体 +3dB（累计 offset {props['sfx_gain_offset']}）"
