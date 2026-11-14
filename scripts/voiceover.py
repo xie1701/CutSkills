@@ -130,11 +130,14 @@ def _concat_wavs(parts: list[Path], breath_s: float, dst: Path) -> list[tuple[fl
             if i < len(parts) - 1:
                 out_w.writeframes(pad_bytes)
                 cur_frames += pad_samples
-                spans.append((round(t0, 3), round(t1 + breath_s, 3)))
+                # 句窗只记「说话」的区间，不含换气口：换气归下一句，否则下一句
+                # 第一个字会落在上一句窗口边缘 0.16s 内，被真值守卫的 0.10s 容差捞进去
+                # （实测「你看…」的「你」就这样漏进了上一句的台词比对）。
+                spans.append((round(t0, 3), round(t1, 3)))
             else:
                 out_w.writeframes(tail_bytes)
                 cur_frames += int(round(0.18 * sr))
-                spans.append((round(t0, 3), round(cur_frames / sr, 3)))
+                spans.append((round(t0, 3), round(t1, 3)))
     return spans
 
 

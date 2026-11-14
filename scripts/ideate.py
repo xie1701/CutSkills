@@ -369,16 +369,21 @@ def _micro_chain(line: str, dur: float) -> list[dict] | None:
 
 
 def _tpl_for_dur(dur: float, base: str, line: str) -> tuple[str, dict]:
-    """音频窗比这张卡能撑的上限还长 → 升级卡型，别让「会显得空」漏到成片。"""
+    """音频窗比这张卡能撑的上限还长 → 升级卡型（阈值对齐 GEN_TEMPLATES 上限），
+    别让「会显得空」漏到成片。"""
     tpl = base
     props: dict = {}
-    if tpl == "keyword" and dur > 6.0:
-        if dur <= 7.0:
-            tpl = "quote"                  # 整句引言卡，能擕 7s
+    if dur > 6.0 and tpl == "keyword":
+        if dur <= 7.5:
+            tpl = "quote"                  # 整句引言卡
         else:
             ph = _phrases(line)
-            tpl = "steps" if dur <= 8.0 else "flow"
+            tpl = "steps" if dur <= 9.5 else "flow"
             props = {"items": ph}
+    elif dur > 7.5 and tpl == "quote":
+        ph = _phrases(line)
+        tpl = "steps" if dur <= 9.5 else "flow"
+        props = {"items": ph}
     return tpl, props
 
 

@@ -31,9 +31,12 @@ MG_ROLES = {"evidence", "explanation", "calibration", "organization", "action", 
 NUMERIC_TEMPLATES = {"number", "chart", "compare"}
 
 GEN_TEMPLATES = {
+    # 时长上限按零拍摄路线的 AI 配音句窗实测校准（2026-11-14：4 句 32.8s，句均 8.2s）：
+    # compare/flow 渲器原生子件逐条进场、quote/keyword 有 micro 文字接力，不是死卡；
+    # 上限定得比句窗略宽，避免「会显得空」的假警告漏到正常配音片上。
     "keyword": {"min_dur": 1.6, "max_dur": 6.0,
                 "props": {"text": 8, "sub": 14, "color": None}, "required": ["text"]},
-    "compare": {"min_dur": 3.5, "max_dur": 8.0,
+    "compare": {"min_dur": 3.5, "max_dur": 10.0,
                 "props": {"left": {"title": 6, "value": 12},
                           "right": {"title": 6, "value": 12},
                           "note": 18, "title": 10},
@@ -47,11 +50,11 @@ GEN_TEMPLATES = {
                 "props": {"value": 8, "label": 14, "unit": 4}, "required": ["value", "label"]},
     "steps":   {"min_dur": 3.0, "max_dur": 8.0,
                 "props": {"title": 10, "items": None}, "required": ["items"]},
-    "quote":   {"min_dur": 2.8, "max_dur": 7.0,
+    "quote":   {"min_dur": 2.8, "max_dur": 7.5,
                 "props": {"text": 24, "who": 8}, "required": ["text"]},
     "chapter": {"min_dur": 1.5, "max_dur": 4.0,
                 "props": {"n": 3, "title": 10}, "required": ["n", "title"]},
-    "flow":    {"min_dur": 3.5, "max_dur": 9.0,
+    "flow":    {"min_dur": 3.5, "max_dur": 10.0,
                 "props": {"title": 12, "items": None, "foot": 16}, "required": ["items"]},
     "layers":  {"min_dur": 3.2, "max_dur": 8.0,
                 "props": {"title": 12, "items": None, "foot": 16}, "required": ["items"]},
@@ -140,7 +143,8 @@ def gen_element(p: dict, n: int) -> dict:
     el = {"n": n, "kind": "gen", "track": track, "template": tpl, "props": props,
           "dur": round(max(dur, float(spec.get("min_dur") or 0.0)), 3),
           "source": "generated", "why": p.get("why") or ""}
-    for k in ("beat", "role", "audio", "evidence", "card", "sticker", "vfx", "mg_role", "narrative"):
+    for k in ("beat", "role", "audio", "evidence", "card", "sticker", "vfx", "mg_role",
+              "narrative", "micro", "approx", "source_ref", "hard_cut", "carry"):
         if p.get(k) is not None:
             el[k] = p[k]
     if track == "overlay":
