@@ -284,6 +284,28 @@ def run(project: Path, library: Path, group: list[Path]) -> list[Result]:
     elif not report.exists():
         verify_result.errors += 1
         verify_result.conclusion += "；verify-report.md 未生成，T-015～T-019 汇总未能落入报告"
+
+    # 音效可听度（评审 P0-04）：verify_film 只答响度与画面，音效听不听得见归 check_sfx。
+    def parse_sfx(text, rc):
+        m = re.search(r"(\d+)/(\d+) 处过", text)
+        if rc in (2, 3):
+            return 0, 0, text.strip().splitlines()[-1] if text.strip() else "无音效可测"
+        if not m:
+            return 1, 0, text.strip()[-160:]
+        p_, t_ = int(m.group(1)), int(m.group(2))
+        return (t_ - p_), 0, f"{p_}/{t_} 处净抬升过线（≥2.5dB）"
+    results.append(cli_result("check_sfx", [py, str(scripts / "check_sfx.py"),
+                              "--project", project_s], parse_sfx))
+
+    # 场景任务单（评审 P0-04）：template:scene / scene_spec 引用的完整性、六问、
+    # claim_source 与音效事件在库；未接任务单的旧场景渐进采纳，只计 warning。
+    def parse_scene(text, rc):
+        m = re.search(r"error (\d+) · warning (\d+)", text)
+        if m:
+            return int(m.group(1)), int(m.group(2)), text.strip().splitlines()[-1]
+        return (1 if rc else 0), 0, text.strip()[-160:]
+    results.append(cli_result("scene_spec", [py, str(scripts / "scene_spec.py"),
+                              "--check", "--project", project_s], parse_scene))
     return results
 
 

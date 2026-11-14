@@ -748,7 +748,8 @@ def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> P
     场景是**逐帧画出来的位图**（几十万个多边形、抹痕、液流），用 CSS/GSAP 做不出来。
     它仍是代码画的、可复现的（同一秒永远同一帧），只是渲染发生在浏览器外面。
 
-    参数变了就重画：缓存名带上 scene / dur / marks，改一个字都不会拿旧片冒充。
+    参数变了就重画：缓存名带上 scene / dur / fps / 分辨率 / 场景源码哈希 / marks，
+    改一个字都不会拿旧片冒充。
     """
     from gen_scene import SCENES
     name = str((el.get("props") or {}).get("scene") or "")
@@ -758,8 +759,16 @@ def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> P
     mk = el.get("marks") or (el.get("props") or {}).get("marks") or ""
     if isinstance(mk, (list, tuple)):
         mk = ",".join(f"{float(x):.4f}" for x in mk)
-    tag = f"scene-{name}-{dur:.2f}s-{FPS}fps" + (f"-m{str(mk).replace('.', 'p').replace(',', '_')}"
-                                                 if mk else "")
+    # 缓存键必须含场景源代码哈希与分辨率：改了绘图逻辑/换尺寸不改 marks 也要重画，
+    # 否则返工会被旧 mp4 假装完成（评审 P0-03）。
+    import hashlib
+    src = Path(__file__).with_name("scenes") / f"{name}.py"
+    try:
+        shash = hashlib.sha1(src.read_bytes()).hexdigest()[:8] if src.exists() else "nosrc"
+    except OSError:
+        shash = "nosrc"
+    tag = (f"scene-{name}-{dur:.2f}s-{FPS}fps-{W}x{H}-{shash}"
+           + (f"-m{str(mk).replace('.', 'p').replace(',', '_')}" if mk else ""))
     dst = proj / "hf" / "clips" / f"{tag}.mp4"
     if dst.exists() and dst.stat().st_size > 4096:
         return dst
@@ -2476,7 +2485,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 # 名字对应 cc0_lib.SFX_MAP；增益由库里的 under_voiceover_db 给，不再拍脑袋写 -11。
 # 增益在库给的值上**再抬 1 dB**：垫乐进来之后同一处音效更难听出来（实测同一条
 # whoosh 在无垫乐时抬 18 dB、有垫乐时只剩 8–9 dB）。90ms duck 只能管住入场那一瞬。
-CARD_SFX = {"keyword": ("pop-medium-in", 1.5), "behind": ("impact-light-firm", 1.0),
+CARD_SFX = {"keyword": ("pop-medium-in", 2.5), "behind": ("impact-light-firm", 1.0),
             "cutout": ("impact-light-firm", 1.0), "idcard": ("whoosh-medium-soft", 0.5),
             # gen 卡入场常落在人声起句上，shimmer 类（appear-*）能量散、被口播盖住
             # （实测 6.30s 净抬升只有 +0.9dB），换瞬态硬的 knock 类才穿得出来。
@@ -2486,23 +2495,60 @@ CARD_SFX = {"keyword": ("pop-medium-in", 1.5), "behind": ("impact-light-firm", 1
 # 90ms、-6dB，耳朵听不出人声被压，但音效的瞬态就露出来了。
 # −6 dB / 90ms。试过 −12 dB / 120ms，结果更差：量出来的「抬升」主要来自底音，
 # 把人声压狠了，抬升反而掉 6 dB（实测 24.12s 从 −7.3 掉到 −13.8）。让位要轻。
-DUCK_DB = 0.5
+DUCK_DB = 0.35   # −9dB：评审实测 −6dB 的让位在限幅墙+同窗对账下几乎量不到，瞬态还是被口播起句盖住
 DUCK_S = 0.09
 
 
-def gen_props_sfx(el: dict) -> list[dict]:
+def _fnum(x) -> float:
+    """宽容转 float：转不出就返回 nan（nan ≠ nan，对账时自然判不一致）。"""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def gen_props_sfx(el: dict, proj: Path | None = None) -> list[dict]:
     """把 gen 元素的 ``props.events``（AI 视听方案 P2 音效编排）转成音效事件。
 
     每条是 ``{"t", "name", "gain_db"?}``，t 是**场景内相对秒**；这里换算到全片
     时间轴：overlay 轨用 ``el["at"]``，video 轨用 ``el["_start"]``（与卡片音效
     入场同一套分支），``t_global = start + t``。
     gain_db 缺省用该事件名在 CARD_SFX 里的档位，不在表里就 -6。
+    单一真值源：任务单 ``scenes/<scene_spec>.json`` 的 ``audio.events`` 是锚点的
+    第一出处——props.events 没写时由任务单编译，两边都写了就逐项对账（评审 P0-02）。
     防呆：props.events 不是 list / t<0 / name 为空（或 t 不是数）→ 打印警告、
     跳过那一条，**不炸渲**；返回值只含合法事件，保持确定性（按原顺序）。
     """
     evs = (el.get("props") or {}).get("events")
+    sid = (el.get("props") or {}).get("scene_spec")
+    spec_pairs = None
+    if sid and proj is not None:
+        sp = Path(proj) / "scenes" / f"{sid}.json"
+        if sp.exists():
+            try:
+                spec_pairs = [(_fnum(e.get("t")), str(e.get("name") or ""))
+                              for e in ((json.loads(sp.read_text()).get("audio") or {}).get("events") or [])
+                              if isinstance(e, dict)]
+            except Exception as e:                        # noqa: BLE001
+                print(f"  ⚠ 任务单 scenes/{sid}.json 读不出（{e}）", file=sys.stderr)
+                spec_pairs = None
     if evs is None:
-        return []
+        if spec_pairs:
+            evs = [{"t": t, "name": n} for t, n in spec_pairs]
+            print(f"  · props.events 未写，音效事件由任务单 scenes/{sid}.json 编译（{len(evs)} 条）")
+        else:
+            return []
+    elif spec_pairs is not None:
+        try:
+            own_pairs = [(_fnum(e.get("t")), str(e.get("name") or ""))
+                         for e in evs if isinstance(e, dict)]
+            if own_pairs != spec_pairs:
+                print(f"  ⚠ props.events 与任务单 scenes/{sid}.json 的 audio.events 不一致"
+                      f"（props {len(own_pairs)} 条 / 任务单 {len(spec_pairs)} 条）——"
+                      f"渲染以 props.events 为准；改了动作锚点请同步任务单，"
+                      f"或删掉 props.events 改由任务单编译", file=sys.stderr)
+        except Exception:                                 # noqa: BLE001
+            pass
     if not isinstance(evs, list):
         print("  ⚠ props.events 不是 list，整段音效事件忽略", file=sys.stderr)
         return []
@@ -3810,7 +3856,7 @@ def main():
                            "for": f"gen-{el.get('template') or 'overlay'}-{el.get('n')}"})
         # gen 元素还能自带 props.events（场景内相对秒的音效事件，方案 P2），
         # 防呆在 gen_props_sfx 里：坏数据警告后跳过，不炸渲。
-        sfx_events.extend(gen_props_sfx(el))
+        sfx_events.extend(gen_props_sfx(el, proj))
     sfx_events.extend(pkg.get("sfx") or [])
     sfx_events = [e for e in sfx_events if 0 <= e["t"] <= total]
     sfx_events = coalesce_sfx(sfx_events, min_gap=0.25)

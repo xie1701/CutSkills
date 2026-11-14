@@ -17,14 +17,15 @@
      `dur`，|差| > 0.05s 判红（0.05s 是半帧多一点，超过它后面每一格的音画都对不上）。
   4. 局部返工建议：每条红/黄给一句「改哪里」，指到事件号、毫秒数与具体动作。
 
-一个口径要说清：音效可听度的对照组取**本片段内** t+1.0s（`check_sfx` 的算法，一行没改），
+一个口径要说清：音效可听度直接调 `check_sfx.best_transient_lift()`（同窗净抬升，
+无 stem 时对照组取事件前后三段基线），并按事件名路由主能量频段；
 所以拿成片里截的一段来跑，读数会和 `check_sfx --project` 跑全片的差几 dB——量的是同一件事，
 对照窗口落在不同的位置（实测 ground-01 天平那两个事件：66.26s 全片口径 +4.9dB、4s 片段 +2.5dB）。
 想复现成片的结论就把全片喂给它，想看单格就喂这一格，两种读数都如实打印，不互相覆盖。
 
 判据与含义见 references/scene-art-standard.md §4（可量判据）与 §8（交付前自查）。
 阈值一个都不新造：动帧占比 / 最长静止 / 帧差中位复用 `measure_motion` 的常量与实现（`--median-band` 原样透传给它的 `judge()`），
-音效可听度复用 `check_sfx` 的 2–8kHz 抬升与对照组，静音段复用 `silence.py`，
+音效可听度复用 `check_sfx` 的同窗净抬升接口与频段路由，静音段复用 `silence.py`，
 本文件只加「事件锚点」这一层——它不在那两个脚本的视野里。
 
 用法：
@@ -473,8 +474,10 @@ def main() -> int:
             gap_max = max(b for _, b in CSF.BASE_GAPS)
             if t + gap_max < info["dur"]:
                 try:
-                    own = CSF.lift(mono, t) - CSF.lift(
-                        mono, min(info["dur"] - CSF.WIN - 0.05, t + CSF.CTRL_OFF))
+                    # check_sfx 重写后的稳定接口：同窗净抬升（无 stem 时对照组取 BASE_GAPS 三段基线），
+                    # 且按事件名路由主能量频段（低频重击/中频轻敲/宽频铃音）。别再复制旧版 lift 算法。
+                    band = CSF.band_for_event(ev["name"])
+                    own = CSF.best_transient_lift(mono, None, t, 0.0, band)[2]
                 except Exception:                             # noqa: BLE001
                     own = None
             hit = next(((s, e) for s, e in run_list if s - 0.10 <= t <= e + EVENT_SILENCE), None)
@@ -494,19 +497,19 @@ def main() -> int:
                 # 分两种病：抬升 1–3dB 是「压在人声上」，抬升为负是「压根没混进来」。
                 # 前者只能让位（推增益没用），后者先去查事件有没有被渲进 out/sfx.json。
                 if own <= ABSENT_DB:
-                    add(f"{label} 音效", f"2–8kHz 抬升 {own:+.1f}dB（判据 ≥{CSF.PASS_DB:.1f}）",
+                    add(f"{label} 音效", f"净抬升 {own:+.1f}dB（判据 ≥{CSF.PASS_DB:.1f}）",
                         "red", f"这一段比周围安静 {-own:.1f}dB：音效基本没混进来（或窗口掉进发声空档）",
                         f"{label} 抬升 {own:+.1f}dB → 先确认它真被渲进了事件表"
                         f"（渲完看 out/sfx.json 有没有这一条、gain_db 是不是被压到听不见），"
                         f"再谈响度")
                 else:
-                    add(f"{label} 音效", f"2–8kHz 抬升 {own:+.1f}dB（判据 ≥{CSF.PASS_DB:.1f}）",
+                    add(f"{label} 音效", f"净抬升 {own:+.1f}dB（判据 ≥{CSF.PASS_DB:.1f}）",
                         "red", "扣掉对照组后这个事件没露出来（压在人声/垫乐上，或压根没混进来）",
                         f"{label} 只涨 {own:+.1f}dB → 先确认 out/sfx.json 有这一条，"
-                        f"再在那 {int(CSF.WIN * 1000)}ms 里压 90ms 人声（duck −6dB）让瞬态自己露头；"
+                        f"再在事件前后压 90ms 人声（duck −6dB）让瞬态自己露头；"
                         f"推高增益没用")
             else:
-                add(f"{label} 音效", f"2–8kHz 抬升 {own:+.1f}dB", "green",
+                add(f"{label} 音效", f"净抬升 {own:+.1f}dB", "green",
                     "扣掉对照组仍有抬升，听得见")
             if level_a == "red":
                 level = "red"

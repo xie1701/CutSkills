@@ -40,13 +40,19 @@ LICENCE_PROOF = {"bgm": "SOURCES.md", "sfx": "LICENSE-CC0.txt"}
 
 
 def licence_of(path: str | Path) -> str | None:
-    """给一个素材文件路径，返回它的许可口径。库外的返回 None。"""
+    """给一个素材文件路径，返回它的许可口径；查不到许可依据的返回 None（未核实）。
+
+    目录位置本身不构成许可证据（评审 P0-06）：库根必须有许可留痕文件
+    （LICENSE-CC0.txt 或 SOURCES.md）才按 CC0 认定，否则返回 None，
+    sfx_manifest.json 里会如实标成未核实而不是 CC0。
+    """
     p = Path(path)
+    proofs = ("LICENSE-CC0.txt", "SOURCES.md")
     try:
         rp = p.resolve()
         for root in (BGM_LIB, SFX_LIB, BUILTIN_BGM, BUILTIN_SFX):
             if root.exists() and rp.is_relative_to(root.resolve()):
-                return LICENCE
+                return LICENCE if any((root / f).exists() for f in proofs) else None
     except OSError:
         pass
     return None
@@ -86,9 +92,11 @@ MOODS: dict[str, dict] = {
 }
 
 SFX_MAP: dict[str, str] = {
+    # 二十个别名全部精确命中内置 catalog.csv（评审 P1-04：曾育 9 个目标 id
+    # 不在内置 24 条里，靠同族回退搪塞——回退声音未必符合原意）。
     "keyword": "pop-medium-in",
     "card": "pop-medium-in",
-    "title": "whoosh-fast-soft",
+    "title": "whoosh-medium-soft",
     "sticker": "pop-medium-in",
     "behind": "impact-light-firm",
     "cutout": "impact-light-firm",
@@ -98,14 +106,14 @@ SFX_MAP: dict[str, str] = {
     "swish": "swish-medium",
     "pop": "pop-medium-in",
     "impact": "impact-light-firm",
-    "punch": "boom-cinematic-hit",
-    "flash": "whoosh-fast-hard",
-    "riser": "riser-short-smooth",
-    "ding": "notification-chime",
-    "shimmer": "shimmer-sparkle",
-    "money": "money-coins",
-    "click": "click-soft",
-    "celebration": "celebration-chime",
+    "punch": "boom-hit-soft",
+    "flash": "whoosh-medium-hard",
+    "riser": "riser-1s-soft",
+    "ding": "notification-alert-soft",
+    "shimmer": "shimmer-short-soft",
+    "money": "money-card-tap",
+    "click": "click-clap-soft",
+    "celebration": "celebration-popper",
 }
 
 _cache: dict[str, list[dict]] = {}
