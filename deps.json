@@ -1,14 +1,14 @@
 {
  "version": 1,
- "why": "依赖清单。scripts/runtime.sh install 只装这里列出、且本地还缺的东西，全部落在 $CUTSKILLS_HOME（默认 ~/.cutskills）里，不散到各个任务目录。",
+ "why": "依赖清单。scripts/runtime.sh install 只装这里列出、且本地还缺的东西，全部落在 $CUTSKILLS_HOME（默认 ~/.cutskills）里，不散到各个任务目录。版本字段必须是纯版本约束（pip/npm 能直接吃的），人话备注一律放 notes——2026-11-14 干净环境实测：备注混进版本号会让 install 静默失败。",
  "npm": {
-  "hyperframes": "0.9.39（钉住。装在 $CUTSKILLS_HOME/npm，render_hf 优先用它；退回 npx 每次都要连 registry，且 headless-shell 下载断流过一次（2026-11-13 只收到 39.5/97.5 MB））"
+  "hyperframes": "0.9.39"
  },
  "pip": {
   "pypinyin": "==0.55.0",
-  "pyyaml": ">=6（已 vendor 到 scripts/vendor/yaml，纯 Python 版——2026-11-12 python3.14→3.15 事故后固化）",
-  "pillow": ">=13（装在 $CUTSKILLS_HOME/py，C 扩展无法 vendor；重装命令见 runtime.sh install）",
-  "numpy": ">=2（同上）"
+  "pyyaml": ">=6",
+  "pillow": ">=13",
+  "numpy": ">=2"
  },
  "system": {
   "ffmpeg": "9.0.2（自编在 $CUTSKILLS_HOME/opt/ffmpeg-zimg，带 libzimg/libass/libharfbuzz/libvmaf；用前先跑 `scripts/runtime.sh check`，它真的执行一次 -version 并检查 otool 的库路径——2026-11-12 夜里 brew 把 Cellar 清空过，清单写着有、实际 dyld 起不来）",
@@ -21,5 +21,11 @@
  "models": {
   "asr": "sensevoice **不在包里**：首次 `coli asr` 自动下 155.5 MB 到 ~/.coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17（files.colaos.ai，下载后用 sha256 校验 model.int8.onnx / tokens.txt，不符会重下）。断流重试：`curl -C - --retry 20 --retry-all-errors -o <tar> https://files.colaos.ai/coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`，sha256 对得上（7d1efa21…dfd347e）再 `tar xf` 进 ~/.coli/models，coli 会认账不再下",
   "whisper": "只有降级到 hyperframes transcribe 时才需要，权重落在 $CUTSKILLS_HOME/models/hf"
+ },
+ "notes": {
+  "npm.hyperframes": "钉住。装在 $CUTSKILLS_HOME/npm，render_hf 优先用它；退回 npx 每次都要连 registry，且 headless-shell 下载断流过一次（2026-11-13 只收到 39.5/97.5 MB",
+  "pip.pyyaml": "已 vendor 到 scripts/vendor/yaml，纯 Python 版——2026-11-12 python3.14→3.15 事故后固化",
+  "pip.pillow": "装在 $CUTSKILLS_HOME/py，C 扩展无法 vendor；重装命令见 runtime.sh install",
+  "pip.numpy": "同上"
  }
 }
