@@ -2540,19 +2540,25 @@ def gen_props_sfx(el: dict, proj: Path | None = None) -> list[dict]:
     evs = (el.get("props") or {}).get("events")
     sid = (el.get("props") or {}).get("scene_spec")
     spec_pairs = None
+    spec_events = None
     if sid and proj is not None:
         sp = Path(proj) / "scenes" / f"{sid}.json"
         if sp.exists():
             try:
-                spec_pairs = [(_fnum(e.get("t")), str(e.get("name") or ""))
-                              for e in ((json.loads(sp.read_text()).get("audio") or {}).get("events") or [])
-                              if isinstance(e, dict)]
+                raw = [e for e in ((json.loads(sp.read_text()).get("audio") or {}).get("events") or [])
+                       if isinstance(e, dict)]
+                spec_events = [{"t": _fnum(e.get("t")), "name": str(e.get("name") or ""),
+                                **({"gain_db": e["gain_db"]}
+                                   if e.get("gain_db") is not None else {})}
+                               for e in raw]
+                spec_pairs = [(s["t"], s["name"]) for s in spec_events]
             except Exception as e:                        # noqa: BLE001
                 print(f"  ⚠ 任务单 scenes/{sid}.json 读不出（{e}）", file=sys.stderr)
                 spec_pairs = None
+                spec_events = None
     if evs is None:
-        if spec_pairs:
-            evs = [{"t": t, "name": n} for t, n in spec_pairs]
+        if spec_events:
+            evs = spec_events
             print(f"  · props.events 未写，音效事件由任务单 scenes/{sid}.json 编译（{len(evs)} 条）")
         else:
             return []

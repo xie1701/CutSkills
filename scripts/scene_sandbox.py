@@ -47,6 +47,8 @@ IMPORT_ALLOW = {
     "json", "pathlib", "typing", "dataclasses", "collections", "itertools",
     "functools", "enum", "abc", "decimal", "fractions", "statistics",
     "__future__",
+    # 宿主模块：场景读 --marks 拍点的唯一正道（gen_scene.marks 是 trusted host）
+    "gen_scene",
 }
 # 这些名字哪怕出现在 import 里也必拒（防御白名单将来误加）
 IMPORT_DENY = {

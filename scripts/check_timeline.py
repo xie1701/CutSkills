@@ -42,7 +42,8 @@ def load_index(lib: Path) -> dict:
     return {x["id"]: x for x in json.loads(f.read_text())["assets"]}
 
 
-def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | None = None) -> list[tuple[str, str]]:
+def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | None = None,
+          proj: Path | None = None) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     els = tl.get("elements") or []
     if not els:
@@ -260,7 +261,10 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                 if tpl == "scene":
                     from gen_scene import SCENES
                     nm = str(props.get("scene") or "")
-                    if nm not in SCENES:
+                    # 项目级场景（proj/scenes/<name>.py）不在内置注册表里也成立：
+                    # 渲器会把它送进沙箱（评审 G-01），这里只查「有没有实现」。
+                    in_proj = bool(proj and (Path(proj) / "scenes" / f"{nm}.py").exists())
+                    if nm not in SCENES and not in_proj:
                         out.append(("error", f"#{n} 的场景「{nm}」没有实现"
                                              f"（{'/'.join(sorted(SCENES))}）"))
                     # 整屏换画面时声音必须接上：剪辑上「换画面」是可以的，
@@ -484,7 +488,7 @@ def main() -> int:
 
     dec_f = proj / "decisions.md"
     dec_text = dec_f.read_text(encoding="utf-8") if dec_f.exists() else None
-    probs = check(tl, index, strict=a.strict, decisions_text=dec_text)
+    probs = check(tl, index, strict=a.strict, decisions_text=dec_text, proj=proj)
     if not index_ok:
         n_assets = len(tl.get("elements") or [])
         probs.append(("warning",
