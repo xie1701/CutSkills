@@ -36,7 +36,6 @@ BGM_LIB = _resolve_audio_lib("CUTSKILLS_BGM_LIB", "bgm_lib", BUILTIN_BGM)
 SFX_LIB = _resolve_audio_lib("CUTSKILLS_SFX_LIB", "sfx_lib", BUILTIN_SFX)
 
 LICENCE = "CC0 1.0 Universal"
-LICENCE_PROOF = {"bgm": "SOURCES.md", "sfx": "LICENSE-CC0.txt"}
 
 
 def licence_of(path: str | Path) -> str | None:

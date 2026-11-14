@@ -68,6 +68,11 @@ KW_SCRIM_ALPHA = 0.58      # `.scrim` 顶端的黑浓度（CSS `linear-gradient(
 KW_SCRIM_H_MAX = 0.30      # 渐变最高压到画幅的这个比例
 KW_SCRIM_PAD = 0.14        # 渐变底边 = 大字上沿 + 这么高
 KW_HEAD_MIN_TOP = 0.055    # 头顶大字的上沿下限（再高就顶到平台 UI）
+# 上面那个 0.055 是**旧值**：它只防了字被画面上沿切掉，没防平台 UI。
+# 竖屏满屏播放时顶部 10% 是状态栏+导航（`platform_safe.DEFAULTS`），
+# 大字上沿落在 5.5%H = 字直直压在导航上（`behind` 走「头顶大字」那条路时就是 0.055H）。
+# 真正的下限在 `kw_head_override` / `kw_top_of` 里用 `platform_safe_rect()[1]` 抬上去
+# （不能在模块顶算：那时 SAFE 还没定义）。
 KW_HEAD_GAP = 0.095        # 字底与头顶之间留的距离
 # 隔离层缺省（包没写 emphasis.isolate 时用这一份；只有 card.isolate 打开的那张才画）。
 # 为什么是「字后局部压暗」而不是「整屏暗场」：整屏暗场在口播格是 B7 红线，
@@ -92,6 +97,32 @@ SCALES = (1.0, 0.92, 0.84, 0.76, 0.68, 0.60, 0.52)
 
 SAFE = (0.04, 0.06, 0.96, 0.90)   # x0, y0, x1, y1：平台 UI / 圆角安全区
 MIN_AREA = {"heavy": 0.075, "light": 0.055}   # 再小的卡读不完，宁可不摆
+
+# 平台 UI 遮挡区（BRIEF 自动质检「字幕和贴纸是否进入平台 UI 遮挡区」）。
+# 上面那个 SAFE 是**旧的圆角安全区**：y0 0.06 / y1 0.90 只防了圆角切边，没防平台 UI——
+# 竖屏满屏播放时顶部 10% 是状态栏+导航、右侧 13% 宽是点赞评论列、底部 17% 是文案条
+# （实测 dianzan-a 的 stat 卡上沿 0.06H，一个字没被圆角切掉，却被顶部导航吃掉 20%）。
+# 所以卡的**可落区域**改成「圆角安全区 ∩ 平台安全区」：
+#   DEFAULTS 与项目覆写一律读 platform_safe.py（判据量的是同一份，不另写一套）。
+# 留 PLATFORM_PAD：卡的框是按像素取整落盘的（`box_px = round(y*H)`），贴边时
+# 取整差一像素就变成「相交面积 > 0」——留 0.6%（1920 上 11px）的余量，不靠运气。
+PLATFORM_PAD = 0.006
+
+
+def platform_safe_rect(spec: dict | None = None) -> tuple[float, float, float, float]:
+    """卡的合法可落区域（画幅比例）：旧 SAFE ∩ platform_safe 的三块遮挡区。"""
+    import platform_safe as _ps
+    s = _ps._merge(_ps.DEFAULTS, spec)               # 同一份默认值 + 同一份覆写规则
+    x0, y0, x1, y1 = SAFE
+    top = float(s["top_h"]) + PLATFORM_PAD
+    right = float(s["right_w"]) + PLATFORM_PAD
+    bottom = float(s["bottom_h"]) + PLATFORM_PAD
+    return (round(max(x0, 0.0), 4), round(max(y0, top), 4),
+            round(min(x1, 1.0 - right), 4), round(min(y1, 1.0 - bottom), 4))
+
+
+# 没有项目覆写时的默认可落区域（判据与渲器都从这里起算）
+SAFE_PLATFORM = platform_safe_rect()
 
 
 # ---------------------------------------------------------------- 几何小工具
@@ -379,7 +410,7 @@ def kw_font_px(text: str, style: dict, W: int, H: int) -> int:
     return min(int(round(W * fit_w / n)), int(H * KW_SIZE_MAX_H))
 
 
-def kw_top_of(card: dict, style: dict, W: int, H: int, override=None):
+def kw_top_of(card: dict, style: dict, W: int, H: int, override=None, spec=None):
     """这张大字卡的上沿（画幅比例）→ (top_h, 要不要顶部渐变, 要不要自己写 inline top)。
 
     优先级（渲染器与判据同一份）：
@@ -388,22 +419,33 @@ def kw_top_of(card: dict, style: dict, W: int, H: int, override=None):
       ② 卡自己写的 `top_h`（timeline `card.top_h`，人工指定）：**不带**顶部渐变，
          指定位置的人自己负责；
       ③ behind 的 `emphasis.behind_top_h` / keyword 的 `emphasis.top_h`：走 CSS，不写 inline。
+
+    三条路出完再统一收一道：上沿不得高于平台 UI 区的上沿（`platform_safe`）——
+    大字压在顶部导航上，观众连字都认不全，不是风格问题。
     """
+    floor = platform_safe_rect(spec)[1]
+
+    def _floor(v: float) -> tuple[float, bool, bool]:
+        return (round(max(float(v), floor), 4), _want, _own)
+
     emph = style.get("emphasis") or {}
     if override is not None:
         try:
-            return round(float(override), 4), True, True
+            _want, _own = True, True
+            return _floor(override)
         except (TypeError, ValueError):
             pass
     owned = card.get("top_h")
     if owned is not None:
         try:
-            return round(float(owned), 4), False, True
+            _want, _own = False, True
+            return _floor(owned)
         except (TypeError, ValueError):
             pass
+    _want, _own = False, False
     if str(card.get("kind") or "") == "behind":
-        return round(float(emph.get("behind_top_h") or 0.285), 4), False, False
-    return round(float(emph.get("top_h") or 0.44), 4), False, False
+        return _floor(emph.get("behind_top_h") or 0.285)
+    return _floor(emph.get("top_h") or 0.44)
 
 
 def _font_file(name: str | None):
@@ -434,7 +476,7 @@ def kw_head_override(stats: dict | None) -> float:
     所以 head_top=0.0 也走 0.15）。
     """
     head = float((stats or {}).get("head_top") or 0.15)
-    return round(max(KW_HEAD_MIN_TOP, head - KW_HEAD_GAP), 4)
+    return round(max(KW_HEAD_MIN_TOP, platform_safe_rect()[1], head - KW_HEAD_GAP), 4)
 
 
 def kw_ink_box(text: str, style: dict, W: int, H: int, top_h: float | None = None):
@@ -556,9 +598,9 @@ def kw_pod_alpha(geo: dict, W: int, H: int):
 
 # ---------------------------------------------------------------- 布局搜索
 
-def _anchors(w: float, h: float):
+def _anchors(w: float, h: float, safe=None):
     """九宫格锚点 + 上下三分之一。给的是卡左上角的位置。"""
-    x0, y0, x1, y1 = SAFE
+    x0, y0, x1, y1 = safe or SAFE_PLATFORM
     xl, xc, xr = x0, (1.0 - w) / 2, x1 - w
     yt, ym, yb = y0, max(y0, (1.0 - h) / 2 - 0.04), y1 - h
     out = []
@@ -570,14 +612,15 @@ def _anchors(w: float, h: float):
     return out
 
 
-def _legal(box, faces, band, subs_on, min_area, cov=None):
+def _legal(box, faces, band, subs_on, min_area, cov=None, safe=None):
     area = box[2] * box[3]
     if area < min_area:
         return False
-    # 安全区
-    if box[0] < SAFE[0] - 1e-6 or box[1] < SAFE[1] - 1e-6:
+    # 安全区（圆角 ∩ 平台 UI）
+    x0, y0, x1, y1 = safe or SAFE_PLATFORM
+    if box[0] < x0 - 1e-6 or box[1] < y0 - 1e-6:
         return False
-    if box[0] + box[2] > SAFE[2] + 1e-6 or box[1] + box[3] > SAFE[3] + 1e-6:
+    if box[0] + box[2] > x1 + 1e-6 or box[1] + box[3] > y1 + 1e-6:
         return False
     # 人脸：任一帧的框都不许压（padding 已含跳切位移余量）
     for f in faces:
@@ -597,7 +640,7 @@ def _legal(box, faces, band, subs_on, min_area, cov=None):
     return True
 
 
-def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0, cov=None):
+def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0, cov=None, safe=None):
     """在缩放梯度上找「面积最大且合法」的一格。返回 (box, scale) 或 None。"""
     wn, hn = want_of(kind)
     min_area = MIN_AREA["heavy" if heavy else "light"]
@@ -607,9 +650,9 @@ def _search(kind, faces, band, subs_on, heavy, scale_cap=1.0, cov=None):
         w, h = round(wn * kw, 4), round(hn * kw, 4)
         if w * h < min_area:
             continue
-        for (x, y) in _anchors(w, h):
+        for (x, y) in _anchors(w, h, safe):
             box = [x, y, w, h]
-            if not _legal(box, faces, band, subs_on, min_area, cov):
+            if not _legal(box, faces, band, subs_on, min_area, cov, safe):
                 continue
             # 分数：面积为主；靠边/靠角的位比正中更像「挂」，正中最容易撞脸也最像贴脸
             edge = 1.0 if (abs(x - (1 - w) / 2) > 1e-3 or abs(y - (1 - h) / 2) > 1e-3) else 0.94
@@ -676,6 +719,10 @@ def plan(card: dict, ctx: dict) -> dict:
     # 主体遮罩（T-042）：`None` = 这一格量不出来，不给判据假装「主体 = 0」。
     subj = ctx.get("subj")
     subj_known = subj is not None
+    # 可落区域（T-020）：旧圆角安全区 ∩ 平台 UI 遮挡区。项目可在
+    # platform-safe.json / brief.json 里覆写，渲器把同一份 spec 放进 ctx；
+    # 未传时退回竖屏默认——和 verify_film.platform_verdict 量的是同一份几何。
+    safe = platform_safe_rect(ctx.get("platform_safe"))
 
     def cov(box):
         return cover_in(subj, box) if subj_known else None
@@ -704,8 +751,9 @@ def plan(card: dict, ctx: dict) -> dict:
             if box and len(box) == 4:
                 box = [round(float(v), 4) for v in box]
             else:
-                got = _search(kind, faces, band, subs_on, heavy, cov=cov)
-                box = got[0] if got else [0.06, 0.56, want_of(kind)[0] * 0.8, want_of(kind)[1] * 0.8]
+                got = _search(kind, faces, band, subs_on, heavy, cov=cov, safe=safe)
+                box = got[0] if got else [0.06, max(safe[1], 0.56), want_of(kind)[0] * 0.8,
+                                          want_of(kind)[1] * 0.8]
             plate, feather = _plate(mode, box, faces, W, H)
             if ov.get("plate") and len(ov["plate"]) == 4:
                 plate = [round(float(v), 4) for v in ov["plate"]]
@@ -718,7 +766,7 @@ def plan(card: dict, ctx: dict) -> dict:
     # 以前 b-roll 格根本不量（person_cover 只在 talking 格调），于是 cover 硬写 0.0、
     # 卡继续走 focus_blur 压在一条腿上——这就是 dianzan-c 的 c5。
     if heavy and not subj_known:
-        got = _search(kind, faces, band, subs_on, heavy)          # 只能避脸
+        got = _search(kind, faces, band, subs_on, heavy, safe=safe)          # 只能避脸
         if got:
             box, k, _ = got
             plate, feather = _plate("corner", box, faces, W, H)
@@ -729,16 +777,16 @@ def plan(card: dict, ctx: dict) -> dict:
     # ① cutaway：没有真人脸 + 不是口播 + 卡够长（不足 2.5s 切走再切回是眨眼）
     if heavy and cutaway_ok and face_src == "vision" and not faces and dur >= 2.5 \
             and "talking" not in media:
-        box = [(1 - want_of(kind)[0]) / 2, max(SAFE[1], 0.50 - want_of(kind)[1] / 2),
+        box = [(1 - want_of(kind)[0]) / 2, max(safe[1], 0.50 - want_of(kind)[1] / 2),
                want_of(kind)[0], want_of(kind)[1]]
-        box = [round(v, 4) for v in box]
+        box = _fit_safe([round(v, 4) for v in box], safe)
         plate, feather = _plate("cutaway", box, faces, W, H)
         return _pack("cutaway", box, plate, feather, 1.0, faces, ctx, W, H,
                      f"{dur:.1f}s 空镜无脸 → 整屏纯底切出，底片主权正式移交卡片", face_src, False)
 
     # ② focus_blur：重型卡要舞台，底片模糊退后，卡仍避脸 + 避主体
     if heavy:
-        got = _search(kind, faces, band, subs_on, heavy, cov=cov)
+        got = _search(kind, faces, band, subs_on, heavy, cov=cov, safe=safe)
         if got:
             box, k, _ = got
             plate, feather = _plate("focus_blur", box, faces, W, H)
@@ -747,7 +795,7 @@ def plan(card: dict, ctx: dict) -> dict:
                          f"，卡面主体 {0 if not subj_known else round((cov(box) or 0) * 100)}%",
                          face_src, not subj_known)
     # ③ corner：轻量挂角，一点不压暗
-    got = _search(kind, faces, band, subs_on, heavy, cov=cov)
+    got = _search(kind, faces, band, subs_on, heavy, cov=cov, safe=safe)
     if got:
         box, k, _ = got
         plate, feather = _plate("corner", box, faces, W, H)
@@ -756,29 +804,64 @@ def plan(card: dict, ctx: dict) -> dict:
 
     # ④ 哪都放不下：退到「最小尺寸 + 离脸/离主体最远」，并如实标 degraded 交给闸门
     wn, hn = want_of(kind)
-    best, best_iou = None, 2.0
+    # 兵底排序换了一个首要项：先看「卡面有没有盖住主体」，再看「压没压脸」。
+    # 以前只看脸，于是在平台安全区收紧后，脏卡会挑一个「脸 IoU = 0 但跨在人家胸口上」的
+    # 大框（实测 dianzan-a 的 stat 卡：脸 0.0% / 卡面主体 67%）——B10 说的「卡浮在主体之上」
+    # 就是被这个排序卖掉的：小一号、停在头顶上方，比大一号、拦腰截断好看得多。
+    best, best_key = None, None
     for k in SCALES:
         w, h = wn * k, hn * k
-        for (x, y) in _anchors(w, h):
+        for (x, y) in _anchors(w, h, safe):
             box = [round(x, 4), round(y, 4), round(w, 4), round(h, 4)]
             worst = max((iou(box, pad_box(f, FACE_PAD * 0.5, FACE_PAD * 0.5))
                          for f in faces), default=0.0)
-            if worst < best_iou:
-                best, best_iou = box, worst
-    box = best or [0.06, 0.60, wn * 0.6, hn * 0.6]
+            _c0 = cov(box)
+            over = 1 if (_c0 is not None and _c0 > SUBJ_COVER_MAX) else 0
+            key = (over, round(worst, 4))
+            if best_key is None or key < best_key:
+                best, best_key = box, key
+    box = best or [0.06, max(safe[1], 0.60), wn * 0.6, hn * 0.6]
     plate, feather = _plate("corner", box, faces, W, H)
     _c = cov(box)
     return _pack("corner", box, plate, feather,
                  round(box[2] / wn, 3) if wn else 1.0, faces, ctx, W, H,
-                 f"找不到「不压脸 + 卡面主体 ≤{SUBJ_COVER_MAX * 100:.0f}%」的位置"
-                 f"（最小脸重叠 {best_iou * 100:.1f}%，卡面主体 "
-                 f"{'量不出' if _c is None else f'{_c * 100:.0f}%'}）→ 降级挂角，交闸门报红",
+                 f"安全区收窄后找不到「满尺寸 + 不压脸 + 卡面主体 ≤{SUBJ_COVER_MAX * 100:.0f}%」"
+                 f"的位置（选中的框：脸重叠 {best_key[1] * 100:.1f}%、卡面主体 "
+                 f"{'量不出' if _c is None else f'{_c * 100:.0f}%'}、"
+                 f"宽 {box[2] / wn:.2f}×）→ 降级挂角，交闸门报红",
                  face_src, True)
+
+
+def _fit_safe(box, safe) -> list:
+    """把一张卡的框收进可落区域：先挑，挑不下就等比缩。
+
+    “收进安全区”不能只靠候选生成（`_anchors` 已经只给安全区里的位置），因为
+    cutaway / 人工覆写 / 全图搜不到位置时的兵底都会被直接写成一个大框。
+    最后一道就在 `_pack`：无论哪条分支出的框，落盘前都得在安全区内。
+    """
+    x0, y0, x1, y1 = safe
+    w, h = float(box[2]), float(box[3])
+    room_w, room_h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0 or room_w <= 0 or room_h <= 0:
+        return list(box)
+    k = min(1.0, room_w / w, room_h / h)
+    w, h = round(w * k, 4), round(h * k, 4)
+    x = min(max(float(box[0]), x0), x1 - w)
+    y = min(max(float(box[1]), y0), y1 - h)
+    return [round(x, 4), round(y, 4), w, h]
 
 
 def _pack(mode, box, plate, feather, k, faces, ctx, W, H, why, face_src, degraded):
     W = int(ctx["W"])
     H = int(ctx["H"])
+    # 平台 UI 区（T-020）：卡、字幕、贴纸都不许压上去。这里是渲器与判据的共同出口，
+    # 所以最后一道收口放在这里——上面哪条分支出的框，落盘前一律收进安全区。
+    _safe = platform_safe_rect(ctx.get("platform_safe"))
+    _fitted = _fit_safe(box, _safe)
+    if any(abs(a - b) > 1e-6 for a, b in zip(_fitted, box)):
+        why = f"{why} · 已收进平台安全区（{box[0] * 100:.0f}%/{box[1] * 100:.0f}%"
+        why += f"→{_fitted[0] * 100:.0f}%/{_fitted[1] * 100:.0f}%）"
+    box = _fitted
     px = lambda b: [int(round(b[0] * W)), int(round(b[1] * H)),
                     int(round(b[2] * W)), int(round(b[3] * H))]
     wn_k = (box[2] / k) if k else box[2]
@@ -823,6 +906,10 @@ def layout_cards(cards: list[dict], *, proj: Path, videos: list[dict], style: di
     """
     overrides = overrides or {}
     med = media_of or (lambda n: "")
+    # 平台 UI 遮挡区（T-020）：卡的合法可落区域从这里起算。与 verify_film
+    # `platform_verdict` 读同一份（platform_safe.load_spec：默认值 → 项目覆写）。
+    import platform_safe as _psafe
+    plat_spec, _ = _psafe.load_spec(proj)
     # 人脸/遮罩的缓存：一卡一取太贵，同一段素材整片只跑一次
     face_cache: dict[str, list | None] = {}
     mask_cache: dict[str, list | None] = {}
@@ -906,7 +993,7 @@ def layout_cards(cards: list[dict], *, proj: Path, videos: list[dict], style: di
                "media": sorted(set(medias)), "prev_medium": prev_m, "next_medium": next_m,
                "sub_band": sub_band, "subs_on": subs_on, "face_refs": refs,
                "face_src": ("vision" if (face_ok and seen) else "missing"),
-               "subj": subj, "plate_tint": tk,
+               "subj": subj, "plate_tint": tk, "platform_safe": plat_spec,
                "override": overrides.get(str(c.get("seg"))) or {}}
         c["layout"] = plan(c, ctx)
         done += 1

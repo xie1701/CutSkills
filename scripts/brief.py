@@ -37,13 +37,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
-
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 STYLES = ROOT / "styles"
 
 sys.path.insert(0, str(HERE))
+# pyyaml 在 scripts/vendor/ 里（跟 subs.py / audit_skill.py 同一个办法：本机 pip 走代理装不了包）。
+# 不挂上 sys.path，任何没自己装过 pyyaml 的机器一开始「四格需求卡」就 ModuleNotFoundError 崩。
+sys.path.insert(0, str(HERE / "vendor"))
+import yaml  # noqa: E402
+
 from log_decision import append_row                       # noqa: E402  写 decisions.md 只有这一处实现
 
 GRID = ("audience", "change", "length", "style")
@@ -70,12 +73,14 @@ LENGTH_TIERS = (
 )
 
 QUESTIONS = ("audience", "audience_present_state", "change", "length", "style")
+# 提问一律「先给猜测、让人一句话改」（BRIEF 交互约束：不问开放题）。
+# 下面这三条只出现在「非交互模式问不了人」的错误提示里：它也是猜测句，人照着改一个字就能 --set。
 QUESTION_TEXT = {
-    "audience": "给谁看？一句话，具体到一类人",
-    "audience_present_state": "他现在信什么？一句他此刻相信的话（3 秒钩子的依据）",
-    "change": "要他怎么变？看完多信一件事、或多做一个动作",
-    "length": "多长？30 秒系列 / 60–90 秒口播 / 自定",
-    "style": "什么风格？styles/*.yaml 里挑一支",
+    "audience": "我猜给「关心这行、怕踩坑的那类人」看，对吗？不对就把你那类人发我",
+    "audience_present_state": "我猜他现在信「价格差不多就行，剩下看谁报得低」，对吗？不对就把他真实相信的那句发我",
+    "change": "我猜你想让他「看懂怎么判断好坏」，对吗？不对就说看完该多信一件什么事",
+    "length": "片长我按 60–90 秒档（75s）走，对吗？不对就给我一个秒数",
+    "style": "风格我按 talking-head-v1 走（单机位口播），对吗？不对就挑 styles/*.yaml 里另一支",
 }
 
 
@@ -163,18 +168,6 @@ def parse_length(raw: str) -> int:
     return v
 
 
-def length_reason(seconds: int) -> str:
-    band = band_of(seconds)
-    for sec, label, hint in LENGTH_TIERS:
-        if sec == seconds:
-            return f"{label}：{hint}"
-    if band == "30":
-        return "落在 30 秒档：题材多、单条只讲一件事"
-    if band == "60-90":
-        return "落在 60–90 秒档：一条讲透，现有验收基准都在这档"
-    return f"自定 {seconds}s（{band} 档）"
-
-
 # ------------------------------------------------------------------ 读输入
 
 def read_answer() -> str | None:
@@ -185,109 +178,97 @@ def read_answer() -> str | None:
         return None
 
 
-def ask_text(key: str, current: str, vague: tuple[str, ...]) -> str:
+# ---------------------------------------------------------------- 先猜、再让人点头
+# BRIEF 的交互约束：提问时**先给出猜测让用户确认，不问开放题**。「你现在信什么？」这种问卷
+# 没人愿意答，用户真正愿意做的事是「对，就这样 / 不对，改成这个」。所以每一格都先猜一个，
+# 回车＝按猜测走。猜测来源全部是真读（brief.json → intent.json → ideation.json → 模板），
+# 读不到就不问（直接走默认值 + 记进 assumed[]），不拿空着的问题去审人。
+def _read_json(p: Path) -> dict:
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def guess_of(proj: Path, key: str, b: dict) -> str:
+    """这一格能猜出什么来——猜不出就返回空串（不编）。"""
+    cur = str(b.get(key) or "").strip()
+    if cur:
+        return cur
+    intent = _read_json(proj / "intent.json")
+    idea = _read_json(proj / "ideation.json")
+    if key == "audience":
+        for v in (str(intent.get("audience") or ""), str((idea or {}).get("audience") or "")):
+            if v.strip():
+                return v.strip()
+    if key == "change" and str(intent.get("promise") or "").strip():
+        return str(intent["promise"]).strip()
+    core = str((idea or {}).get("core") or "").strip()
+    if core:
+        return {
+            "audience": f"关心「{core}」但怕踩坑的人",
+            "audience_present_state": "觉得价格差不多就行，剩下就看谁报得低",
+            "change": f"看懂{core}的关键判断标准",
+        }[key]
+    return ""
+
+
+# 项目里一句原话都没有时的通用猜测：仍然先给一句让人点头，但它只是占位，
+# 回车接受后会写进 assumed[]（不冒充「用户确认过」）。
+GENERIC_GUESS = {
+    "audience": "关心这一行、还没决定找谁做的人",
+    "audience_present_state": "价格差不多就行，剩下看谁报得低",
+    "change": "知道该看哪几件事再决定",
+}
+
+
+def ask_guess(key: str, guess: str, vague: tuple[str, ...],
+              generic: str = "") -> tuple[str, bool]:
+    """猜一句让人点。回车＝按猜测走；打进来的任何字都当「改成这句」处理。
+
+    返回 (值, 是不是只靠通用模板猜的)：后者为真不是说谎，而是让调用方把它写进 assumed[]——
+    「他确认的」与「我们先占位的」不能混成同一件事。
+    连通用模板都没有（理论上不会发生）就不问，直接留给 top_up() 写 assumed/missing。
+    **不问「给谁看？」这种开放题。**
+    """
     title = {
-        "audience": "① 给谁看？",
-        "audience_present_state": "② 他现在信什么？",
-        "change": "③ 要他怎么变？",
+        "audience": "① 给谁看",
+        "audience_present_state": "② 他现在信什么",
+        "change": "③ 要他怎么变",
     }[key]
-    lines = {
-        "audience": ("一句话，具体到一类人（例：自己找师傅做艺术漆的业主）。写「所有人」「大众」会被打回。",),
-        "audience_present_state": ("一句他此刻相信的话 / 卡在哪一步（例：只看总价，不知道基层算不算在内）。",
-                                   "这是 3 秒钩子的唯一依据——不知道就空着，别编。"),
-        "change": ("看完之后他多信一件事、或多做一个动作（例：问清楚基层和煅烧这两件事再比价）。",
-                   "写「做得更好」「更专业」会被打回。"),
+    weak = False
+    if not guess and generic:
+        guess, weak = generic, True
+    if not guess:
+        print(f"\n{title}：我猜不出来（项目里没有 intent.json / ideation.json 的原话）。"
+              "\n   先补来源：`init_project.py --intent \"<你的原话>\"` 或 "
+              "`ideate.py --topic \"<想法>\" --guide`，"
+              "\n   这一格先按假设走（在 assumed 里列着，选段前补上）。")
+        return "", False
+    hint = {
+        "audience": "（回车＝就按这个；不对就把你那类人直接打进来）",
+        "audience_present_state": "（这是他此刻相信的话，3 秒钩子就挂在这句上；不对就换成他那句）",
+        "change": "（看完多信一件事、或多做一个动作；不对就说该多做什么）",
     }[key]
+    if weak:
+        hint = "（项目里还没有你的原话，这是通用占位；按这个走会记进「假设」里，不对就现在改）"
     while True:
-        print(f"\n{title}")
-        for ln in lines:
-            print(f"   {ln}")
-        if current:
-            print(f"   回车保留：{current}")
+        print(f"\n{title}——我猜是「{guess}」，对吗？")
+        print(f"   {hint}")
         ans = read_answer()
         if ans is None:
-            print("   （输入结束，这一格先空着）")
-            return current
+            print("   （输入结束，这一格就按猜测走）")
+            return guess, weak
         if not ans:
-            return current
+            return guess, weak
         hits = [w for w in vague if w in ans]
         if hits:
             print(f"   ✗ 「{hits[0]}」等于没写{'' if key != 'audience' else '观众'}。换一句具体的，重答。")
+            guess, weak = ans, False      # 下一轮就拿他刚打的这句当猜测再问一遍
             continue
         if len(ans) < 4:
             print("   · 有点短，先记下（选段前自己再看一眼）")
-        return ans
-
-
-def ask_length(current_s: int | None) -> tuple[int, str]:
-    while True:
-        print("\n④ 多长？")
-        for i, (sec, label, hint) in enumerate(LENGTH_TIERS, 1):
-            print(f"   {i}) {label} —— {hint}")
-        if current_s:
-            print(f"   回车保留：{current_s}s（{band_of(current_s)}）")
-        ans = read_answer()
-        if ans is None:
-            if current_s:
-                return current_s, length_reason(current_s)
-            return 75, "没给片长，按 60–90 秒档补（验收基准在这档）"
-        if not ans:
-            if current_s:
-                return current_s, length_reason(current_s)
-            print("   ✗ 得挑一档，或直接给秒数")
-            continue
-        if ans in ("1", "2"):
-            sec, label, hint = LENGTH_TIERS[int(ans) - 1]
-            print(f"   → {label}：{hint}")
-            return sec, f"{label}：{hint}"
-        if ans == "3":
-            while True:
-                print("   多少秒？（给数字，例如 45）")
-                raw = read_answer()
-                if raw is None:
-                    return 75, "没给片长，按 60–90 秒档补（验收基准在这档）"
-                if not raw:
-                    continue
-                try:
-                    sec = parse_length(raw)
-                except ValueError as e:
-                    print(f"   ✗ {e}")
-                    continue
-                return sec, f"自定 {sec}s（{band_of(sec)} 档）"
-        try:
-            sec = parse_length(ans)
-        except ValueError as e:
-            print(f"   ✗ {e}（挑 1/2/3，或直接给秒数）")
-            continue
-        return sec, f"自定 {sec}s（{band_of(sec)} 档）"
-
-
-def ask_style(styles: list[dict], current: str) -> str:
-    while True:
-        print(f"\n⑤ 什么风格？（styles/*.yaml 里现有 {len(styles)} 支）")
-        print(style_menu(styles))
-        if current:
-            print(f"   回车保留：{current}")
-        ans = read_answer()
-        if ans is None:
-            return current
-        if not ans:
-            if current:
-                return current
-            print("   ✗ 挑一个编号")
-            continue
-        if ans.isdigit():
-            n = int(ans)
-            if 1 <= n <= len(styles):
-                name = styles[n - 1]["name"]
-                print(f"   → {name} · {styles[n - 1]['label']}")
-                return name
-            print(f"   ✗ 没有编号 {n}，只有 1–{len(styles)}")
-            continue
-        hit = find_style(styles, ans)
-        if hit:
-            return hit["name"]
-        print(f"   ✗ 没有风格包「{ans}」，可选项见上")
+        return ans, False
 
 
 # ------------------------------------------------------------------ brief.json
@@ -305,10 +286,12 @@ def load_brief(proj: Path) -> dict:
 
 
 def state_from(doc: dict) -> dict:
+    """从 brief.json 读四格。`audience_present_state` 读不到时退回旧名 `belief_now`
+    （ideate.py 早期 --to-plan、init_project.py 建项都写过这个旧名）——旧项目不能因为改名直接就空。"""
     ls = doc.get("length_s")
     return {
         "audience": doc.get("audience") or "",
-        "audience_present_state": doc.get("audience_present_state") or "",
+        "audience_present_state": doc.get("audience_present_state") or doc.get("belief_now") or "",
         "change": doc.get("change") or "",
         "length_s": int(ls) if isinstance(ls, (int, float)) and ls > 0 else None,
         "style_pack": doc.get("style_pack") or "",
@@ -381,11 +364,11 @@ def summary(doc: dict, proj: Path) -> None:
     length = f"{doc['length_s']}s（{doc['length_band']}）" if doc["length_s"] else "（空）"
     print(f"  ④ 多长　　　　　：{length}")
     print(f"  ⑤ 什么风格　　　：{doc['style_pack'] or '（空）'}")
-    if doc["assumed"]:
+    if doc.get("assumed"):
         print(f"  · 假设 {len(doc['assumed'])} 条（往下了，但记在这儿）")
         for a in doc["assumed"]:
             print(f"      - {a}")
-    if doc["missing"]:
+    if doc.get("missing"):
         print(f"  · 还缺 {len(doc['missing'])} 格：{'、'.join(FIELD_CN.get(k, k) for k in doc['missing'])}")
     print("\n下一步：选段前先读 brief.json——片长决定骨架，风格决定模板，"
           "「他现在信什么」决定 3 秒钩子。")
@@ -428,14 +411,15 @@ def main() -> int:
             print(f"{proj / 'brief.json'} 不存在——还什么都没定", file=sys.stderr)
             return 2
         b = state_from(doc)
-        doc = {**doc, "length_band": band_of(b["length_s"]) if b["length_s"] else ""}
+        # 旧项目可能只有 belief_now、没有 audience_present_state：summary 照统一字段念，不能 KeyError
+        doc = {**doc, "audience_present_state": b["audience_present_state"],
+               "length_band": band_of(b["length_s"]) if b["length_s"] else ""}
         summary(doc, proj)
         print()
         print(json.dumps(doc, ensure_ascii=False, indent=1))
         return 0
 
     created = doc.get("created") or datetime.now().isoformat(timespec="seconds")
-    old = state_from(doc)
     b = state_from(doc)
     provided: set[str] = set()
     notes: list[str] = []
@@ -496,21 +480,33 @@ def main() -> int:
         assumed, missing = top_up(b, styles)
         assumed = carry_assumptions(assumed, doc.get("assumed") or [], provided)
     else:
-        # ---- 交互：① 观众 → ② 他现在信什么 → ③ 要他怎么变 → ④ 片长 → ⑤ 风格
+        # ---- 交互：三格全是「先猜、你点头」，片长/风格直接走默认值（top_up 会把它们写进 assumed）
+        # BRIEF 的交互约束：一条片最多打断 3 次。这一轮算拍板①（确认选题：给谁看/他现在信什么/
+        # 要他怎么变 三件事都属于选题定位），所以只登记一次，且这里只问猜得出来的——
+        # 猜不出来就不问，直接走默认值 + 在 assumed 里留一行（不问开放题）。
         print(f"B 段入口 · {proj.name} · 四格定方向（缺一格，后面全是装饰）")
-        b["audience"] = ask_text("audience", b["audience"], VAGUE_AUDIENCE)
-        b["audience_present_state"] = ask_text("audience_present_state",
-                                               b["audience_present_state"], ())
-        b["change"] = ask_text("change", b["change"], VAGUE_CHANGE)
-        b["length_s"], reason = ask_length(b["length_s"])
-        notes.append(f"片长 {b['length_s']}s（{band_of(b['length_s'])}）：{reason}")
-        b["style_pack"] = ask_style(styles, b["style_pack"])
-        for key in ("length", "style"):
-            if b[STATE_OF[key]] != old[STATE_OF[key]]:
-                provided.add(key)
+        print("  先猜、你点头就行：回车＝按猜测走；不对就把那格改成你要的那句。"
+              "片长/风格走默认值，逐条列在下面的「假设」里，一句话能改。")
+        try:
+            import ideate as _gates
+            _gates.note_interrupt(proj, _gates.GATE_TOPIC, "brief 交互四格",
+                                  "给谁看 / 他现在信什么 / 要他怎么变（三格都先给猜测）")
+        except Exception:                                    # noqa: BLE001
+            pass                                             # 老项目/单独拿 brief.py 用也不该因它崩
+        weak: list[str] = []
+        for key, vague in (("audience", VAGUE_AUDIENCE),
+                           ("audience_present_state", ()),
+                           ("change", VAGUE_CHANGE)):
+            b[key], only_generic = ask_guess(key, guess_of(proj, key, b), vague,
+                                            generic=GENERIC_GUESS[key])
+            if only_generic and b[key]:
+                weak.append(f"{FIELD_CN[key]}={b[key]}（项目里还没有你的原话，这是通用占位："
+                            f"出片前补一句真的，或 --set {key}=...）")
         snapshot = dict(b)
         assumed, missing = top_up(b, styles)
         assumed = carry_assumptions(assumed, doc.get("assumed") or [], provided)
+        if weak and not missing:
+            assumed = weak + assumed        # 占位不等于缺格：写进假设，别把 brief 说成「都定了」
 
     doc = write_brief(proj, b, assumed, missing, created)
 

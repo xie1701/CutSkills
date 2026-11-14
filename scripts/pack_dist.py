@@ -32,6 +32,8 @@ EXCLUDE_PREFIXES = ("docs/",)
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(Path.home() / "Downloads" / "CutSkills-dist"))
+    ap.add_argument("--allow-dirty", action="store_true",
+                    help="工作树有未提交改动时仍打包（会打出**旧版**，只用于复现历史包）")
     a = ap.parse_args()
     out = Path(a.out).expanduser()
     out.mkdir(parents=True, exist_ok=True)
@@ -39,6 +41,20 @@ def main() -> int:
     zpath = out / f"{name}.zip"
 
     # 1) git archive → 干净的已跟踪内容
+    # 先拦一个坑：`git archive HEAD` 只含**已提交**的文件。工作树有未提交改动时，
+    # 打出来的包会是旧版，而且一路打绿、没人看得出来。这种包发出去最坑。
+    _st = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain"],
+                         capture_output=True, text=True)
+    _dirty = [ln for ln in (_st.stdout or "").splitlines() if ln.strip()]
+    if _dirty:
+        print(f"打不了包：工作树有 {len(_dirty)} 处未提交改动，`git archive HEAD` 会打出旧版。")
+        for ln in _dirty[:10]:
+            print(f"  {ln}")
+        if len(_dirty) > 10:
+            print(f"  …另 {len(_dirty) - 10} 处")
+        print("先提交（或 `git stash`）再打包；确认就是要打旧版时加 `--allow-dirty`。", file=sys.stderr)
+        if not a.allow_dirty:
+            return 3
     r = subprocess.run(["git", "-C", str(REPO), "archive", "--format=zip", "HEAD"],
                        capture_output=True)
     if r.returncode != 0:

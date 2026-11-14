@@ -75,7 +75,7 @@ def main() -> int:
         (proj / "brief.json").write_text(json.dumps({
             "slug": a.slug,
             "audience": a.audience or "对本话题感兴趣的短视频观众",
-            "belief_now": "还不了解这里面的关键门道",
+            "audience_present_state": "还不了解这里面的关键门道",
             "change": a.promise or a.intent[:60],
             "length_s": dur,
             "length_band": "30s" if dur <= 38 else "60-90s",

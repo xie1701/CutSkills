@@ -79,15 +79,6 @@ PROSE_PERMISSION = re.compile(
 # 只说「允许/可以/同意/保留」的行，要指向某一段或某支素材，才算「像在拍板」。
 PROSE_SEG_TARGET = re.compile(rf"#\d+|第\d+[段格]|{PROSE_ASSET_TOKEN}")
 
-# 泛指词集合：绝对不能作为品牌特征单独用于核销判断。
-# T-036 后核销不再按散文/flag 子串匹配（只认精确指向的结构化行），此表保留给
-# 散文提示（ack_hints）与后续判据作「这词本身不构成品牌」的参考。
-GENERIC_BRAND_WORDS = {
-    "第三方", "品牌", "字样", "商标", "标志", "打码", "水印", "logo",
-    "工具", "入镜", "机身", "衣服", "贴纸", "特写", "后排", "白t", "印有",
-    "区域", "画面", "镜头", "素材", "片段"
-}
-
 
 def structured_ack(ln: str, seg_n: int, asset_name: str) -> tuple[str, str] | None:
     """把一行 decisions.md 解析成核销意见；不是结构化行 / 没拍到板 / 指向别的段 → None。

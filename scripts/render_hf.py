@@ -113,7 +113,8 @@ GRADE = {
     # 一开始这里还挂了 colortemperature + colorchannelmixer，把整片的 B÷R 对齐到 0.471；
     # 结果口播段（室内暖光）被拉到 B÷R 0.353，施工段 0.62，一个平均值糊过去，
     # 每换一镜色温跳一下。参考片是逐镜拉平的，所以这一步也得逐镜做。
-    # 2026-11-09 按 compare_tones.py 的数校准过（不按饱和度校准）：
+    # 2026-11-09 按参考片逐秒抽帧的数校准过（当时那个量测脚本 compare_tones.py 已退役，
+    # 逐镜调色现由 shot_match.py 承担；下面三个数作为标定真值保留，不按饱和度校准）：
     #   目标 luma 0.381 / G÷R 0.750 / B÷R 0.471（参考片，逐秒抽帧算的）
     #   实测 luma 0.372 / G÷R 0.756 / B÷R 0.478
     # `colorchannelmixer` 那三个增益是这次加的主旋钮：原来只靠 colortemperature，
@@ -171,11 +172,19 @@ def probe_color(path: Path) -> dict:
 
 def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
                 crf: int = 16, W: int = 1080, H: int = 1920, overscan: float = 1.0,
-                grade: str = "", aud: tuple[Path, float, float] | None = None) -> None:
+                grade: str = "", aud: tuple[Path, float, float] | None = None,
+                vpad: float = 0.0, silent: bool = False) -> None:
     """自己切一段：HDR 走 zscale 色调映射，旋转由 ffmpeg 自动应用。
 
     `-ss` 放在 `-i` 前面（快，从关键帧起解到位置再丢），`-t` 给时长。
     宽高保持原样——竖屏 4K 进 1080×1920 的缩放交给浏览器/CSS，不做两次重采样。
+
+    `vpad` / `silent` 只给 J-cut 解耦用（画面层单独一条）：
+      · `vpad>0`：**画面**多切 `vpad` 秒（下一镜的声音先进、画面后切时，上一镜的画面
+        要多留这几帧），声音那一路仍然只读 `dur`——输入级 `-t` 各管各的输入，
+        声音的起点与样本数一个都不动；素材不够长时 `tpad` 复制末帧补齐，不留黑。
+      · `silent=True`：输出 `-an`，这条文件只供「画面层」。
+    两个参数都为默认值时，命令行与解耦前**逐字符相同**（老项目零改动）。
     """
     col = probe_color(src)
     hdr = col["transfer"] in HDR_TRANSFERS
@@ -202,16 +211,34 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
     # 以前 HTML 链路没做这件事，结果整片 B-roll 段只剩环境声 + 字幕——
     # Jerry 一看片就发现了（「只有字幕和原 B-roll 片段的声音」）。
     dur = round(t1 - t0, 3)
-    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{t0:.3f}", "-i", str(src)]
-    if aud:
+    vpad = max(0.0, float(vpad))
+    if vpad > 0:
+        vf = vf[:-1] + [vf[-1], f"tpad=stop_mode=clone:stop_duration={vpad:.3f}"]
+    cmd = [ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{t0:.3f}"]
+    if vpad > 0:
+        # 输入级 -t：只限这一路输入读多长。画面读 dur+vpad；声音另开一路只读 dur。
+        cmd += ["-t", f"{round(dur + vpad, 3):.3f}"]
+    cmd += ["-i", str(src)]
+    if aud and not silent:
         a_src, a0, _a1 = aud
-        cmd += ["-ss", f"{a0:.3f}", "-i", str(a_src)]
-    cmd += ["-t", f"{dur:.3f}", "-vf", ",".join(vf),
+        cmd += ["-ss", f"{a0:.3f}"]
+        if vpad > 0:
+            cmd += ["-t", f"{dur:.3f}"]
+        cmd += ["-i", str(a_src)]
+    if vpad <= 0:
+        # 老路径：输出级 -t，画面与声音同一个窗口（解耦前就是这么咬死的）
+        cmd += ["-t", f"{dur:.3f}"]
+    cmd += ["-vf", ",".join(vf),
             "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
             "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
             "-color_trc", "bt709"]
-    if aud:
-        cmd += ["-map", "0:v:0", "-map", "1:a:0", "-shortest"]
+    if aud and not silent:
+        # 解耦时不能带 -shortest：那会把画面按声音长度砍回去，vpad 就白要了。
+        cmd += ["-map", "0:v:0", "-map", "1:a:0"]
+        if vpad <= 0:
+            cmd += ["-shortest"]
+    if silent:
+        cmd += ["-an"]
     cmd += ["-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-movflags", "+faststart", str(dst)]
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -220,6 +247,46 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
 
 
 # ------------------------------------------------------------------ 时间轴
+
+
+def jcut_leads(segs: list[dict]) -> dict[int, tuple[int, int]]:
+    """元素号 → (本格提前量, 下一格提前量)，单位帧。overlay 不占时间轴，跳过。
+
+    `timeline.apply_jcut` 只在**后一句**那个元素上写 `pic_lead`。渲器要的却是
+    「本格晚几帧」+「下一格晚几帧」：后者决定这一格的画面要往后多留多久。
+    """
+    order = [e for e in segs if (e.get("track") or "video") != "overlay"]
+
+    def lead_of(e: dict | None) -> int:
+        if not e or e.get("kind") not in ("clip", "image"):
+            return 0
+        return max(0, int(e.get("pic_lead") or 0))
+
+    out: dict[int, tuple[int, int]] = {}
+    for k, e in enumerate(order):
+        out[e.get("n")] = (lead_of(e), lead_of(order[k + 1] if k + 1 < len(order) else None))
+    return out
+
+
+def pic_window(t: float, dur: float, lead: int, lead_next: int,
+               fps: float = 30.0) -> tuple[float, float, float]:
+    """一格的**画面**窗口：`(起点, 时长, 素材入点)`。声音窗口仍是 `(t, dur)`，不在这里。
+
+    三个数字的来历：
+      · 起点 = `t + lead/fps`——下一句的声音先进 `lead` 帧，画面才切过来；
+      · 素材入点 = `lead/fps`——画面内容与声音**同一时刻对齐**，只是切得晚（不是倒放、
+        不是滞后 100ms 的唇形）；
+      · 时长 = `dur + (lead_next - lead)/fps`——上一格多留的那几帧从这一格的窗口里减去，
+        于是相邻两格画面首尾相接：不留空、不重叠、全片总长一格不多一格不少。
+    `scripts/check_timing.picture_bounds` 用的是同一条公式（判据和产线一份）。
+    """
+    fps = float(fps or 30.0)
+    lead = max(0, int(lead))
+    lead_next = max(0, int(lead_next))
+    return (round(t + lead / fps, 3),
+            round(dur + (lead_next - lead) / fps, 3),
+            round(lead / fps, 3))
+
 
 def load_elements(proj: Path) -> tuple[list[dict], str]:
     """读取项目的 timeline.json 元素列表。"""
@@ -689,13 +756,18 @@ def get_photo(lib: Path, proj: Path, el: dict, *, W: int, H: int, FPS: int,
 
 def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
              extractor: str = "auto", W: int = 1080, H: int = 1920,
-             FPS: int = 30, grade: str = "", overscan: float = 1.0) -> dict:
+             FPS: int = 30, grade: str = "", overscan: float = 1.0,
+             decouple: bool = False, vpad: float = 0.0) -> dict:
     """把一段切出来。**缓存**：同一段再渲不再切（切一段 6.7s 素材要约 38 秒）。
 
     切好的片段是"已经标准化的素材"——旋转过的 HEVC 竖屏、杜比视界，到这一步
     都是统一尺寸的 H.264，浏览器只管播。
 
     extractor：`auto`（有 zscale 就自己切）/ `own` / `hf`（退回 measure extract）。
+
+    `decouple`（J-cut）：多出一条**静画**（`xxx-pic-*.mp4`，画面多留 `vpad` 秒、`-an`）。
+    返回的 `path` 仍是解耦前那个文件（一字节未变，缓存照旧命中）。调用方自己挑：
+    **画面层**用 `pic`（或 `path`），**声音层**永远用 `path`——同一个文件、同一份音轨。
     """
     clips = proj / "hf" / "clips"
     clips.mkdir(parents=True, exist_ok=True)
@@ -737,7 +809,44 @@ def get_clip(lib: Path, proj: Path, seg: dict, force: bool = False,
             if r.returncode != 0 or not dst.exists():
                 raise SystemExit(f"切段失败：{aid} {seg['in']}-{seg['out']}\n{r.stderr[-800:]}")
     info = probe(dst)
-    return {"path": dst, "dur": round(info["dur"], 3), "w": info["w"], "h": info["h"]}
+    out = {"path": dst, "dur": round(info["dur"], 3), "w": info["w"], "h": info["h"]}
+    if decouple:
+        out.update(_decoupled_pair(lib, clips, seg, tag, _want, force=force,
+                                   extractor=extractor, W=W, H=H, FPS=FPS,
+                                   grade=grade, overscan=overscan, vpad=vpad))
+    return out
+
+
+def _decoupled_pair(lib: Path, clips: Path, seg: dict, tag: str, want: str,
+                    *, force: bool, extractor: str, W: int, H: int, FPS: int,
+                    grade: str, overscan: float, vpad: float) -> dict:
+    """J-cut 用的旁路文件：**画面**（多留 `vpad` 秒、`-an`），声音那条不另做。
+
+    为什么画面要单独一条文件、而不是把旧片段拉长：旧片段是「画面长 == 声音长」的
+    产物，一旦拉长，它的**音轨也跟着多出几帧素材**（实测 +3 帧 ⇒ 多 4800 采样 =
+    100.0ms，sha256 变），那正是 BRIEF 不许碰的东西。把画面单独拆出去之后，旧片段
+    原封不动地留给声音层——`<audio src>` 指的就是它本身，一个采样都没重新编过。
+
+    （试过另编一条 `.m4a` 给 `<audio>`：ADTS 字节与旧音轨完全相同，但渲出来整条片子
+    的声音比时间轴早 21.4ms ≈ 1024 采样，m4a 容器的 edit list 在渲器那条路上没被认。
+    同一个文件就不会有这个问题——实测与解耦前的成片一样是 +2.0ms。）
+    """
+    aid = seg["asset"]
+    src = lib / aid
+    if not src.exists():
+        raise SystemExit(f"素材不存在：{src}")
+    use_own = extractor == "own" or (extractor == "auto" and has_zscale())
+    if not use_own:
+        raise SystemExit(
+            "J-cut 解耦要自己切素材（--extractor own）；当前走的是 hyperframes "
+            "measure extract，它只会输出「画面长 == 声音长」的那一种片段。\n"
+            "装上带 zscale 的 ffmpeg（bash scripts/runtime.sh install）或显式 --extractor own。")
+    pic = clips / f"{tag}-pic{int(round(vpad * 1000))}-{want}.mp4"
+    if force or not pic.exists() or pic.stat().st_size < 4096:
+        extract_own(src, float(seg["in"]), float(seg["out"]), pic,
+                    W=int(W), H=int(H), fps=int(FPS), overscan=float(overscan),
+                    grade=grade or "", silent=True, vpad=vpad)
+    return {"pic": pic, "pic_dur": round(probe(pic)["dur"], 3)}
 
 
 # ---------------------------------------------------------- 代码画的整屏格的声音
@@ -1129,6 +1238,28 @@ CARD_LAG = 0.15
 ANCHOR_MISS: list[str] = []
 
 
+def _entry_push(start: float, seg_start: float, cap: float | None = None) -> float:
+    """卡片离切点太近就往后挪一点（防「贴脸」）。返回挪完的起点。
+
+    量的是**离切点多远**，不是「块有多长」。旧写法是
+    `min(MG_ENTRY_MAX, (块长 - MG_ENTRY_CALM) * 0.35)`——它跟切点无关，
+    于是任何超过 `MG_ENTRY_CALM + MG_ENTRY_MAX/0.35 ≈ 6.07s` 的块都被顶到满格：
+    卡在**它锚定的那个词说完之后**才亮，滞后恒等于 `CARD_LAG + MG_ENTRY_MAX` = 1400ms。
+    这就是「两个独立样本同一个数」的来源：不是巧合，是饱和
+    （实测 qizao-ground-01 三张、dianzan-b 的 stat 卡、自测样片都是 1400）。
+    锚词在块内深处时，它本来就离切点很远了，不需要再推。
+
+    `cap`：不许越过这个时刻（锚词收口）——卡必须还在说这个词，
+    否则「卡跟着话走」就变成了「卡跟着块长走」。
+    """
+    if float(start) - float(seg_start) >= MG_ENTRY_MIN:
+        return round(float(start), 3)
+    want = round(float(seg_start) + MG_ENTRY_MIN, 3)
+    if cap is not None:
+        want = round(min(want, float(cap)), 3)
+    return round(max(float(start), want), 3)
+
+
 def window_chars(chars, a_in: float, dur_q: float):
     """这一格音频窗口内的字级真值 `[(字, 起, 止)]`。"""
     return [(ch, st, en) for ch, st, en in chars
@@ -1212,9 +1343,8 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
             # +0.10s：声音先出，画面跟着。提前出现就是「抢拍」——
             # 观众会在词还没说出来的时候先看见字，读到的和听到的对不上。
             start = round(max(s["_start"] + 0.2, anchor_t + CARD_LAG), 3)
-            _sd = float(s.get("_dur_q", 9))
-            if _sd > MG_ENTRY_CALM:
-                start = round(start + min(MG_ENTRY_MAX, (_sd - MG_ENTRY_CALM) * 0.35), 3)
+            if float(s.get("_dur_q", 9)) > MG_ENTRY_CALM:
+                start = _entry_push(start, s["_start"])
         is_mg = kind in MG_KINDS
         # 大字（四五个字）用 hold_s 的一两秒就够；信息卡要按内容量算，不能被它锁死。
         d = card_hold(kind, c.get("data") or {}) if is_mg else max(
@@ -1232,12 +1362,11 @@ def card_windows(segs, lib, chars_cache, style, amap=None, ov_win=()):
                 st0 = win[j][1] - a_in + s["_start"] + CARD_LAG
                 st1 = win[min(j + len(on) - 1, len(win) - 1)][2] - a_in + s["_start"]
                 start = round(max(s["_start"] + 0.15, st0), 3)
-                # 块越长，卡片入场越往后推（0.15–1.25s 之间自适应）：
-                # 贴着切点出，观众还没看清画面就先看见字，观感是「贴脸」。
+                # 块越长，卡片入场越往后推（不贴着切点出）。推的量按**离切点多远**算，
+                # 并且不许越过锚词的收口（st1）：卡必须还在说这个词。
                 _sd = float(s.get("_dur_q", 9))
                 if _sd > MG_ENTRY_CALM:
-                    start = round(start + min(MG_ENTRY_MAX,
-                                              (_sd - MG_ENTRY_CALM) * 0.35), 3)
+                    start = _entry_push(start, s["_start"], cap=st1 - 0.05)
                 anchor_t = round(win[j][1] - a_in + s["_start"], 3)
                 # 锚词只决定「什么时候出」，不决定「放多久」——以前这里用
                 # st1-start+0.25 算时长，锚词一短（「十个人」0.5s）卡就只剩 1.0s，
@@ -1402,10 +1531,13 @@ html, body {{ width:{W}px; height:{H}px; overflow:hidden; background:#000; }}
   letter-spacing:0.02em; white-space:nowrap; opacity:0.92;
   text-shadow:0 1px 0 rgba(255,255,255,.35); }}
 .cap span {{ font-family:"SC-Sub", sans-serif; font-weight:600; font-size:{cap_px}px;
-  color:{cap_color}; letter-spacing:0.01em; line-height:1.28; text-align:center;
+  color:{cap_color}; letter-spacing:{cap_ls}; line-height:{cap_lh}; text-align:center;
   text-shadow:{cap_shadow}; white-space:nowrap; {cap_extra} }}
+/* 纸感底衬模板：整条字幕垫一条米色纸带（浅底深字）。模板没开这张纸 → 这里为空，
+   老包的 CSS 一个字节都不变（不是「加一层透明」，是根本不输出这行）。 */
+{cap_plate_css}
 /* 强调：数字与否定/对比词。只染这两类，别的一个字都不动 */
-.cap .em {{ color:{cap_em}; font-weight:800; }}
+.cap .em {{ color:{cap_em}; font-weight:{cap_em_w}; {cap_em_extra} }}
 .scrim {{ position:absolute; left:0; right:0; top:0; pointer-events:none;
          background:linear-gradient(to bottom, rgba(0,0,0,{scrim_a}), rgba(0,0,0,0)); }}
 .kw {{ position:absolute; left:0; right:0; top:{kw_top}%; display:flex; justify-content:center;
@@ -1879,7 +2011,7 @@ MG_MIN_S = {
     "day-night": 2.6,
     "chips": 2.4,
 }
-MG_ENTRY_MAX = 1.25       # 入场可以推到块首之后这么多（块越长越晚）
+MG_ENTRY_MIN = 0.35       # 卡片至少离开切点这么远（再近就是「贴脸」）
 MG_ENTRY_CALM = 2.5       # 块短于这个秒数就贴着块首出，不再往后推
 
 # 卡要「看得完」。1.0–1.5 秒是一句大字（四五个字）的读速，不是一张信息卡的。
@@ -1888,7 +2020,6 @@ MG_ENTRY_CALM = 2.5       # 块短于这个秒数就贴着块首出，不再往�
 # 20 单位上下就要 2.6 秒以上。所以卡的下限不再借用大字的 hold_s。
 CARD_HOLD_MIN = 2.6       # 读完一张卡的下限
 CARD_HOLD_MAX = 4.5       # 再长就是「卡在屏幕上赖着不走」
-CARD_TAIL = 0.35          # 说完那句之后卡还能留一会儿，给眼睛收尾
 CARD_GAP = 0.20           # 相邻两张卡之间必须空这么久，否则画面在打架
 
 
@@ -2187,11 +2318,16 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     emph = style.get("emphasis") or {}
     # 字号按字体宽度反算：得意黑比思源窄 22%，同一个 80px 出来的字幕小一整圈。
     # 写死的 size_px 只当兜底。
-    try:
-        import fonts as fonts_mod
-        cap_px = fonts_mod.size_px(sub.get("font"), W, fallback=int(sub.get("size_px") or 72))
-    except Exception:                                              # noqa: BLE001
-        cap_px = int(sub.get("size_px") or 72)
+    # 例外：字幕模板（`font_size_locked`）的字号**就是设计值**，按它画并按画幅等比缩放——
+    # 模板的四套各自按自己的字体宽度比校准过字号（见 styles/subtitles.yaml 抬头）。
+    if sub.get("font_size_locked") and sub.get("size_px"):
+        cap_px = max(20, int(round(float(sub["size_px"]) * (W / 1080.0))))
+    else:
+        try:
+            import fonts as fonts_mod
+            cap_px = fonts_mod.size_px(sub.get("font"), W, fallback=int(sub.get("size_px") or 72))
+        except Exception:                                          # noqa: BLE001
+            cap_px = int(sub.get("size_px") or 72)
     cap_top = round(float(sub.get("center_y_px") or (H * 0.674)) / H * 100, 2)
     # 单条字幕宽度：按最长的预期字数估一个安全边距，中文大约 1em 一字
     cap_pad = max(24, int((W - cap_px * 10) / 2))
@@ -2319,19 +2455,38 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
     idc_x = round(float((style.get("_id_card") or {}).get("x") or 0.055) * 100, 2)
     idc_y = round(float((style.get("_id_card") or {}).get("y") or 0.155) * 100, 2)
 
+    # 画面层与声音层可以是两个窗口（J-cut，`timeline.py` 写的 `pic_lead`）：
+    # `pstart/pdur/pmedia` 是**画面**的起播/时长/媒体入点，`start/dur` 仍是声音窗口。
+    # 没解耦的格子三个键都不存在，输出与改动前逐字符一致。
+    def _pic(v: dict) -> tuple[float, float, float]:
+        return (v.get("pstart", v["start"]), v.get("pdur", v["dur"]),
+                v.get("pmedia", 0.0))
+
+    def _v_tag(v: dict, vid: str, track: int, extra: str = "", src: str | None = None) -> str:
+        p0, pd, pm = _pic(v)
+        if v.get("decoupled"):
+            # 解耦格：这条只管画面（`muted`，声音走下面单独的 <audio>）。
+            # `data-media-start` 就是这一格在**它自己素材**里的入点，画面内容与
+            # 声音仍同一时刻对齐——变的只是「什么时候切」这件事。
+            # `data-has-audio` 必须去掉：lint 的 `video_muted_with_declared_audio` 会报，
+            # 而且声音本来就不走这条（走 `<audio>`，字节与它自己一模一样）。
+            extra = extra.replace(' data-has-audio="true"', "")
+            return (f'    <video id="{vid}" class="clip" src="{src or v["src"]}" data-start="{p0}" '
+                    f'data-duration="{pd}" data-media-start="{pm}" data-track-index="{track}" '
+                    f'playsinline muted{extra}></video>')
+        return (f'    <video id="{vid}" class="clip" src="{src or v["src"]}" data-start="{v["start"]}" '
+                f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="{track}" '
+                f'playsinline{extra}></video>')
+
     v_html = "\n".join(
-        f'    <video id="v{v["n"]}" class="clip" src="{v["src"]}" data-start="{v["start"]}" '
-        f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="0" '
-        f'playsinline data-has-audio="true"></video>'
-        for i, v in enumerate(videos, 1))
+        _v_tag(v, f'v{v["n"]}', 0, ' data-has-audio="true"')
+        for v in videos)
     # fg_mode="ffmpeg" 时这里不输出 <video>，抠像层改由本脚本在浏览器渲完后用
     # ffmpeg overlay 贴回去。原因：Chrome 把带 alpha 的 webm 交给硬件视频管线时
     # alpha 会被丢掉——画面上看不出（抠像视频和底片是同一帧，画成不透明正好等于原画），
     # 但它会盖住下面所有层：大字、身份卡一块都不出来。实测 snapshot 有、render 没有。
     fg_html = "" if fg_mode != "browser" else "\n".join(
-        f'    <video id="fg{i}" class="clip" src="{fg_by_seg[i]}" data-start="{v["start"]}" '
-        f'data-duration="{v["dur"]}" data-media-start="0" data-track-index="1" '
-        f'playsinline muted></video>'
+        _v_tag(v, f"fg{i}", 1, " muted", src=fg_by_seg[i])
         for i, v in enumerate(videos, 1) if fg_by_seg and i in fg_by_seg)
     # 代码画的整屏：位图是哑的，所以 muted；声音由下面单独的 <audio> 接着放。
     s_html = "\n".join(
@@ -2388,6 +2543,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         f'      <div id="cap-{i:03d}" class="clip cap'
         f'{" cap-bi" if (_sy_id == "bilingual" and c.get("en")) else ""}'
         f'{" cap-light" if sub.get("light_text") else ""}'
+        f'{" cap-plate" if sub.get("cap_plate") else ""}'
         f'{" cap-ink" if _over_gen(c) else ""}" '
         f'data-start="{c["start"]}" '
         f'data-duration="{round(c["end"] - c["start"], 3)}">'
@@ -2458,8 +2614,47 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
         punch_js = ('// 口播跳切推近：同一段画面换景别，声音不断、时间轴不动\n'
                     + punch_js)
 
+    # 模板才有的三样：字距/行距、强调的「加粗/放大/底衬」、整条纸带底衬。
+    # 一律按「有没有这个键」输出：模板没写就是旧 CSS 的原值（1.28 / 0.01em / 800 / 无纸带），
+    # 所以老包（P1–P5、talking-head-v1）出来的 HTML 与改动前逐字节一致。
+    _ls = sub.get("letter_spacing")
+    cap_ls = f"{float(_ls):g}em" if isinstance(_ls, (int, float)) else "0.01em"
+    _lh = sub.get("line_spacing")
+    cap_lh = f"{float(_lh):g}" if isinstance(_lh, (int, float)) else "1.28"
+    cap_em_w = "900" if sub.get("em_bold") else "800"
+    _eme: list[str] = []
+    _sc = sub.get("em_scale")
+    if isinstance(_sc, (int, float)) and abs(float(_sc) - 1.0) > 1e-6:
+        _eme.append(f"display:inline-block;transform:scale({float(_sc):g});")
+    if sub.get("em_plate"):
+        # 强调块的留白**对称**且比纸带内缩一档（em_plate_pad）：贴边 + 齐高就成了第二块底板，
+        # 观众读到的是「割裂」而不是「标记」。
+        _ep = list(sub.get("em_plate_pad") or [0.04, 0.16])[:2]
+        _e0 = float(_ep[0]) if _ep else 0.04
+        _e1 = float(_ep[1]) if len(_ep) > 1 else 0.16
+        # 字色由下面那条 `.cap .em` 统一给（这里再写一次就是两行同值，读起来像笔误）
+        _eme.append(f"background:{sub['em_plate']};padding:{_e0:g}em {_e1:g}em;"
+                    f"border-radius:.10em;")
+    cap_em_extra = "".join(_eme)
+    cap_plate_css = ""
+    _cp = sub.get("cap_plate")
+    if isinstance(_cp, dict):
+        _pad = list(_cp.get("pad_em") or [0.26, 0.34])[:2]
+        _p0 = float(_pad[0]) if _pad else 0.26
+        _p1 = float(_pad[1]) if len(_pad) > 1 else 0.34
+        _edge = str(_cp.get("edge") or "").strip()
+        cap_plate_css = (f".cap.cap-plate span {{ background:{_cp.get('fill')};"
+                         f"padding:{_p0:g}em {_p1:g}em;"
+                         f"border-radius:{float(_cp.get('radius_em') or 0.16):g}em;"
+                         + ("" if not _edge or _edge.lower() == "none"
+                            else f"box-shadow:{_edge};")
+                         # 这段是**普通字符串**（不是 f-string），所以收尾写一个 } 而不是 }}
+                         + "text-shadow:none;-webkit-text-stroke:0; }")
+
     return CSS_TMPL.format(
         res="portrait" if H > W else "landscape", W=W, H=H, FPS=FPS, total=total, slug=slug,
+        cap_ls=cap_ls, cap_lh=cap_lh, cap_em_w=cap_em_w,
+        cap_em_extra=cap_em_extra, cap_plate_css=cap_plate_css,
         fr=fonts["sub"], fb=fonts["big"],
         grade=grade or "background:transparent;",
         cap_top=cap_top, cap_pad=cap_pad, cap_px=cap_px,
@@ -2774,6 +2969,85 @@ def mix_sfx(film: Path, events: list[dict], dst: Path, stem_out: Path | None = N
     return 0 if probe(dst).get("w") else 1
 
 
+# ------------------------------------------------------------------ 人声降噪
+#
+# BRIEF 第 8 步「混音：人声降噪」——本仓长期以来只有侧链闪避与响度归一，降噪一直是空的。
+# 参数依据、失真闸、量法全部在 scripts/denoise.py，这里只负责**接在链路里**。
+
+def voice_denoise(film: Path, proj: Path) -> tuple[Path, dict | None]:
+    """把「人声底轨」过一遍降噪，带失真闸；闸不过就原样退回，绝不交一条变闷的片。
+
+    为什么接在 5.7（人声预归一）之前：
+      · 此刻 `film` 的音轨**只有人声**——BGM 还没混（5.8）、音效还没打（5.9），
+        降噪在物理上碰不到 BGM/音效，天然满足「只作用在人声段」；
+      · 5.7 的 loudnorm 与 5.8 的 sidechaincompress 都拿这条人声当基准，
+        底噪先下去，闪避的开启阈值才不会被嘶声顶着走。
+    为什么不会破坏「音画同源」：`-c:v copy`，视频流一帧都不重编，画面侧字节未变；
+    音频只走「同长度 PCM → 滤镜 → AAC」，`denoise.run_apply` 里两条硬守卫：
+    **样本数逐样本相等**、**对齐滞后必须为 0**（afftdn 有 1200 样本固定延迟，靠 apad/atrim 补掉）。
+    """
+    import denoise as dn                                  # 与 --measure 同一份实现，不重复写
+    if not dn.has_afftdn():
+        print("  ！ffmpeg 里没有 afftdn 滤镜，跳过人声降噪（其余混音照旧）", file=sys.stderr)
+        return film, None
+    out = proj / "out"
+    ref = out / "_hf_vo.wav"
+    try:
+        dn.to_ref_wav(film, ref, ch=1)
+        measured = dn.public_view(dn.analyze(dn.decode_pcm(ref)))
+    except Exception as e:                                 # noqa: BLE001
+        print(f"  ！人声底噪量不出来（{e}），跳过降噪", file=sys.stderr)
+        return film, None
+    finally:
+        ref.unlink(missing_ok=True)
+    if not dn.need_denoise(measured):
+        # 干净素材明确不动手：这才是「不无谓损伤」的证据，也写在报告里
+        print(f"  人声降噪：停顿段残余 {measured['pause_residual_dbfs']:.1f} dBFS 本身干净"
+              f"（阀值 {dn.NEED_DENOISE_PAUSE_DBFS:g}），不降")
+        return film, {"skipped": "clean", **measured}
+    dn_wav = out / "_hf_vo_dn.wav"
+    try:
+        ev = dn.run_apply(film, dn_wav, {"_name": "standard"}, ch=2)
+    except dn.GateRejected as e:
+        print(f"  ！人声降噪被失真闸拦下，用原始人声：{e}", file=sys.stderr)
+        return film, {"rejected": str(e), **e.evidence}
+    except Exception as e:                                 # noqa: BLE001
+        print(f"  ！人声降噪没跑完（{e}），用原始人声", file=sys.stderr)
+        return film, None
+    # 塞回视频：视频流 copy，音频重编码成 AAC（后续 5.7 还要再过一遍 loudnorm，不能留 PCM）
+    dst = out / "_hf_dn.mp4"
+    r = subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(film),
+                        "-i", str(dn_wav), "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy", "-c:a", "aac", "-b:a", "256k",
+                        "-ar", "48000", "-ac", "2", str(dst)],
+                       capture_output=True, text=True)
+    dn_wav.unlink(missing_ok=True)
+    if r.returncode != 0 or not dst.exists() or not probe(dst).get("w"):
+        print("  ！降噪音轨没塞回去，用原始人声", file=sys.stderr)
+        dst.unlink(missing_ok=True)
+        return film, None
+    if abs(probe(dst)["dur"] - probe(film)["dur"]) > 0.02:   # 片长守卫
+        print("  ！降噪后片长变了，放弃这次降噪", file=sys.stderr)
+        dst.unlink(missing_ok=True)
+        return film, None
+    print(f"  人声降噪（{ev['chain']}）：停顿段 {ev['pause_before_dbfs']:.1f} → "
+          f"{ev['pause_after_dbfs']:.1f} dBFS（降 {ev['pause_drop_db']:+.1f} dB）· "
+          f"相关 {ev['corr']:.4f} · 2–6 kHz {ev['presence_rel_db']:+.1f} dB · "
+          f"对齐滞后 {ev['lag_samples']} 样本")
+    # 我替你做的决定：降噪是显式开关，但「阀值 / 参数 / 为什么要降」得留一行痕迹，
+    # 写进 decisions.md（assumptions.py 读的就是它，不另实现一套）。
+    try:
+        from log_decision import append_row
+        append_row(proj, said="混音：人声降噪（render_hf --denoise）",
+                   did=(f"人声底轨 {ev['chain']}：停顿段 {ev['pause_before_dbfs']:.1f}→"
+                        f"{ev['pause_after_dbfs']:.1f} dBFS，相关 {ev['corr']:.4f}，"
+                        f"样本数与对齐滞后均过闸"),
+                   verdict="accepted")
+    except Exception:                                      # noqa: BLE001
+        pass
+    return dst, ev
+
+
 # ------------------------------------------------------------------ 主流程
 
 def mix_bgm(film: Path, bgm: Path, dst: Path, total: float) -> int:
@@ -3069,6 +3343,10 @@ def main():
     ap.add_argument("--no-render", action="store_true", help="只生成 HTML 并 lint")
     ap.add_argument("--no-sfx", action="store_true", help="不混卡片音效")
     ap.add_argument("--no-loudnorm", action="store_true")
+    # 人声降噪默认**关**：老项目读数一个字节都不许变（见 scripts/test_denoise.py ⑥）。
+    # 开了才走 scripts/denoise.py 的「先量后降 + 失真闸」，且只作用于人声底轨。
+    ap.add_argument("--denoise", action="store_true",
+                    help="人声降噪（afftdn，带失真闸；只动 5.7 之前那条纯人声底轨）")
     ap.add_argument("--force", action="store_true",
                     help="方案没拍板也硬渲（正常不该用）")
     # 默认**开**着：`auto`＝项目里没有就按情绪从 CC0 库挑一首。
@@ -3109,16 +3387,40 @@ def main():
     code, why = lockmod.verify(proj)
     ok = code == 0
     if not ok and (proj / "approval.json").exists():
-        # 旧项目只有 approval.json：给一条读得懂的提示，不静默放行
-        why += "；approval.json 是旧闸门，改跑 `lock.py --lock` 换上锁"
-    if not ok and not a.force:
-        print(f"还没拍板：{why}。\n"
-              "  先跑 `python3 scripts/plan_card.py --project …` 出方案，"
-              "人看过之后 `--approve`（会顺手写 lock.json）。\n"
-              "  （确实要硬渲就加 --force。）", file=sys.stderr)
+        # approval.json 里是「谁在哪一拍点了头」，不是渲放行：放行只认 lock.json
+        why += "；approval.json 只记拍板留痕，放过渲的是 lock.json（`plan_card.py --approve` 会一并写）"
+    # 拍板②（Jerry 的 BRIEF「交互约束」）：确认拍摄任务卡或素材盘点。
+    # 有确认对象却没留痕（或确认之后卡/盘点又改过）= 没签，不放行。
+    # 零实拍、也没带素材盘点进来的片子（纯代码画面）没有要确认的对象，不算缺。
+    # 判据只有一份：ideate.gate_state（留痕与失效都在那里判，这里不另写一套）。
+    import ideate as gates                                    # noqa: PLC0415
+    _st = gates.gate_state(proj)
+    shots_wait = "" if _st[gates.GATE_SHOTS]["ok"] else _st[gates.GATE_SHOTS]["why"]
+    lock_wait = "" if ok else why
+    if (shots_wait or lock_wait) and not a.force:
+        if lock_wait:
+            print(f"还没拍板：{lock_wait}。\n"
+                  "  先跑 `python3 scripts/plan_card.py --project …` 出方案，"
+                  "人看过之后 `--approve`（会顺手写 lock.json）。", file=sys.stderr)
+        if shots_wait:
+            print(f"拍板② 还没签：{shots_wait}。", file=sys.stderr)
+        print("  三次拍板：①选题 ②拍摄卡或素材 ③锁定音轨——缺的那几拍先签掉再渲。\n"
+              "  （确实要硬渲就加 --force：它会把这几次拍板当成「跳过」写进日志。）",
+              file=sys.stderr)
         return 4
     if ok:
         print(f"  {why}", file=sys.stderr)
+    if a.force and (shots_wait or lock_wait):
+        # --force 是逃逸口，不是默认路径：跳过了哪一拍必须自己报出来，不能“硬渲完没人知道”
+        if lock_wait:
+            print(f"  🔴 --force 跳过了拍板③：{lock_wait}", file=sys.stderr)
+        if shots_wait:
+            print(f"  🔴 --force 跳过了拍板②：{shots_wait}", file=sys.stderr)
+    if not _st[gates.GATE_TOPIC]["ok"]:
+        # ①不硬拦：老项目根本没有「--pick」这一步的历史，拦了等于让所有旧片渲不了。
+        # 但每渲一次都把「这拍没留痕」念出来（并在方案卡上标红），不靠人自己去扒文件。
+        print("  🟡 拍板①（确认选题）没有留痕：按默认第 1 套往下做——"
+              "要留痕跑 `ideate.py --project … --pick N`", file=sys.stderr)
     lib = resolve_lib(proj, a.library)
     elements, tl_src = load_elements(proj)
 
@@ -3151,6 +3453,18 @@ def main():
     H = int(style["canvas"]["height"])
     FPS = int(style["canvas"]["fps"])
 
+    # 字幕模板（styles/subtitles.yaml）：优先级 = 项目显式选的模板 > 包装包自带的
+    # subtitle 参数 > 默认模板。选了模板就把这套参数整段换掉（字号/字色/描边/阴影/
+    # 纵位置/行宽/强调方案一起换），**没选就一个键都不碰**——老项目像素一致。
+    try:
+        sub_cfg = subs.subtitle_config(proj, style)
+    except subs.SubtitleTemplateError as e:
+        raise SystemExit(f"字幕模板配置有问题：{e}")
+    if sub_cfg.get("template"):
+        style["subtitle"] = subs.template_to_subtitle(sub_cfg["raw"])
+        print(f"  字幕模板：{sub_cfg['name']}（{sub_cfg['id']}）· {sub_cfg['font']} "
+              f"{sub_cfg['size_px']}px · 授权 {sub_cfg['font_license']}", file=sys.stderr)
+
     fonts = {}
     for key, nm in (("sub", (style.get("subtitle") or {}).get("font")),
                     ("big", (style.get("emphasis") or {}).get("font"))):
@@ -3177,6 +3491,21 @@ def main():
     gen_spans = []   # 代码画面占用的时间段：字幕压上去要换字色
     scenes, audios, pips = [], [], []   # 整屏代码格 + 口播原声 + B 轴人物小窗
     gd = GRADE.get(str(style.get("grade") or ""), "")
+    # J-cut（BRIEF 剪辑表第 4 步）：`timeline.py` 在**后一句**那个元素上写 `pic_lead`
+    # （整数帧）。渲器只认这个数：画面窗口整体晚 `lead` 帧，声音窗口**一秒不动**。
+    # 窗口怎么算（这也是 scripts/check_timing.py 的口径）：
+    #   声音：[t, t+该格时长)        ← 与解耦前完全一样
+    #   画面：[t+L_i, t+L_{i+1})     ← 画面内容仍然与声音同一时刻对齐（media-start = L_i）
+    #        于是上一镜的画面自然多留 L_{i+1} 帧，下一镜的声音先进、画面后切。
+    # 首格的 L 一定是 0（从 0 秒开始，不会黑屏）；末格的 L 也不写（片尾不会被截断），
+    # 两条都由 timeline.apply_jcut 的位置闸和测试钉住。
+    _jcut = jcut_leads(segs)
+    _frm = 1.0 / float(FPS)
+    # 画面层多要的尾巴：全片最大的 lead。只决定「切片时多切几帧」，不决定布局。
+    _vpad = round(max((v[1] for v in _jcut.values()), default=0) * _frm, 3)
+    if _vpad > 0:
+        print(f"  J-cut：画面层比声音层晚 "
+              f"{sorted({v[0] for v in _jcut.values() if v[0]})} 帧（切片多留 {_vpad * 1000:.0f}ms）")
     for el in segs:
         kind = el.get("kind") or "clip"
         dur = el_dur(el)
@@ -3187,18 +3516,43 @@ def main():
         if not (kind == "gen" and (el.get("track") or "video") == "overlay"):
             el["_start"] = round(t, 3)
         if kind in ("clip", "image"):
+            _ld, _ldn = _jcut.get(el.get("n"), (0, 0))
+            _dec = bool(_ld or _ldn)
             try:
                 if kind == "image":
                     cl = get_photo(lib, proj, el, W=W, H=H, FPS=FPS, grade=gd)
                 else:
+                    # 只有「画面要往后多留几帧」的那一格才需要旁路的静画文件；
+                    # 只是「自己晚进场」的那一格，画面还在它自己那个片段里。
                     cl = get_clip(lib, proj, el, force=a.force_extract, extractor=a.extractor,
-                                  W=W, H=H, FPS=FPS, grade=gd, overscan=a.overscan)
+                                  W=W, H=H, FPS=FPS, grade=gd, overscan=a.overscan,
+                                  decouple=bool(_ldn), vpad=_vpad)
             except SystemExit as e:
                 print(f"  ！格 {el.get('n')} 造不出来：{e}", file=sys.stderr)
                 n_fail += 1
                 continue
-            videos.append({"n": el["n"], "src": f"clips/{cl['path'].name}",
-                           "start": round(t, 3), "dur": cl["dur"]})
+            _t0 = round(t, 3)
+            if _dec:
+                _p0, _pd, _pm = pic_window(_t0, cl["dur"], _ld, _ldn, FPS)
+                _src = cl["pic"] if _ldn else cl["path"]
+                _avail = round(float(cl.get("pic_dur") or 0) - _pm, 3)
+                if _ldn and _avail < _pd:
+                    # 素材只剩这么多画面：明说一声再缩，不静默。
+                    print(f"  ！格 {el.get('n')} 画面要 {_pd}s，素材只到 {_avail}s——"
+                          f"画面尾巴缺 {round((_pd - _avail) * 1000)}ms", file=sys.stderr)
+                    _pd = _avail
+                videos.append({"n": el["n"], "src": f"clips/{_src.name}",
+                               "asrc": f"clips/{cl['path'].name}",
+                               "start": _t0, "dur": cl["dur"],
+                               "pstart": _p0, "pdur": _pd, "pmedia": _pm,
+                               "decoupled": True})
+                # 声音层单独一条：**指回解耦前那个片段本身**——起点/时长与解耦前一模一样，
+                # 连文件都是同一个（所以音轨不是「听起来一样」，是同一个文件）。
+                audios.append({"n": el["n"], "src": f"clips/{cl['path'].name}",
+                               "start": _t0, "dur": cl["dur"]})
+            else:
+                videos.append({"n": el["n"], "src": f"clips/{cl['path'].name}",
+                               "start": _t0, "dur": cl["dur"]})
             el["_dur_q"] = cl["dur"]
             clips_like.append(el)
             t = round(t + cl["dur"], 3)
@@ -3305,7 +3659,13 @@ def main():
             _en_map = {}
     _ss = style.get("subtitle_system") or {}
     ss_id = (_ss.get("id") if isinstance(_ss, dict) else str(_ss)) or "single-line"
-    caps = subs.build(active, by_id, chars_cache, lib, load_chars, colorize=colorize, fps=FPS)
+    # 行宽与断词规则：模板会把行宽收窄、把 case_rules 里的词锁成原子；
+    # 没选模板时传 None → subs 用回共用的 10 单位/字表（老项目一字不差）。
+    caps = subs.build(active, by_id, chars_cache, lib, load_chars, colorize=colorize, fps=FPS,
+                      max_units=(sub_cfg.get("max_units_per_line")
+                                 if sub_cfg.get("template") else None),
+                      case_rules=(sub_cfg.get("case_rules")
+                                  if sub_cfg.get("template") else None))
     caps = [c for c in caps if c["start"] < total]
     # 英文挂到 cue 上（必须在 caps 建好之后——挂早了一个变量都没定义就崩了）
     if _en_map:
@@ -3472,7 +3832,19 @@ def main():
     _sctr = float(sub.get("center_y_px") or H * 0.674)
     _band_n = (round(max(0.0, (_sctr - 180) / H), 4), round(min(1.0, 360 / H), 4))
     if cards:
-        cards = card_layout.layout_cards(cards, proj=proj, videos=videos, style=style,
+        # 卡的布局量的是「卡这一屏底下有什么」：人脸/主体遮罩/亮度。它按 `videos` 的
+        # start/dur 去片段里取帧，所以**必须给声音时钟**（解耦后画面层晚了几帧，
+        # 拿画面时钟去取帧会抽到 100ms 后的那一帧，卡的落位跟着变——那不是 J-cut
+        # 要的东西：J-cut 只动「什么时候切」，不该改卡）。
+        _v_audio = [{k: val for k, val in v.items()
+                     if k not in ("pstart", "pdur", "pmedia", "decoupled")}
+                    for v in videos]
+        # 解耦格的画面文件可能是那条「多留 100ms」的旁路文件；取帧要用解耦前那条，
+        # 否则同一张卡在不同时长/不同抽帧网格的文件上量出不同的主体占比。
+        for _v in _v_audio:
+            _v["src"] = next((x.get("asrc") for x in videos
+                              if x["n"] == _v["n"] and x.get("asrc")), _v["src"])
+        cards = card_layout.layout_cards(cards, proj=proj, videos=_v_audio, style=style,
                                         W=W, H=H, sub_band=_band_n, subs_on=False,
                                         media_of=lambda n: _med_of.get(int(n), ""),
                                         overrides=_ov_map)
@@ -3532,7 +3904,9 @@ def main():
                 continue
             if a.fg_layer == "none":
                 continue
-            fgp = make_fg(proj, proj / "hf" / cl["src"], cl["dur"], FPS)
+            # 抠像层得盖满这一格的**画面窗口**（解耦格比声音窗口长 lead 帧），
+            # 盖短了最后几帧人会从抠像层下面露出来。
+            fgp = make_fg(proj, proj / "hf" / cl["src"], float(cl.get("pdur") or cl["dur"]), FPS)
             mdir = proj / "hf" / "work" / "mask" / Path(cl["src"]).stem
             st = mask_stats(mdir, W, H) if fgp else None
             if fgp and behind_ok(st):
@@ -3571,6 +3945,13 @@ def main():
         "avg_chars": round(speech_chars / len(_stat_cues), 2) if _stat_cues else 0,
         "chars_per_s": round(speech_chars / speech_s, 2) if speech_s else 0,
         "colorize": colorize,
+        # 生效的字幕口径：check_subs 按这一份判字号/行宽/强调色，不再自己猜
+        "subtitle_source": sub_cfg.get("source"),
+        "subtitle_template": sub_cfg.get("id"),
+        "subtitle_max_units": sub_cfg.get("max_units_per_line"),
+        "subtitle_size_px": sub_cfg.get("size_px"),
+        "subtitle_font": sub_cfg.get("font"),
+        "em_color": sub_cfg.get("em_color"),
         "engine": "hyperframes",
     }, ensure_ascii=False, indent=1), encoding="utf-8")
     # 大字自己落在哪，落到 cards.json 里（T-045）。`build_html` 画字用的是同一个函数，
@@ -3693,7 +4074,11 @@ def main():
         shutil.copy2(gsap_src, gsap_dst)
 
     # 3) 收集网感包装层（顶部悬念标题条 / 矢量动态情绪贴纸 / 镜头特效）并写 HTML
-    pkg = stickers_mod.collect_packaging(tl_doc, segs, total, W=W)
+    #    落角要避开平台 UI 遮挡区（BRIEF 自动质检），安全区与 verify_film 读同一份：
+    #    platform_safe.load_spec —— 默认值 → 项目 platform-safe.json / brief.json。
+    import platform_safe as _psafe
+    _pspec, _ = _psafe.load_spec(proj)
+    pkg = stickers_mod.collect_packaging(tl_doc, segs, total, W=W, H=H, spec=_pspec)
     html_txt = build_html(kw_top_override=kw_top_override, slug=proj.name, W=W, H=H, FPS=FPS,
                           total=total, videos=videos, caps=caps, cards=cards,
                           style=style, fonts=fonts, grade=a.grade, fg_by_seg=fg_by_seg,
@@ -3778,7 +4163,7 @@ def main():
 
     # 5.5) 抠像层：ffmpeg 贴回
     if a.fg_layer == "ffmpeg" and fg_by_seg:
-        fgs = [(hf / fg_by_seg[v["n"]], v["start"], v["dur"])
+        fgs = [(hf / fg_by_seg[v["n"]], v.get("pstart", v["start"]), v.get("pdur", v["dur"]))
                for v in videos if v["n"] in fg_by_seg]
         fgd = proj / "out" / "_hf_fg.mp4"
         # 裁剪线压在字幕带顶边之上：字幕中心 0.674H、字号 80px，顶边约 0.65H。
@@ -3806,6 +4191,17 @@ def main():
             _mj["pips_applied"] = False
             print("  ！PiP 没贴上，成片只有代码场景没有人物小窗", file=sys.stderr)
         _mp.write_text(json.dumps(_mj, ensure_ascii=False, indent=1))
+
+    # 5.65) 人声降噪：**必须在 5.7 预归一之前**——此刻音轨里只有人声，BGM/音效都还没混进来，
+    # 所以降噪只可能作用在人声段上，碰不到垫乐和音效；视频流 `-c:v copy`，画面侧零改动。
+    if a.denoise:
+        raw, dn_report = voice_denoise(raw, proj)
+        if dn_report is not None:
+            try:
+                (proj / "out" / "denoise.json").write_text(
+                    json.dumps(dn_report, ensure_ascii=False, indent=1), encoding="utf-8")
+            except OSError:
+                pass
 
     # 5.7) 人声底轨预归一至 -18 LUFS：无论来源是低电平领夹麦（-30 LUFS）还是高电平 TTS（-6 LUFS），
     # 进入 BGM 侧链闪避（-28 LUFS）与音效混音（0 dB 档）前统一电平基准，彻底消除音效被大声 TTS 吞没。
@@ -3943,7 +4339,7 @@ def main():
             shutil.move(raw, dst)
         else:
             raw.unlink(missing_ok=True)
-    for _tmp_name in ("_hf_voc.mp4", "_hf_sfx.mp4"):
+    for _tmp_name in ("_hf_voc.mp4", "_hf_sfx.mp4", "_hf_dn.mp4"):
         (proj / "out" / _tmp_name).unlink(missing_ok=True)
     # 响度写回 meta.json：lock.json 里记的是「拍板时的时长/格数」，响度只有渲完才知道。
     _mp = proj / "hf" / "meta.json"

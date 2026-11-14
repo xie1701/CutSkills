@@ -20,7 +20,7 @@
 
 ### 百万剪辑师网感八大武器
 
-1. **黄金前 3 秒强钩子**——十大钩子模型 + 开场冲击推镜 + 顶部磨砂悬念标题条，严禁「大家好我是…」开场
+1. **黄金前 3 秒强钩子**——钩子库按方法原文的**八大切入点 + 开篇技巧**来挑（每条钩子标明出自原文哪一节，自建的两条明确标「非原文」）+ 开场冲击推镜 + 顶部磨砂悬念标题条，严禁「大家好我是…」开场
 2. **跳切推近零废片**——自动去场记口令、语气词、重说；长口播无痕跳切，严守音画同源
 3. **高颜值无标点字幕**——校准字宽的得意黑/思源黑体，单排硬切，按真实静音拆呼吸组
 4. **锚词花字 + 7 类修辞同构动效卡**——数字滚动 / 比例条 / 时段接力 / 对抗 / 步骤 / 释义 / 名牌，重点词放大撑 70% 屏宽
@@ -89,7 +89,7 @@ python3 scripts/verify_film.py --project "<素材库>/_cutskills/projects/my-fil
 python3 scripts/tidy.py --project "<素材库>/_cutskills/projects/my-film" --apply     # 渲→验→清
 ```
 
-> 完整命令速查（108 个脚本 / 312 个参数）见 [references/cli.md](references/cli.md)，
+> 完整命令速查（135 个脚本 / 438 个参数）见 [references/cli.md](references/cli.md)，
 > 面向 AI 工位的完整说明书见 [SKILL.md](SKILL.md)，人类上手一页纸见 [GETTING-STARTED.md](GETTING-STARTED.md)。
 
 ---
@@ -97,7 +97,7 @@ python3 scripts/tidy.py --project "<素材库>/_cutskills/projects/my-film" --ap
 ## 🏗️ 流水线架构
 
 ```
-选题创作（ideate.py · 5A 人群双流向 + 十大钩子）
+选题创作（ideate.py · 5A 人群双流向 + 原文八大切入点钩子库）
         ↓
 脚本定稿 → AI 配音（voiceover.py · 字级时间戳入库）／或实拍素材索引（index_assets.py · ASR 词级真值）
         ↓
@@ -120,7 +120,7 @@ HyperFrames 真渲（render_hf.py · 调色/字幕/花字/贴纸/动效卡/音�
 
 | 目录 | 内容 |
 |---|---|
-| `scripts/` | 108 个产线脚本（索引 / 编导 / 渲染 / 验收 / 清理 / 自检） |
+| `scripts/` | 135 个产线脚本（索引 / 编导 / 渲染 / 验收 / 清理 / 自检） |
 | `packs/` | 5 套正交视觉包装包（`P1`–`P5`） |
 | `plans/` | 4 套剪辑骨架节奏方案（快 / 中 / 慢 / 倒叙） |
 | `styles/` | 字体、调色、包装包预览样张 |
@@ -132,7 +132,7 @@ HyperFrames 真渲（render_hf.py · 调色/字幕/花字/贴纸/动效卡/音�
 ```bash
 python3 scripts/gen_cli_ref.py   # 重新生成 CLI 速查（禁止手改）
 python3 scripts/audit_skill.py   # 文档 × CLI × Schema 三向对账，必须 🔴0 🟡0
-python3 scripts/selftest.py      # 端到端真渲染自检 + 33 支契约与真音频回归单测
+python3 scripts/selftest.py      # 端到端真渲染自检 + 47 支契约与真音频回归单测
 python3 scripts/pack_dist.py     # 分发包完整性 + 全仓私有路径零泄漏扫描
 ```
 

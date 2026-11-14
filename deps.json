@@ -1,6 +1,16 @@
 {
- "version": 1,
- "why": "依赖清单。scripts/runtime.sh install 只装这里列出、且本地还缺的东西，全部落在 $CUTSKILLS_HOME（默认 ~/.cutskills）里，不散到各个任务目录。版本字段必须是纯版本约束（pip/npm 能直接吃的），人话备注一律放 notes——2026-11-14 干净环境实测：备注混进版本号会让 install 静默失败。",
+ "version": 2,
+ "why": "依赖清单。scripts/runtime.sh install / install.ps1 -Install 只装这里列出、且本地还缺的东西，全部落在 $CUTSKILLS_HOME（默认 ~/.cutskills，Windows 是 %USERPROFILE%\\.cutskills）里，不散到各个任务目录。版本字段必须是纯版本约束（pip/npm 能直接吃的），人话备注一律放 notes——2026-11-14 干净环境实测：备注混进版本号会让 install 静默失败。",
+ "platforms": {
+  "keys": ["darwin-arm64", "darwin-x64", "win-x64", "linux-x64"],
+  "rule": "凡是绑平台的依赖（系统包、语音模型、字体目录）都必须四键齐全：能装的写 status=available + package + install，装不了的写 status=unavailable + why。**不许把 macOS 的包名当默认值**（v1 的 models.asr 就是一句话写死 sherpa-onnx-darwin-arm64，等于把 macOS 默认成全世界）。",
+  "verified_on": {
+   "darwin-arm64": "2026-11-14/15 干净环境实测（doctor / runtime.sh check / selftest 全绿）",
+   "darwin-x64": "未实测",
+   "win-x64": "未在 Windows 真机验证——只提供 install.ps1 与 <CUTSKILLS_HOME>/windows-selfcheck.md 自检清单",
+   "linux-x64": "未实测"
+  }
+ },
  "npm": {
   "hyperframes": "0.9.39"
  },
@@ -11,21 +21,185 @@
   "numpy": ">=2"
  },
  "system": {
-  "ffmpeg": "9.0.2（自编在 $CUTSKILLS_HOME/opt/ffmpeg-zimg，带 libzimg/libass/libharfbuzz/libvmaf；用前先跑 `scripts/runtime.sh check`，它真的执行一次 -version 并检查 otool 的库路径——2026-11-12 夜里 brew 把 Cellar 清空过，清单写着有、实际 dyld 起不来）",
-  "ffprobe": ">=6（规格探测）",
-  "node": ">=22（hyperframes 要求）",
-  "python3": ">=3.9（CI 实跑 3.14/3.15 均可，依赖走 scripts/vendor）",
-  "coli": "@marswave/coli 0.0.20 · 本地 ASR（`coli asr -j --model sensevoice --language zh`，离线、字级时间戳）。**何在**：不在 npm/PATH 上，从 /Applications/Cola.app/Contents/Resources/app.asar 的 node_modules/@marswave/coli 抽出到 $CUTSKILLS_HOME/opt/coli-app（连带 commander/ky/native-say/sherpa-onnx-node + sherpa-onnx-darwin-arm64 闭包），软链 $CUTSKILLS_HOME/opt/bin/coli，`runtime.sh env` 把 opt/bin 排 PATH 最前。**为何会断**：2026-11-13 Cola 升级后不再把 coli 暴露成系统命令（`which coli` 为空），selftest ②–⑤ / test_hygiene_fixtures / 新素材首轮 ASR 一起哑；asar 里是压包的 ESM，普通 node 读不了，App 每次升级换 asar 就得重抽一次（重抽：`python3 scripts/fetch_coli.py`）；模型首次跑自己下 155.5 MB 到 ~/.coli/models（2026-11-13 实测下到 130/155.5 MB 被代理断流，退回 curl 续传才成）",
-  "chrome": "hyperframes 截图渲染要一个 chrome-headless-shell（$CUTSKILLS_HOME/../.cache/hyperframes/chrome）。下载失败时可临时 export HYPERFRAMES_BROWSER_PATH=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\""
+  "ffmpeg": {
+   "why": "抽帧/调色/混音；HDR（HLG / 杜比视界）→ SDR 必须有带 zscale/libzimg 的构建，系统版没有的话压出来偏亮偏灰",
+   "platforms": {
+    "darwin-arm64": {
+     "status": "available",
+     "package": "9.0.2 自编在 $CUTSKILLS_HOME/opt/ffmpeg-zimg（带 libzimg/libass/libharfbuzz/libvmaf）",
+     "install": "bash scripts/runtime.sh install；缺 zimg 依赖时 brew install ffmpeg zimg",
+     "check": "scripts/runtime.sh check 会真的执行一次 -version 并检查 otool 的库路径",
+     "notes": "2026-11-12 夜里 brew 把 Cellar 清空过，清单写着有、实际 dyld 起不来——所以只认「真跑过」"
+    },
+    "darwin-x64": {
+     "status": "available",
+     "package": "同 darwin-arm64（/usr/local 前缀的 brew）",
+     "install": "bash scripts/runtime.sh install",
+     "notes": "未实测：arm64 上验过的自编脚本，Intel Mac 上没跑过"
+    },
+    "win-x64": {
+     "status": "available",
+     "package": "winget install Gyan.FFmpeg（gyan.dev 官方 build，含 libzimg/libass/libfreetype）",
+     "install": "install.ps1 -Install（走 winget；也可手动装完确保 ffmpeg.exe 在 PATH 上）",
+     "notes": "未在 Windows 真机验证：HDR→SDR 这条链本仓没在 Windows 上跑过一次"
+    },
+    "linux-x64": {
+     "status": "available",
+     "package": "发行版包（apt/dnf install ffmpeg）；要 zscale 需自编 --enable-libzimg",
+     "install": "apt install ffmpeg（要 HDR 再编 libzimg）",
+     "notes": "未实测"
+    }
+   }
+  },
+  "ffprobe": {
+   "why": "规格探测（时长/帧率/像素格式），gate / verify_film 全链路都靠它",
+   "platforms": {
+    "darwin-arm64": {"status": "available", "package": "随 ffmpeg 一起（>=6）", "install": "同 ffmpeg"},
+    "darwin-x64": {"status": "available", "package": "随 ffmpeg 一起（>=6）", "install": "同 ffmpeg"},
+    "win-x64": {"status": "available", "package": "随 Gyan.FFmpeg 一起（ffprobe.exe）", "install": "同 ffmpeg"},
+    "linux-x64": {"status": "available", "package": "随 ffmpeg 一起（>=6）", "install": "同 ffmpeg"}
+   }
+  },
+  "node": {
+   "why": "hyperframes 渲染层（Remotion 系）要求 Node >= 22",
+   "platforms": {
+    "darwin-arm64": {"status": "available", "package": ">=22", "install": "brew install node", "notes": "2026-11-15 实测 v26.13.1 / npm 11.20.0"},
+    "darwin-x64": {"status": "available", "package": ">=22", "install": "brew install node"},
+    "win-x64": {"status": "available", "package": ">=22（OpenJS LTS）", "install": "winget install OpenJS.NodeJS.LTS", "notes": "未真机验证；可执行名是 node.exe / npm.cmd"},
+    "linux-x64": {"status": "available", "package": ">=22", "install": "apt install nodejs npm（或 nodesource）"}
+   }
+  },
+  "python3": {
+   "why": "产线本体（所有 scripts/*.py）",
+   "platforms": {
+    "darwin-arm64": {"status": "available", "package": ">=3.9（CI 实跑 3.14/3.15）", "install": "brew install python"},
+    "darwin-x64": {"status": "available", "package": ">=3.9", "install": "brew install python"},
+    "win-x64": {
+     "status": "available",
+     "package": ">=3.9（python.org 或 Microsoft Store 版）",
+     "install": "winget install Python.Python.3.12",
+     "notes": "Windows 上命令名是 python.exe 或 py.exe（没装 python3 这个别名）；install.ps1 三个名字依次找"
+    },
+    "linux-x64": {"status": "available", "package": ">=3.9", "install": "apt install python3 python3-pip"}
+   }
+  },
+  "coli": {
+   "why": "本地 ASR（`coli asr -j --model sensevoice --language zh`，离线、字级时间戳）。不在 npm/PATH 上，从 /Applications/Cola.app/Contents/Resources/app.asar 的 node_modules/@marswave/coli 抽出到 $CUTSKILLS_HOME/opt/coli-app（连带 commander/ky/native-say/sherpa-onnx-node + sherpa-onnx-darwin-arm64 闭包），软链 $CUTSKILLS_HOME/opt/bin/coli",
+   "platforms": {
+    "darwin-arm64": {
+     "status": "available",
+     "install": "python3 scripts/fetch_coli.py（从 Cola 安装包重抽，不联网）",
+     "notes": "2026-11-13 Cola 升级后不再把 coli 暴露成系统命令（`which coli` 为空），selftest ②–⑤ / test_hygiene_fixtures / 新素材首轮 ASR 一起哑；asar 里是压包的 ESM，普通 node 读不了，App 每次升级换 asar 就得重抽一次"
+    },
+    "darwin-x64": {
+     "status": "unavailable",
+     "why": "Cola.app 只发 arm64 构建；sherpa-onnx 闭包也是 darwin-arm64。Intel Mac 拿不到 coli，转写退 hyperframes transcribe（whisper），慢且无词级真值"
+    },
+    "win-x64": {
+     "status": "unavailable",
+     "why": "Cola.app 没有 Windows 版，@marswave/coli 与 sherpa-onnx-darwin-arm64 闭包都不在 Windows 上分发。Windows 上转写走 hyperframes transcribe（whisper），index_assets 的 coli 调用会失败——doctor 把它报成「平台不支持」而不是 ❌"
+    },
+    "linux-x64": {
+     "status": "unavailable",
+     "why": "同上：没有 Cola.app 的 Linux 构建。要用得自己装 sherpa-onnx + sensevoice 并替换 index_assets 里的 coli 调用（本仓没做）"
+    }
+   }
+  },
+  "chrome": {
+   "why": "hyperframes 截图渲染要一个 chrome-headless-shell（$CUTSKILLS_HOME/../.cache/hyperframes/chrome）",
+   "platforms": {
+    "darwin-arm64": {
+     "status": "available",
+     "install": "hyperframes 首次渲染自己下",
+     "notes": "下载失败时可临时 export HYPERFRAMES_BROWSER_PATH=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\""
+    },
+    "darwin-x64": {"status": "available", "install": "同上，未实测"},
+    "win-x64": {
+     "status": "available",
+     "install": "hyperframes 首次渲染自己下",
+     "notes": "未真机验证；下载失败时把 HYPERFRAMES_BROWSER_PATH 指向 %PROGRAMFILES%\\Google\\Chrome\\Application\\chrome.exe"
+    },
+    "linux-x64": {"status": "available", "install": "同上，未实测"}
+   }
+  }
  },
  "models": {
-  "asr": "sensevoice **不在包里**：首次 `coli asr` 自动下 155.5 MB 到 ~/.coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17（files.colaos.ai，下载后用 sha256 校验 model.int8.onnx / tokens.txt，不符会重下）。断流重试：`curl -C - --retry 20 --retry-all-errors -o <tar> https://files.colaos.ai/coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`，sha256 对得上（7d1efa21…dfd347e）再 `tar xf` 进 ~/.coli/models，coli 会认账不再下",
-  "whisper": "只有降级到 hyperframes transcribe 时才需要，权重落在 $CUTSKILLS_HOME/models/hf"
+  "asr": {
+   "why": "sensevoice 语音模型：首次 `coli asr` 自动下 155.5 MB 到 ~/.coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17（files.colaos.ai），下完用 sha256 校验 model.int8.onnx / tokens.txt，不符会重下",
+   "platforms": {
+    "darwin-arm64": {
+     "status": "available",
+     "package": "sherpa-onnx-darwin-arm64（随 @marswave/coli 闭包）",
+     "model_dir": "~/.coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+     "install": "首次 `coli asr` 自动下；断流重试：curl -C - --retry 20 --retry-all-errors -o <tar> https://files.colaos.ai/coli/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2 然后 tar xf 进 ~/.coli/models",
+     "notes": "sha256 对得上（7d1efa21…dfd347e）coli 就认账不再下；2026-11-13 实测下到 130/155.5 MB 被代理断流，退回 curl 续传才成"
+    },
+    "darwin-x64": {
+     "status": "unavailable",
+     "why": "sherpa-onnx-darwin-arm64 是 arm64 专用二进制，Intel Mac 装不上；Cola.app 也没有 x64 构建。转写退 hyperframes transcribe（whisper）"
+    },
+    "win-x64": {
+     "status": "unavailable",
+     "why": "Windows 上没有 coli 闭包（没有 sherpa-onnx-win 的对应包），sensevoice 模型下下来也无人调用。Windows 的转写走 hyperframes transcribe（whisper），无字级真值"
+    },
+    "linux-x64": {
+     "status": "unavailable",
+     "why": "没有 coli 闭包；sherpa-onnx 官方有 linux 包但本仓没接（index_assets 只调 coli 命令）。要走这条路得自己接"
+    }
+   }
+  },
+  "whisper": {
+   "why": "降级转写（hyperframes transcribe），权重落在 $CUTSKILLS_HOME/models/hf",
+   "platforms": {
+    "darwin-arm64": {"status": "available", "install": "hyperframes transcribe 首次自下", "notes": "本机 ~/.coli/models/sherpa-onnx-whisper-tiny.en 也在"},
+    "darwin-x64": {"status": "available", "install": "同上", "notes": "未实测"},
+    "win-x64": {"status": "available", "install": "hyperframes transcribe 首次自下", "notes": "未真机验证：hyperframes 官方支持 Windows，但本仓没在 Windows 上跑过 transcribe"},
+    "linux-x64": {"status": "available", "install": "同上", "notes": "未实测"}
+   }
+  },
+  "beat_detection": {
+   "why": "鼓点/瞬态检测**不需要额外库**：scripts/beat_sync.py 用 array + wave 纯 stdlib 算 Onset Flux 与 BPM，解码靠 ffmpeg",
+   "platforms": {
+    "darwin-arm64": {"status": "builtin", "requires": "ffmpeg", "install": "无需安装"},
+    "darwin-x64": {"status": "builtin", "requires": "ffmpeg", "install": "无需安装"},
+    "win-x64": {"status": "builtin", "requires": "ffmpeg", "install": "无需安装", "notes": "doctor.py 在 Windows 上会真跑一次合成鼓点，确认 wave/array 这条路没被平台差异绊住"},
+    "linux-x64": {"status": "builtin", "requires": "ffmpeg", "install": "无需安装"}
+   }
+  }
+ },
+ "fonts": {
+  "why": "字幕/大字/卡片的字号按「字体宽度比」反算（styles/fonts.yaml），所以字体文件必须在本机——字体不进仓（各自授权不同），缺字体渲染会在拷 @font-face 那一步失败",
+  "required": ["SmileySans-Oblique.ttf", "NotoSansSC-Black.ttf", "NotoSerifSC-Black.ttf"],
+  "table": "styles/fonts.yaml",
+  "platforms": {
+   "darwin-arm64": {
+    "status": "available",
+    "dirs": ["~/Library/Fonts", "/Library/Fonts", "/System/Library/Fonts"],
+    "install": "把 ttf/otf 拷进 ~/Library/Fonts（或双击用「字体册」安装）；得意黑 atelier-anchor.com，思源 fonts.google.com/noto（两者都是 OFL，可商用）"
+   },
+   "darwin-x64": {
+    "status": "available",
+    "dirs": ["~/Library/Fonts", "/Library/Fonts", "/System/Library/Fonts"],
+    "install": "同 darwin-arm64"
+   },
+   "win-x64": {
+    "status": "available",
+    "dirs": ["%WINDIR%\\Fonts", "%LOCALAPPDATA%\\Microsoft\\Windows\\Fonts"],
+    "install": "install.ps1 -Install -FontSource <放着 ttf 的目录> 会拷进 %LOCALAPPDATA%\\Microsoft\\Windows\\Fonts 并写登记项；手抄：拷 ttf 过去再右键「安装」",
+    "notes": "未真机验证；Windows 自带的中文字体（微软雅黑）不能替代——宽度比不同，字号会算错"
+   },
+   "linux-x64": {
+    "status": "available",
+    "dirs": ["~/.local/share/fonts", "~/.fonts", "/usr/share/fonts"],
+    "install": "cp *.ttf ~/.local/share/fonts && fc-cache -f"
+   }
+  }
  },
  "notes": {
   "npm.hyperframes": "钉住。装在 $CUTSKILLS_HOME/npm，render_hf 优先用它；退回 npx 每次都要连 registry，且 headless-shell 下载断流过一次（2026-11-13 只收到 39.5/97.5 MB",
   "pip.pyyaml": "已 vendor 到 scripts/vendor/yaml，纯 Python 版——2026-11-12 python3.14→3.15 事故后固化",
-  "pip.pillow": "装在 $CUTSKILLS_HOME/py，C 扩展无法 vendor；重装命令见 runtime.sh install",
-  "pip.numpy": "同上"
+  "pip.pillow": "装在 $CUTSKILLS_HOME/py，C 扩展无法 vendor；重装命令见 runtime.sh install / install.ps1 -Install",
+  "pip.numpy": "同上",
+  "windows": "Windows 路径**未在真机验证**。有矛盾的读数先看 <CUTSKILLS_HOME>/windows-selfcheck.md 的逐条期望输出；确认是清单的问题就改这份清单，不要改成「Windows 能用」的模糊说法"
  }
 }

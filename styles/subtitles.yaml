@@ -1,0 +1,157 @@
+# 字幕模板：四套**可单独选用**的字幕样式（不换整套包装也能换字幕）
+#
+# 为什么要这一层：以前字幕样式只写在 `packs/*.yaml` 的 subtitle 段里，跟排版/图形/
+# 动效/色调捆在一起——用户想「只要字幕换个样子」，就得连卡片和色调一起换。
+# 这里把字幕单独抽成模板，`brief.json` 里写一句 `"subtitle_template": "<id>"` 就生效。
+#
+# 口径（改之前先读完）：
+#   ① 优先级：项目显式选的模板 > 包装包自带的 subtitle 参数 > 本文件的 `default`。
+#      没选模板的项目**行为与以前一字不差**（渲染器根本不会读这个文件）。
+#   ② 字体必须在 `fonts.yaml` 里登记过，且 `license` 不是 `unverified`（OFL / 明确可商用）。
+#      这条由 `subs.load_subtitle_templates()` 在加载时守，测试是
+#      `scripts/test_subtitle_templates.py`——**不许为了好看出画面上没授权的字**。
+#   ③ 字号是「实际像素字号」，标定画布 1080×1920（`canvas`）。模板一旦被选中，
+#      渲染器就按这个数画，不再走 `fonts.size_px()` 的宽度反算——模板的字号是设计选择，
+#      不是预算。所以每套的字号已经按自身字体的宽度比校准过（等行数视觉宽度相近）：
+#        得意黑 96px ≈ 8 单位 62.6%W、思源黑 72px ≈ 9 单位 60.0%W、
+#        思源宋 64px ≈ 9 单位 53.3%W、思源黑 Light 66px ≈ 10 单位 65.4%W（含字距）。
+#   ④ `max_units_per_line` 不许超过 `subs.MAX_UNITS`（10 展示单位）：那是全链路的
+#      硬上限，check_subs 的上限数也是它。模板只能收窄，不能放宽——**改模板不改判据**。
+#   ⑤ `emphasis` 是关键词高亮方案（颜色 / 加粗 / 放大 / 底衬，可组合）。四套都带颜色，
+#      因为 check_subs 的「强调色」判据要看到真的染上（<span class="em">）。
+#
+# 用 `python3 scripts/style_menu.py --subtitles` 看四套，`--choose <id>` 存进 brief.json。
+version: 1
+
+# 字号与位置的标定画布（全片按这个分辨率设计，渲染时按实际画幅等比缩放）
+canvas:
+  width: 1080
+  height: 1920
+
+# 包装包**没有** subtitle 段时才用它；包里有就按包的（向后兼容）
+default: plain-white
+
+templates:
+
+  plain-white:
+    id: plain-white
+    name: 极简白字
+    one_line: 思源黑体 Regular，白字、几乎不描边，只有一层浅影
+    suits: 口播、访谈、教程——观众要一直读字，样式越安静越好
+    not_suits: 快节奏信息流 / 需要字幕自己「抓眼」的片子（这套会被画面吃掉）
+    font: 思源黑体
+    size_px: 72
+    line_spacing: 1.24
+    letter_spacing: 0.01          # em
+    color: '#FFFFFF'
+    stroke: none                  # 不描边：靠一层浅影离底，笔画边缘不起毛刺
+    shadow: '0 2px 6px rgba(0,0,0,.72), 0 1px 2px rgba(0,0,0,.55)'
+    emphasis:
+      color: '#FFD84D'
+      bold: true
+      scale: 1.0
+      plate: none
+    plate: none                   # 不垫底：字幕直接压在画面上
+    position:
+      center_y_px: 1294
+      safe_bottom_px: 300         # 底部安全区：抖音/视频号进度条与文案会压到这里
+    max_units_per_line: 9
+    case_rules:
+      keep_together: [不是, 不会, 不能, 没有, 只, 才, 更, 最]
+      no_break_after: [的, 了, 着, 过, 嘅, 咗]
+      no_break_before: [的, 了, 着, 就, 都, 也, 还]
+
+  bold-outline:
+    id: bold-outline
+    name: 大字重描边
+    one_line: 得意黑 96px，白字 + 3px 黑描边，不要阴影
+    suits: 竖屏信息流、封面感强的口播，人物动、背景杂，字要硬压上去
+    not_suits: 长句多、语速慢的访谈——96px 一行只装 8 个字，长句会被切得很碎
+    font: 得意黑
+    size_px: 96
+    line_spacing: 1.18
+    letter_spacing: 0.0
+    color: '#FFFFFF'
+    stroke: {width_px: 3, color: 'rgba(0,0,0,0.55)'}
+    shadow: none                  # 描边已经隔开背景，再叠阴影字会糊成一团
+    emphasis:
+      color: '#FFE600'
+      bold: true
+      scale: 1.0
+      plate: none
+    plate: none
+    position:
+      center_y_px: 1250           # 字更大，中心略提，免得下沿压到安全区
+      safe_bottom_px: 300
+    max_units_per_line: 8
+    case_rules:
+      keep_together: [不是, 不会, 不能, 没有, 十倍, 三百, 五千]
+      no_break_after: [的, 了, 着, 过]
+      no_break_before: [的, 了, 就, 都]
+
+  paper-plate:
+    id: paper-plate
+    name: 纸感底衬
+    one_line: 思源宋体 64px，深墨字压在一条米色纸带上，关键词是马克笔底衬
+    suits: 文化、餐饮、手作、探店——暗底、杂乱底都压得住（实测半透明纸带在高频噪点底上仍可读）
+    not_suits: 快剪网感/需要字幕自己抓眼的片子（纸带安静，抢不过节奏）；接近纯白的亮底上纸带会失去边界
+    font: 思源宋体
+    size_px: 64
+    line_spacing: 1.35
+    letter_spacing: 0.03
+    color: '#1F1B16'
+    stroke: none
+    shadow: '0 1px 0 rgba(255,255,255,.45)'
+    emphasis:
+      color: '#241A12'
+      bold: true
+      scale: 1.0
+      # 半透明暖黄马克笔：与纸同色族（不割裂），真压在字缝里而不是一块贴纸
+      plate: 'rgba(226,170,74,0.42)'
+      # 强调块比纸带**内缩一档**：上下各 0.04em（纸带是 0.40em）、左右对称 0.16em
+      # （纸带 0.36em）——高度只比字高一点（比纸带矮 30%），也不朝任何一边贴边。
+      plate_pad_em: [0.04, 0.16]
+    plate:                        # 整条字幕垫的纸带（浅底深字，暗画面上也读得出）
+      # 66% 不透明的暖纸色：实测纸带内的背景亮度起伏还有背景本身的 ~26–29%，
+      # 木纹/颗粒真的隐约透得出来，才不像一块后期贴的矩形。
+      # 再淡（<60%）暗底上字开始吃力；再浓（>85%）又回到「纯色块」的老毛病。
+      fill: 'rgba(245,235,217,0.66)'
+      pad_em: [0.40, 0.36]        # 上下 / 左右：上下多给一档（宋体笔锋高，顶沿最显局促）
+      radius_em: 0.22             # 小圆角（纸的裁边，不是胶囊）
+      edge: '0 3px 6px rgba(58,36,16,0.34)'   # 极轻的纸边影：让纸「浮」一点，不做旧
+    position:
+      center_y_px: 1306
+      safe_bottom_px: 300
+    max_units_per_line: 9
+    case_rules:
+      keep_together: [三十米, 六百平, 十年, 十万]
+      no_break_after: [的, 了, 嘅, 咗]
+      no_break_before: [的, 就, 都]
+
+  cool-thin:
+    id: cool-thin
+    name: 冷色细体
+    one_line: 思源黑体 Light 66px，冷白字、宽字距、几乎无影，留白多
+    suits: 讲道理、讲数据、品牌调性片——字要轻，画面要呼吸
+    not_suits: 手持晃动、背景高频杂乱的实拍——细体一眼就被背景吃掉
+    font: 思源黑体-Light
+    size_px: 66
+    line_spacing: 1.44
+    letter_spacing: 0.07
+    color: '#DCE9F5'
+    stroke: none
+    shadow: '0 1px 4px rgba(0,0,0,.55)'
+    emphasis:
+      color: '#6FD6F2'
+      bold: false
+      scale: 1.06                 # 细体的强调靠「稍微大一点 + 冷色」，不加重
+      plate: none
+    plate: none
+    position:
+      center_y_px: 1298
+      safe_bottom_px: 300
+    max_units_per_line: 10
+    case_rules:
+      keep_together: [百分之, 三成, 两倍, 一年, 半年]
+      no_break_after: [的, 了, 着]
+      no_break_before: [的, 就]

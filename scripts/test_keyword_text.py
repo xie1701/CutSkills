@@ -16,7 +16,8 @@
   F 单排宽 95%W（fit_width 0.95）         → ③ error
   H 空格/间隔号/数字的文本（T-046）        → 字号按 em 宽反算，墨迹填到 0.62–0.78；
                                            包真把它压窄（fit_width 0.55）仍旧 error
-  I behind 放不到脑后（T-046）              → 按渲器落点 5.5%H 量，且把顶部渐变算进 ΔL；
+  I behind 放不到脑后（T-046）              → 按**渲器自己宣称的落点**（`card_layout.kw_head_override`，
+                                           平台安全区抬上来了就不再是 5.5%H）量，且把顶部渐变算进 ΔL；
                                            不合渐变时同一块地方必须 < 12（反证）
   G 真项目对一遍（有真片才跑）            → 0 error，且成片墨迹 bbox 与预测差 ≤ 12px
 
@@ -169,13 +170,25 @@ def main() -> int:
     assert rc == 1 and has(out, "越界"), f"H 下限没被放宽：真窄了必须仍判红：\n{out}"
 
     # I behind 卡到底被画在哪（T-046）：抠像放不到脑后时，渲器把字放到「头顶」
-    #   （≈`KW_HEAD_MIN_TOP` = 5.5%H）并自带一层顶部渐变。判据必须量在**那个位置**、
-    #   并且把那层渐变合上去——拿原始画面量同一块地方，ΔL 只有个位数。
+    #   （`card_layout.kw_head_override`：max(5.5%H, 平台安全区上沿, 头顶 − 9.5%H)）
+    #   并自带一层顶部渐变。判据必须量在**那个位置**、并且把那层渐变合上去——
+    #   拿原始画面量同一块地方，ΔL 只有个位数。
+    #   落点**不许在这里写数字**：平台 UI 安全区把上沿从 5.5%H 抬到 10.6%H 的那一刀，
+    #   测试里硬编码的 5.5%H 就过期了（这就是这条断言往红里掉的原因）。
+    #   所以从渲器真源读，然后仍然强断言：判据量到的上沿 / 字框必须与渲器宣称的一致。
     #   副产物：这条也钉死「不许拿没上屏的中间态当判据」。
     pi = project(base / "I", text="售楼部 · 酒店", face=None, color="0xEDE8DC", kind="behind")
     rc, out = run(pi, pk)
-    assert rc == 0 and has(out, "5.5%H", "头顶大字", "自带顶部渐变"), \
-        f"I behind 该量在渲器真正的落点（5.5%H，自带顶部渐变）：\n{out}"
+    assert rc == 0, f"I behind 该全绿：\n{out}"
+    _want_top, _measured, _box = _behind_landing(out)
+    assert abs(_measured - _want_top) <= 0.0015, (
+        f"I 判据量的位置 {_measured * 100:.2f}%H ≠ 渲器落点 {_want_top * 100:.2f}%H"
+        f"（差 {abs(_measured - _want_top) * 100:.2f}%H）：\n{out}")
+    assert has(out, "头顶大字", "自带顶部渐变"), \
+        f"I behind 该说清「为什么长这样」（头顶大字 + 自带顶部渐变）：\n{out}"
+    # 字框也得真的在那个高度上：墨迹上沿不得高于渲器落点（1px 容差）。
+    assert _box[1] >= _want_top * H - 1, (
+        f"I 字框墨迹上沿 {_box[1]}px 在渲器落点 {_want_top * H:.0f}px 之上：\n{out}")
     _raw_dl(pi, pk)          # 反证：不合渐变，同一块地方 ΔL < 12（红）
 
     # G 真项目：现在必须 0 error；成片帧的墨迹 bbox 与预测差 ≤ 12px
@@ -196,6 +209,24 @@ def main() -> int:
     return 0
 
 
+def _behind_landing(out: str) -> tuple[float, float, list[int]]:
+    """渲器宣称的落点 / 判据量到的落点 / 判据算出的字框（画幅比例 + 像素）。
+
+    渲器那一边读 `card_layout.kw_head_override({})`——`render_hf` 写 `kw_top_override`
+    用的就是它（没有遮罩统计时 head 退回 0.15，判据侧的 `place_of` 同一条路）。
+    判据这一边读它自己的输出行：`字框 [x, y, w, h] … 上沿 X%H·…`。
+    两边差超过 1.5px 就是「判据在量一个渲器没画的地方」。
+    """
+    sys.path.insert(0, str(HERE))
+    import card_layout as CL
+    import re
+    m = re.search(r"字框 \[(\d+), (\d+), (\d+), (\d+)\].*?上沿 ([\d.]+)%H", out)
+    assert m, f"判据没吐字框与上沿：\n{out}"
+    box = [int(m.group(i)) for i in range(1, 5)]
+    measured = round(float(m.group(5)) / 100.0, 4)
+    return CL.kw_head_override({}), measured, box
+
+
 def _raw_dl(proj: Path, pk: Path) -> None:
     """反证用：同一个字框、**不合顶部渐变**的原始画面ΔL 必须 < 12。
 
@@ -211,7 +242,7 @@ def _raw_dl(proj: Path, pk: Path) -> None:
     assert fr is not None
     import yaml
     style = yaml.safe_load(pk.read_text())
-    mask, box = CL.ink_mask(text, style, W, H, CL.KW_HEAD_MIN_TOP)
+    mask, box = CL.ink_mask(text, style, W, H, CL.kw_head_override({}))
     r = KT.readable_dl(fr, mask, box["px"], 91.0)
     assert r["dl_p10"] is not None and r["dl_p10"] < CL.KW_DL_MIN, \
         f"反证失败：不合渐变时量到 ΔL {r['dl_p10']}，不是「被背景吃掉」的读数"

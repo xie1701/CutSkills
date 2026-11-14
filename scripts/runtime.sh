@@ -22,7 +22,23 @@
 #   scripts/runtime.sh install         # 只装缺的
 #   scripts/runtime.sh adopt           # 把已有的旧缓存搬进来并留软链（省一次重下）
 #   scripts/runtime.sh run <命令...>    # 带环境跑一条命令
+#
+# 平台：本脚本是 POSIX（macOS / Linux / WSL 里的 bash）。Windows 原生走
+# install.ps1（-CheckOnly 体检 / -Install 安装），**未在 Windows 真机验证**；
+# 在 Git Bash / MSYS 下跑到 install / adopt 会直接拒跑并指向 install.ps1（软链、otool、
+# pip --target 的语义在那边不一样，硬跑只会装出半截环境）。
 set -uo pipefail
+
+# 平台判定就这一处：后面所有分支都读 $OS_KIND，不再各自摸 uname
+os_kind() {
+  case "$(uname -s 2>/dev/null)" in
+    Darwin)               echo darwin ;;
+    Linux)                echo linux ;;
+    MINGW*|MSYS*|CYGWIN*) echo windows ;;
+    *)                    echo other ;;
+  esac
+}
+OS_KIND="$(os_kind)"
 
 ROOT="${CUTSKILLS_HOME:-$HOME/.cutskills}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,10 +118,16 @@ EOF
 }
 
 cmd_check() {
-  echo "依赖根目录：$ROOT"
+  echo "依赖根目录：$ROOT（平台 $OS_KIND）"
   echo "系统依赖："
+  # cap: check:ffmpeg check:ffprobe check:node check:npm check:python check:sips
   for b in ffmpeg ffprobe node npm python3 sips; do
     printf '  %-8s ' "$b"
+    # sips 是 macOS 的 ImageIO CLI，别的平台没有——报「不适用」，不是报「缺失」
+    if [ "$b" = sips ] && [ "$OS_KIND" != darwin ]; then
+      echo "不适用（macOS 专属）"
+      continue
+    fi
     if command -v "$b" >/dev/null 2>&1; then
       # ffmpeg 的版本信息走 stderr，不是 stdout——只重定向 stdout 会得到空字符串
       v=$("$b" --version 2>&1 | tr '\n' ' ')
@@ -119,14 +141,25 @@ cmd_check() {
   # 次日渲染报 `dyld: Library not loaded: libvpx.12.dylib`，而前一天一模一样的命令是好的。
   # 依赖清单里写着「ffmpeg 有」不等于「它跑得起来」，所以要真的跑一次 `-version`。
   if [ -x "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" ]; then
+    # cap: check:ffmpeg-zimg
     echo "自编 ffmpeg（HDR→SDR 的 zscale）："
     if out=$("$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" -version 2>&1); then
       printf '  ok   %s\n' "$(echo "$out" | head -1 | cut -c1-64)"
       miss=""
-      for lib in $(otool -L "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" 2>/dev/null \
-                   | awk 'NR>1{print $1}' | grep -E '^/(opt/homebrew|usr/local)'); do
-        [ -e "$lib" ] || miss="$miss $(basename "$lib")"
-      done
+      # 动态库检查按平台分叉：macOS 用 otool，Linux 用 ldd，其它平台没有等价工具就跳过并说明
+      case "$OS_KIND" in
+        darwin)
+          for lib in $(otool -L "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" 2>/dev/null \
+                       | awk 'NR>1{print $1}' | grep -E '^/(opt/homebrew|usr/local)'); do
+            [ -e "$lib" ] || miss="$miss $(basename "$lib")"
+          done ;;
+        linux)
+          miss=$(ldd "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" 2>/dev/null \
+                 | awk '/not found/{print $1}' | tr '\n' ' ' | sed 's/^ *//; s/ *$//')
+          miss=${miss:+ $miss} ;;
+        *)
+          echo "  · 本平台没有 otool/ldd 的等价检查，只跑了 -version" ;;
+      esac
       if [ -n "$miss" ]; then
         echo "  ！动态库找不到：$miss"
         echo "    brew 把 formula 换掉了。重跑 bash scripts/runtime.sh install 重装缺的那几个。"
@@ -140,6 +173,7 @@ cmd_check() {
   # （某个已删除的 skill 目录里的 vendor 副本）本机已不存在，新建项目走到这一步
   # 直接 SystemExit("缺 gsap")，而有 hf/assets/ 缓存的老项目完全看不出问题。
   echo "前端运行时（gsap）："
+  # cap: check:gsap
   REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   gsap_hit=""
   for g in "$REPO/assets/gsap.min.js" "$REPO/demo/pack-micro/hf/assets/gsap.min.js" \
@@ -157,6 +191,7 @@ cmd_check() {
   # Cola 升级后不再把 @marswave/coli 暴露成系统命令，而报错只说「coli 不在 PATH」，
   # 没人知道受害面有多大。所以 check 里单独一段，明说在哪、能不能跑、模型在不在。
   echo "转写引擎（coli）："
+  # cap: check:coli check:asr-model
   if command -v coli >/dev/null 2>&1; then
     coli_bin=$(command -v coli)
     printf '  ok   %s\n' "$coli_bin"
@@ -201,6 +236,7 @@ PY
     echo "    恢复：`python3 scripts/fetch_coli.py`（从 Cola 安装包里重抽，不联网）"
   fi
   echo "node 包："
+  # cap: check:npm-packages
   if [ -d "$ROOT/npm/node_modules" ]; then
     for d in "$ROOT"/npm/node_modules/*/; do
       [ -d "$d" ] || continue
@@ -212,6 +248,7 @@ PY
     echo "  （空）"
   fi
   echo "python 包："
+  # cap: check:python-packages
   py=$(ls "$ROOT/py" 2>/dev/null | grep -v dist-info | head -20)
   [ -n "$py" ] && echo "$py" | sed 's/^/  /' || echo "  （空；随包 vendor 兜底：$HERE/vendor）"
   echo "占用："
@@ -222,6 +259,7 @@ PY
 cmd_install() {
   ensure_manifest
   local changed=0
+  # cap: install:npm-hyperframes
   for name in $(dep_names npm); do
     spec=$(dep_spec npm "$name")
     [ -z "$spec" ] && continue
@@ -234,6 +272,7 @@ cmd_install() {
       echo "  ! $name 安装失败（网络或代理问题），稍后重试"; continue; }
     changed=1
   done
+  # cap: install:pip-deps
   for name in $(dep_names pip); do
     spec=$(dep_spec pip "$name")
     [ -z "$spec" ] && continue
@@ -311,6 +350,20 @@ m = json.loads(p.read_text()); m.setdefault("adopted", []).append(datetime.datet
 p.write_text(json.dumps(m, ensure_ascii=False, indent=1))
 PY
 }
+
+# Windows 原生（Git Bash / MSYS）上只放行 env / path / check / run：
+# install / adopt 依赖 ln -s、otool、pip --target 的 POSIX 语义，在那边硬跑会装出半截环境。
+if [ "$OS_KIND" = windows ]; then
+  case "${1:-env}" in
+    install|adopt)
+      echo "✗ runtime.sh $1 只跑在 macOS / Linux / WSL 上（当前 uname: $(uname -s 2>/dev/null)）" >&2
+      echo "  Windows 请改用 PowerShell：" >&2
+      echo "    体检：powershell -ExecutionPolicy Bypass -File install.ps1 -CheckOnly" >&2
+      echo "    安装：powershell -ExecutionPolicy Bypass -File install.ps1 -Install" >&2
+      echo "  自检清单：%USERPROFILE%\\.cutskills\\windows-selfcheck.md（install.ps1 生成）" >&2
+      exit 3 ;;
+  esac
+fi
 
 case "${1:-env}" in
   env)     cmd_env ;;

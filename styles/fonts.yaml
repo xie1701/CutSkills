@@ -18,15 +18,69 @@ fonts:
     ratio: 0.881          # 实测 10 字 @77px = 678px → 678/10/77
     role: [subtitle, headline]
     note: 斜体风格，个性强；长句做正文会晃，只用于字幕和标题
+    family: Smiley Sans Oblique
+    file_prefixes: [SmileySans]        # 同族字重/变体文件名前缀，授权按族继承（licensing.py 认这个）
+    license: SIL Open Font License 1.1
+    license_evidence: >-
+      字体文件 name 表 ID 13 原文「This Font Software is licensed under the SIL Open Font
+      License, Version 1.1.」，ID 14 指向 https://scripts.sil.org/OFL，ID 11 主页
+      https://atelier-anchor.com，ID 0 版权 atelierAnchor（v2.0.1，本地安装的
+      SmileySans-Oblique.ttf 逐字节读出来的）。商业成片可用；改字体名再分发受 OFL 条款约束。
+    copyright: Copyright © 2022–2024 atelierAnchor. All rights reserved.
+    homepage: https://atelier-anchor.com
+    commercial_ok: true
   思源黑体:
     file: NotoSansSC-Black.ttf
     ratio: 1.000
     role: [subtitle, headline, body]
     note: 标准无衬线，实拍口播最稳的选择
+    family: Noto Sans SC
+    file_prefixes: [NotoSansSC]
+    license: SIL Open Font License 1.1
+    license_evidence: >-
+      字体文件 name 表 ID 13 原文「This Font Software is licensed under the SIL Open Font
+      License, Version 1.1.」，ID 14 指向 http://scripts.sil.org/OFL，ID 0 版权
+      Adobe、ID 7 保留字体名 'Source'（NotoSansSC-Black.ttf v2.004 逐字节读出）。
+      商业成片可用；按 OFL 保留字体名条款，不得把改名后的衍生字库再叫 Source。
+    copyright: (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+    homepage: http://www.adobe.com/type/
+    commercial_ok: true
+  思源黑体-Light:
+    file: NotoSansSC-Light.ttf
+    ratio: 1.000          # 实测 1 汉字 @100px = 100px（与 Black 同宽，只是笔画细）
+    role: [subtitle]
+    note: 细体，冷色/留白型字幕的底子；小字重扛不住晃动背景，别用在手持实拍上
+    family: Noto Sans SC Light
+    file_prefixes: [NotoSansSC]
+    license: SIL Open Font License 1.1
+    license_evidence: >-
+      字体文件 name 表 ID 13 原文「This Font Software is licensed under the SIL Open Font
+      License, Version 1.1. (…此处为 FAQ 地址…)」，ID 14 指向 http://scripts.sil.org/OFL，
+      ID 0 版权 Adobe、ID 7 保留字体名 'Source'（NotoSansSC-Light.ttf v2.004-H2 逐字节读出）。
+      商业成片可用；按 OFL 保留字体名条款，不得把改名后的衍生字库再叫 Source。
+    copyright: (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+    homepage: http://www.adobe.com/type/
+    commercial_ok: true
   思源宋体:
     file: NotoSerifSC-Black.ttf
     ratio: 1.000
     role: [subtitle, headline, body]
     note: 衬线，适合纸感/文化类包装
+    family: Noto Serif SC
+    file_prefixes: [NotoSerifSC]
+    license: SIL Open Font License 1.1
+    license_evidence: >-
+      字体文件 name 表 ID 13 原文「This Font Software is licensed under the SIL Open Font
+      License, Version 1.1.」，ID 14 指向 http://scripts.sil.org/OFL，ID 0 版权 Adobe、
+      ID 7 商标归 Google（NotoSerifSC-Black.ttf v2.002 逐字节读出）。商业成片可用。
+    copyright: (c) 2017-2023 Adobe (http://www.adobe.com/).
+    homepage: https://fonts.google.com/noto
+    commercial_ok: true
 
+# 授权口径（为什么这里能写 OFL 而不是 unverified）：
+#   上面每条 license 都不是「听说」，而是从本机字体文件的 name 表 ID 13/14 读出来的原文，
+#   ID 13 是字体自带的许可描述、ID 14 是许可全文地址。fonts.py --verify <字体> 会在运行时
+#   重新读一遍并和这里对账：文件里的许可和这里写的不一致 → 报 mismatch，不给绿灯。
+#   查不到 name 表（文件不在本机 / 是老式 Type1）时，licensing.py 会把该字体标成
+#   unverified 并进「需人工确认」清单——**不许拿本文件的记录冒充文件核验**。
 default: 得意黑

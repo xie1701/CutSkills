@@ -21,6 +21,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+# 第三方依赖的两处挂载（与 verify_film.py / render_hf.py 同一个做法）：
+#   · pyyaml 是纯 Python，随仓放在 scripts/vendor；
+#   · pillow / numpy 是 C 扩展，装在 $CUTSKILLS_HOME/py（deps.json）。
+# 不挂上它们，换一台没 pip install 过的机器，下面每个检查器都会变成
+# 「检查器异常：ModuleNotFoundError」——看着像判据坏了，其实只是没装依赖。
+sys.path.insert(0, str(ROOT / "scripts" / "vendor"))
+try:
+    from libs import cutskills_home as _cutskills_home
+    _PY_DEPS = _cutskills_home() / "py"
+    if _PY_DEPS.exists() and str(_PY_DEPS) not in sys.path:
+        sys.path.append(str(_PY_DEPS))
+except ImportError:
+    pass
 
 
 @dataclass
@@ -64,20 +77,116 @@ def sibling_group(project: Path, supplied: list[str] | None) -> list[Path]:
     return [project]
 
 
-def cli_result(name: str, cmd: list[str], parse, *, cwd: Path = ROOT) -> Result:
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+def _child_env() -> dict:
+    """给子检查器带上随仓依赖与 $CUTSKILLS_HOME/py。
+
+    cli_result 是**子进程**跑的：本文件顶层的 sys.path 挂载管不到它们。没有 PYTHONPATH 时
+    check_sfx / check_timeline 就在 `import numpy` 上 ModuleNotFoundError，gate 报出来的
+    却是「检查器异常」——看着像判据坏了。（2026-11-15 实测：干净环境下 check_sfx、
+    check_timeline 同时挂。）runtime.sh 本来就是这么导的，这里补上同一个口径。
+    """
+    import os
+    env = dict(os.environ)
+    parts = [str(ROOT / "scripts" / "vendor")]
+    if _PY_DEPS.exists():
+        parts.append(str(_PY_DEPS))
+    parts.append(str(ROOT / "scripts"))
+    cur = env.get("PYTHONPATH")
+    if cur:
+        parts.append(cur)
+    env["PYTHONPATH"] = ":".join(parts)
+    return env
+
+
+def cli_result(name: str, cmd: list[str], parse, *, cwd: Path = ROOT,
+               accept_rc: tuple = (0,)) -> Result:
+    """跑一个子检查器并把它的输出交给 `parse` 解读。
+
+    `accept_rc`：哪些退出码算「跑完了」。默认只有 0——但有的检查器用 1 表示「判完了、
+    有项没过」，而「没过」到底是 error 还是 warning 由本项目决定（比如 sync_check 的
+    85% 同步率降成黄灯）。这种检查器要把 1 一起写进来，否则下面那条「退出码 1 但没解析出
+    error → 当 error」的兜底会把它重新打回红灯，降级就白做了。
+    """
+    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=_child_env())
     text = (p.stdout or "") + (p.stderr or "")
     try:
         errors, warnings, conclusion = parse(text, p.returncode)
     except Exception as exc:  # noqa: BLE001
         return Result(name, 1, 0, f"结果解析失败：{type(exc).__name__}: {exc}")
-    if p.returncode == 1 and errors == 0:
+    if p.returncode == 1 and errors == 0 and 1 not in accept_rc:
         errors = 1
         conclusion = f"检查器返回失败但摘要未解析出 error：{conclusion or text.strip()[-180:]}"
     elif p.returncode not in (0, 1) and errors == 0:
         errors = 1
         conclusion = f"检查器退出码 {p.returncode}：{conclusion or text.strip()[-180:]}"
     return Result(name, errors, warnings, conclusion or "完成")
+
+
+def parse_sync(text: str, rc: int = 0):
+    """`sync_check.py --json` 的结构化输出 → (error, warning, 一行结论)。
+
+    **哪个数能拦交付，按 BRIEF 分：**
+      · 卡片锚词「只许晚不许早」（state=fail）→ **error**。有物理依据：卡先于它锚定的
+        那个词出现就是抢拍，观众看到字、耳朵里还没有声音。
+      · 同步率 ≥85%（视觉事件落在词/气口边界 ±80ms 内的比例）→ **warning**。
+        口径与 BRIEF 的两条要求（口型偏差 ≤1 帧、音视频总时长差 ≤1 帧）不是一回事：
+        它连字幕换句都算成「视觉事件」，而 `sync_check.py` 自己的 docstring 写着
+        「这三个数没有用你的素材校准过」。拿一条未标定、口径不同的数当硬门，结果就是
+        8/8 成片全红、所有人学会「反正会红」——那是坏门禁，不是严门禁。
+        这两条的**硬判据**在 verify_film.py（`av_duration_verdict` / `mouth_sync_verdict`），
+        客观可复现、与素材无关。
+      · 断章率 ≤25%→ **warning**，同理（参考片自己 24%，标定源只有一支）。
+
+    标定办法（没做完之前它不阻断交付）：拿 20 支参考片 + 自有成片的像素切点与词边界
+    重算这个比例的分布，看 85% 落在第几百分位；同时把「视觉事件」拆成「硬切」与
+    「字幕/卡片入场」两类分别算——现在这两类混在一起，字幕密的片天然吃亏。
+
+    跑不起来（没 timeline.json 或没 audio-map.json）时按最后一行报错，算 error：
+    “判不了”和“判过了”是两件事，本仓吃过这个亏。
+    """
+    try:
+        rep = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        tail = (str(text or "").strip().splitlines() or ["sync_check 无输出"])[-1]
+        return 1, 0, f"跑不起来：{tail[:150]}"
+    verdict = rep.get("verdict") or {}
+    sync_v = (verdict.get("sync_rate") or {}).get("value")
+    cut_v = (verdict.get("cut_inside_rate") or {}).get("value")
+    lag = verdict.get("card_lag_ms") or {}
+    lag_v = lag.get("value")
+
+    def rate(v):
+        return f"{v:.0%}" if isinstance(v, (int, float)) else "—"
+
+    sync_fail = (verdict.get("sync_rate") or {}).get("pass") is False
+    cut_fail = (verdict.get("cut_inside_rate") or {}).get("pass") is False
+    # 卡锚词拆成两半判，不按 aggregate 的 state 一棍子打死：
+    #   · 画面先到（lag < 下限，即锚词还没出声卡就上屏了）→ **红**。这是物理：
+    #     耳朵里的声音后到，观众先看见字后听见话，必然觉得抢拍。
+    #   · 晚太多（lag > 上限 120ms）→ **黄**。「允许晚多少」这个 120ms 没有标定过
+    #     （sync_check 的默认值），拿它当硬门会造出一批「反正会红」的片。
+    need = lag.get("need") or [0, 120]
+    lo_need = float(need[0]) if isinstance(need, list) and need else 0.0
+    hi_need = float(need[-1]) if isinstance(need, list) and need else 120.0
+    cards_lag = [c for c in (lag.get("cards") or [])
+                 if isinstance(c.get("lag_ms"), (int, float))]
+    early = [c for c in cards_lag if c["lag_ms"] < lo_need]
+    late = [c for c in cards_lag if c["lag_ms"] > hi_need]
+    lag_state = str(lag.get("state") or "")
+    lag_txt = {"pass": "全在窗内", "na": "不适用（让位给 overlay）"}.get(lag_state, "")
+    if early:
+        lag_txt = (f"{len(early)} 张抢拍（红）" +
+                   (f"，最早 {min(c['lag_ms'] for c in early)}ms" if early else ""))
+    elif late:
+        lag_txt = f"{len(late)} 张晚于 {hi_need:.0f}ms（未标定，黄）"
+
+    conclusion = (f"同步率 {rate(sync_v)}{'✗未校准' if sync_fail else ''} · "
+                  f"断章率 {rate(cut_v)}{'✗未校准' if cut_fail else ''} · "
+                  f"卡片锚词 {lag_v if lag_v is not None else '—'}"
+                  + (f"（{lag_txt}）" if lag_txt else ""))
+    warnings = (int(sync_fail) + int(cut_fail)
+                + int(bool(late) and not early))
+    return (1 if early else 0), warnings, conclusion
 
 
 def run(project: Path, library: Path, group: list[Path]) -> list[Result]:
@@ -306,6 +415,41 @@ def run(project: Path, library: Path, group: list[Path]) -> list[Result]:
         return (1 if rc else 0), 0, text.strip()[-160:]
     results.append(cli_result("scene_spec", [py, str(scripts / "scene_spec.py"),
                               "--check", "--project", project_s], parse_scene))
+
+    # 首帧信息密度（BRIEF 第 4 步「首帧要有足够的画面信息密度」）：verify_film 里那条
+    # 只数「前 3 秒变了几次」，首帧是纯色底板/黑场/空镜它一律看不见。这里量第 0 帧本身。
+    #
+    # **为什么挂 error 而不是 warning（不是「为了不挡人」那个理由）：**
+    #   · 8 支真成片（dianzan-a/b/c、r1a-shougong、qizao-ground/lime/naming/protect）
+    #     第 0 帧全部判绿（边缘密度 0.078–0.408、熵 0.557–0.939），误报率实测 0/8；
+    #     两个负样本（纯黑 mp4、单色底板）全判红，大字卡正样本判绿（见
+    #     scripts/test_first_frame.py）。它不是那种「正片天然吃亏」的未标定数——
+    #     本文件里 sync_check 的 85% 同步率才因误报太高降为 warning。
+    #   · 抓到的是**交付硬伤**：观众手指一滑的第一眼是一块空底板，后面剪得再好也留不住人；
+    #     这一项没量成（取不到帧）同理不放行——「判不了」不等于「判过了」。
+    # 实测分布与阈值出处：scripts/first_frame.py 文件头（含 8 支真片 + 4 张大字卡的表）。
+    import first_frame as FIRST_FRAME
+    try:
+        ff_film = next((p for p in (project / "out" / "film-hf.mp4", project / "out" / "film.mp4")
+                        if p.exists()), None)
+        if ff_film is None:
+            results.append(Result("first_frame", 1, 0, "没有成片可量：先跑 render_hf.py 再验首帧"))
+        else:
+            ff_m = FIRST_FRAME.measure(ff_film, proj=project)
+            ff_level, ff_reason = FIRST_FRAME.verdict(ff_m)
+            if ff_m.get("error"):
+                results.append(Result("first_frame", 1, 0, f"判不了：{ff_m['error']}"))
+            else:
+                results.append(Result("first_frame", 1 if ff_level == "red" else 0,
+                                      1 if ff_level == "yellow" else 0, ff_reason))
+    except Exception as exc:  # noqa: BLE001
+        results.append(Result("first_frame", 1, 0, f"检查器异常：{type(exc).__name__}: {exc}"))
+
+    # 声画同步（BRIEF「音画同步：同期声口型与声音的偏差不超过 1 帧」）：sync_check 一直有判据，
+    # 但只在人手动跑的时候才看得到——“判据存在”与“判据进了门禁”是两件事。
+    results.append(cli_result("sync_check", [py, str(scripts / "sync_check.py"),
+                              "--project", project_s, "--json"], parse_sync,
+                              accept_rc=(0, 1)))
     return results
 
 

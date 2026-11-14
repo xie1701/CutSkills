@@ -1,0 +1,99 @@
+{
+ "films": [
+  {
+   "slug": "sxls-b3-chandi",
+   "project": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-b3-chandi",
+   "fps": 30.0,
+   "lead_frames": 3,
+   "elem": 3,
+   "t_boundary": 11.42,
+   "src_t": 3867.78,
+   "source": "/Users/jerry/Downloads/新邻舍新素材/访谈口播原始素材/10月15日.mov",
+   "film": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-b3-chandi/out/film-hf.mp4",
+   "no_jcut": {
+    "pic_cut": 11.4367,
+    "audio_arrival": 11.4349
+   },
+   "jcut": {
+    "pic_cut": 11.5367,
+    "audio_arrival": 11.4349
+   }
+  },
+  {
+   "slug": "sxls-j-mingzi",
+   "project": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-j-mingzi",
+   "fps": 30.0,
+   "lead_frames": 3,
+   "elem": 2,
+   "t_boundary": 3.78,
+   "src_t": 774.06,
+   "source": "/Users/jerry/Downloads/新邻舍新素材/访谈口播原始素材/10月15日.mov",
+   "film": "/Users/jerry/Downloads/新邻舍新素材/_cutskills/projects/sxls-j-mingzi/out/film-hf.mp4",
+   "no_jcut": {
+    "pic_cut": 3.7967,
+    "audio_arrival": 3.7819
+   },
+   "jcut": {
+    "pic_cut": 3.8967,
+    "audio_arrival": 3.7819
+   }
+  }
+ ],
+ "layers": [
+  {
+   "slug": "sxls-b3-chandi",
+   "elem": 3,
+   "fps": 30.0,
+   "lead": 3,
+   "old_video": {
+    "src": "10月15日_3867p78-3871p62.mp4",
+    "start": "11.433",
+    "dur": "3.867",
+    "media": "0",
+    "muted": ""
+   },
+   "new_video": {
+    "src": "10月15日_3867p78-3871p62.mp4",
+    "start": "11.533",
+    "dur": "3.767",
+    "media": "0.1",
+    "muted": "muted"
+   },
+   "new_audio": {
+    "src": "10月15日_3867p78-3871p62.mp4",
+    "start": "11.433",
+    "dur": "3.867",
+    "media": "0",
+    "muted": ""
+   }
+  },
+  {
+   "slug": "sxls-j-mingzi",
+   "elem": 2,
+   "fps": 30.0,
+   "lead": 3,
+   "old_video": {
+    "src": "10月15日_774p06-786p72.mp4",
+    "start": "3.78",
+    "dur": "12.667",
+    "media": "0",
+    "muted": ""
+   },
+   "new_video": {
+    "src": "10月15日_774p06-786p72-pic100-521cdfbdff.mp4",
+    "start": "3.88",
+    "dur": "12.667",
+    "media": "0.1",
+    "muted": "muted"
+   },
+   "new_audio": {
+    "src": "10月15日_774p06-786p72.mp4",
+    "start": "3.78",
+    "dur": "12.667",
+    "media": "0",
+    "muted": ""
+   }
+  }
+ ],
+ "how": "test_av_decouple.py --measure；画面切点=帧差翻脸首帧，声音到达=源素材 0.6s 模板块在成片音轨里的互相关峰；layers 是从 index.html 抓的 <video>/<audio> 时序属性"
+}

@@ -25,6 +25,7 @@ gap=0，「≥0.30s 才断」这条规则永远看不见它——三支老片各
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -48,8 +49,6 @@ BREATH_MIN = 0.30
 # 2026-11-12 再收一档到 10 个单位（对齐 srt-motion-cards 的规范：单行 ≤10 显示单位）。
 # 10 字 × 80px = 800px = 74%W，跟参考片的 p90 对上；12 字是 89%W，已经在满幅边缘。
 MAX_CHARS = 10            # 目标上限（≈74%W）
-HARD_MAX = 10             # 真上限：超过就必然出画，不再"宁可长一点"
-MIN_CHARS = 6             # 少于这个字并且前后离得近就并进邻居（一闪太快）
 TARGET_SOFT = 8           # 到这么多字、后面又有小停顿，就收口
 
 # ── 展示单位（2026-11-11）────────────────────────────────────────────────
@@ -64,6 +63,65 @@ TARGET_SOFT_UNITS = 8.0
 HARD_UNITS = 10.0
 HALF_W = 0.34             # 半角字符相对汉字宽度（实测思源黑体 0.32–0.36）
 
+# ── 当前生效的行宽口径（字幕模板可收窄，不许放宽）──────────────────────
+# 上面那几个 10 / 8 / 5 是**全链路共用**的硬上限：check_subs 判的也是它。
+# 字幕模板（styles/subtitles.yaml）只能把自己的 max_units_per_line 定在 ≤ MAX_UNITS，
+# 所以模板换的是「按哪一档判」，不是「判据松了」。没选模板时这里就是原值，
+# 拆分逻辑读到的数与改动前完全一样（向后兼容的落点就在这一行）。
+_W = {"max_units": MAX_UNITS, "soft": TARGET_SOFT_UNITS, "hard": HARD_UNITS,
+      "max_chars": MAX_CHARS, "keep_together": (), "no_break_after": frozenset(),
+      "no_break_before": frozenset()}
+
+
+def _scope(max_units: float | None = None, case_rules: dict | None = None,
+           target_soft: float | None = None) -> tuple[dict, dict]:
+    """算出「这一轮生效的口径」，返回 (新值, 旧值) 供调用方还原。"""
+    mu = float(max_units) if max_units else MAX_UNITS
+    mu = max(1.0, min(mu, MAX_UNITS))          # 只许收窄：模板不许把上限抬高
+    rules = case_rules or {}
+    new = {"max_units": mu,
+           # 软收口与硬断都跟着上限走：上限 8 时「到 8 字就该断」，不能还等 10
+           "soft": min(float(target_soft or TARGET_SOFT_UNITS), mu),
+           "hard": min(HARD_UNITS, mu),
+           "max_chars": min(MAX_CHARS, int(round(mu))),
+           "keep_together": tuple(str(w) for w in (rules.get("keep_together") or []) if str(w)),
+           "no_break_after": frozenset(str(c) for c in (rules.get("no_break_after") or [])),
+           "no_break_before": frozenset(str(c) for c in (rules.get("no_break_before") or []))}
+    return new, dict(_W)
+
+
+class width_scope:
+    """`with width_scope(max_units, case_rules):` —— 临时换一套行宽口径。
+
+    为什么用作用域而不是把 max_units 一路当参数传：拆条链路有 6 个函数
+    （regroup / regroup_script / split_point / split_long / split_breath_groups /
+    build）都在读同几个上限，逐个加参数等于给同一条规矩开六份副本。
+    作用域只有一份，且在 `build()` 入口设、出口还原，不带状态到下一次。
+    """
+
+    def __init__(self, max_units: float | None = None, case_rules: dict | None = None,
+                 target_soft: float | None = None):
+        self.new, self.old = _scope(max_units, case_rules, target_soft)
+
+    def __enter__(self) -> dict:
+        _W.update(self.new)
+        return _W
+
+    def __exit__(self, *exc) -> None:
+        _W.clear()
+        _W.update(self.old)
+
+
+def _keep_together_breaks(txt: str, p: int) -> bool:
+    """切点 p 是否落在某个「不许拆」的词内部（templates 的 case_rules.keep_together）。"""
+    for w in _W["keep_together"]:
+        i = txt.find(w)
+        while i >= 0:
+            if i < p < i + len(w):
+                return True
+            i = txt.find(w, i + 1)
+    return False
+
 
 def display_units(text: str) -> float:
     """一行字的「展示宽度」，单位是汉字宽。"""
@@ -74,10 +132,6 @@ def display_units(text: str) -> float:
         u += 1.0 if ord(ch) > 0x2E7F else HALF_W
     return round(u, 2)
 
-
-def est_width_px(text: str, size_px: float) -> float:
-    """估算渲染宽度（像素）。偏保守：汉字按 1em，半角按 0.34em。"""
-    return round(display_units(text) * float(size_px), 1)
 
 # 数字：阿拉伯数字连写、中文数词+量词
 NUM_RE = re.compile(
@@ -422,8 +476,13 @@ def split_point(g: list[tuple[str, float, float]]) -> int | None:
     # 「嘅」后面，于是怎么选都是「…我哋嘅」收尾——虚字孤行是这么来的。
     wb = {p for p in word_bounds(txt) if 3 <= p <= n - 3}
     cands = sorted(wb | set(range(4, n - 3)))
+    # 模板的 case_rules.keep_together：这个词内部不许下刀
+    if _W["keep_together"]:
+        kept = [p for p in cands if not _keep_together_breaks(txt, p)]
+        cands = kept or cands
     if not cands:
         return None
+    MU = _W["max_units"]
     # 真静音优先（T-032）：同样是词边界，落在「他真停了一下」的地方比落在
     # 宽度算出来的中点好读得多——这是两条优秀字幕与一条别扭字幕的差别。
     breaths = breath_cuts(g)
@@ -431,20 +490,20 @@ def split_point(g: list[tuple[str, float, float]]) -> int | None:
     def cost(p: int) -> float:
         left, right = txt[:p], txt[p:]
         lu, ru = display_units(left), display_units(right)
-        if lu > MAX_UNITS or ru > MAX_UNITS:
+        if lu > MU or ru > MU:
             return 1e6
         t0, t1 = g[0][1], g[p - 1][2]
         t2, t3 = g[p][1], g[-1][2]
         dur_l, dur_r = t1 - t0, t3 - t2
-        c = abs(lu - MAX_UNITS * 0.55)
+        c = abs(lu - MU * 0.55)
         # 时长不足是最贵的：一条读不完的字幕比稍微偏宽的更糟
         if dur_l < MIN_HOLD:
             c += (MIN_HOLD - dur_l) * 40
         if dur_r < MIN_HOLD:
             c += (MIN_HOLD - dur_r) * 40
-        if txt[p - 1] in NO_END:
+        if txt[p - 1] in NO_END or txt[p - 1] in _W["no_break_after"]:
             c += 12
-        if txt[p] in NO_HEAD:
+        if txt[p] in NO_HEAD or txt[p] in _W["no_break_before"]:
             c += 12
         if p in wb:                     # 落在词边界上更好
             c -= 4
@@ -476,6 +535,7 @@ def split_long(g: list[tuple[str, float, float]]) -> list[int]:
     best = [INF] * (n + 1)
     back: list[int | None] = [None] * (n + 1)
     best[0] = 0.0
+    MU, SOFT = _W["max_units"], _W["soft"]
     for i in range(n):
         if best[i] == INF:
             continue
@@ -483,18 +543,20 @@ def split_long(g: list[tuple[str, float, float]]) -> list[int]:
             if j <= i:
                 continue
             u = display_units(txt[i:j])
-            if u > MAX_UNITS:
+            if u > MU:
                 break
-            # 每段都想靠近 TARGET_SOFT_UNITS（8）。原来写的是 0.62×上限 = 6.2，
+            # 每段都想靠近水口径的软目标（默认 8）。原来写的是 0.62×上限 = 6.2，
             # 于是全片字幕中位数被压到 6.0 单位：判据下限是 6.5，每条也更容易
             # 掉到 0.8 秒以下变成「闪一下」。上限 10 是硬约束，目标该取 8 而不是 6。
-            c = best[i] + (u - TARGET_SOFT_UNITS) ** 2
+            c = best[i] + (u - SOFT) ** 2
             # 切在两边的虚字上要重罚：「同埋更稳定嘅 | 出品俾大家好」这种
             # 行尾挂着「嘅」、行首挂着「啲」，跟被宽度硬拆出来的一模一样难读。
-            if txt[j - 1] in NO_END:
+            if txt[j - 1] in NO_END or txt[j - 1] in _W["no_break_after"]:
                 c += 18
-            if j < n and txt[j] in NO_HEAD:
+            if j < n and (txt[j] in NO_HEAD or txt[j] in _W["no_break_before"]):
                 c += 18
+            if j in wb and _keep_together_breaks(txt, j):
+                c += 1e5              # case_rules：这个词内部不许开一刀
             if j in breaths:
                 c -= 8
             if c < best[j]:
@@ -539,9 +601,10 @@ def regroup_script(items: list[tuple[str, float, float]]
         segs.append(cur)
 
     out: list[tuple[list[tuple[str, float, float]], str]] = []
+    MU = _W["max_units"]
     for g in segs:
         u = display_units("".join(t for t, _, _ in g))
-        if u <= MAX_UNITS:
+        if u <= MU:
             out.append((g, "clause"))
             continue
         # 太长的句子：拆到每段都不超上限。
@@ -563,7 +626,7 @@ def regroup_script(items: list[tuple[str, float, float]]
         while stack:
             cur_g = stack.pop(0)
             cu = display_units("".join(t for t, _, _ in cur_g))
-            if cu <= MAX_UNITS or len(cur_g) < 6:
+            if cu <= MU or len(cur_g) < 6:
                 out.append((cur_g, "clause" if _is_tail(g, cur_g) else "width"))
                 continue
             k = split_point(cur_g)
@@ -620,6 +683,7 @@ def split_breath_groups(groups: list[tuple[list[tuple[str, float, float]], str]]
     """
     out: list[tuple[list[tuple[str, float, float]], str]] = []
     stack = list(groups)
+    MU = _W["max_units"]
     while stack:
         g, why = stack.pop(0)
         dur = (g[-1][2] - g[0][1]) if g else 0.0
@@ -636,7 +700,7 @@ def split_breath_groups(groups: list[tuple[list[tuple[str, float, float]], str]]
             # 左半边只剩 2–3 字（「简单的」|「去非黑即白」）：跟「太短的并进邻居」
             # 同一条规矩——装得下、又是同一口气（空档 <0.55s）就并回去，别让它自己闪一下。
             pw = display_units("".join(t for t, _, _ in out[-1][0]))
-            if pw + wl <= MAX_UNITS and left[0][1] - out[-1][0][-1][2] < 0.55:
+            if pw + wl <= MU and left[0][1] - out[-1][0][-1][2] < 0.55:
                 out[-1] = (out[-1][0] + left, out[-1][1])
                 left = []
         if not left:
@@ -685,6 +749,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
     """
     groups: list[tuple[list[tuple[str, float, float]], str]] = []
     buf: list[tuple[str, float, float]] = []
+    MU = _W["max_units"]
     for i, it in enumerate(items):
         ch = it[0]
         buf.append(it)
@@ -702,7 +767,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
             # 老代码在这里多了一条「超过 10 单位就扔掉这个句界」——于是
             # 「唔系因为纯手工厨房系大，」这个 11 单位的句子被迫和后一句焊在一起，
             # 再被宽度硬切成「厨房系大系」，逗号连同「系」一起割坏。
-            if pause_break and u > MAX_UNITS and not is_word_bound(txt):
+            if pause_break and u > MU and not is_word_bound(txt):
                 buf.pop()
                 continue
             groups.append((buf, "pause"))
@@ -714,7 +779,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
         elif (gap >= GAP_BREAK and pause_break) or nxt is None:
             groups.append((buf, "pause"))
             buf = []
-        elif width >= MAX_CHARS:              # 到上限：先找停顿，再找语义接缝，最后才硬断
+        elif width >= _W["max_chars"]:        # 到上限：先找停顿，再找语义接缝，最后才硬断
             cut = max(range(1, len(buf)),
                       key=lambda j: buf[j][1] - buf[j - 1][2], default=None)
             if cut is not None and buf[cut][1] - buf[cut - 1][2] >= GAP_SPLIT:
@@ -727,16 +792,16 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
                     k = max(cand)
                     groups.append((buf[:k], "pause"))
                     buf = buf[k:]
-                elif width >= HARD_UNITS:
+                elif width >= _W["hard"]:
                     # 真到上限：挑一个**词的边界**断（有分词器就按词典，没有才靠字表猜）
-                    best_k = choose_cut(buf, target=int(MAX_UNITS) - 2)
+                    best_k = choose_cut(buf, target=int(MU) - 2)
                     if best_k:
                         groups.append((buf[:best_k], "pause"))
                         buf = buf[best_k:]
                     else:
                         groups.append((buf, "width"))
                         buf = []
-        elif width >= TARGET_SOFT_UNITS and gap >= GAP_SPLIT:
+        elif width >= _W["soft"] and gap >= GAP_SPLIT:
             groups.append((buf, "pause"))
             buf = []
     if buf:
@@ -748,7 +813,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
         txt = "".join(t for t, _, _ in g)
         # 硬上限就是 10 个展示单位，不留「宽容」：留一点就有一条 14 字落地，
         # 80px × 14 = 1120px > 1080px，两头真的被画幅吃掉（2026-11-11 欧阳 a/b 两条片实测 104%W）。
-        if display_units(txt) <= MAX_UNITS:
+        if display_units(txt) <= MU:
             fixed.append((g, why))
             continue
         best_k = split_point(g)
@@ -764,7 +829,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
     for g, why in groups:
         w = display_units("".join(t for t, _, _ in g))
         if merged and (w < MIN_UNITS or w <= 2) and \
-                display_units("".join(t for t, _, _ in merged[-1][0])) + w <= MAX_UNITS and \
+                display_units("".join(t for t, _, _ in merged[-1][0])) + w <= MU and \
                 g[0][1] - merged[-1][0][-1][2] < 0.55:
             merged[-1] = (merged[-1][0] + g, merged[-1][1])
         elif merged and w <= 3:
@@ -774,7 +839,7 @@ def regroup(items: list[tuple[str, float, float]], pause_break: bool = True):
             # （2026-11-13 T-032 实测：dianzan-a 264 字变 263 字）。所以先试并进前一条
             # （不看空档多宽——宁可在停顿上多停半秒，也不许把一个字从屏幕上抹掉），
             # 装不下才丢。
-            if display_units("".join(t for t, _, _ in merged[-1][0])) + w <= MAX_UNITS:
+            if display_units("".join(t for t, _, _ in merged[-1][0])) + w <= MU:
                 merged[-1] = (merged[-1][0] + g, merged[-1][1])
                 continue
             continue
@@ -806,13 +871,422 @@ def _report_probe() -> None:
           file=sys.stderr)
 
 
+# ── 字幕模板（styles/subtitles.yaml）────────────────────────────────────
+#
+# 四套可单独选用的字幕样式。优先级**必须**是：
+#   项目显式选的模板（brief.json 的 `subtitle_template`）> 包装包自带的 subtitle 参数
+#   > 本文件的 `default` 模板。
+# 老项目（没选模板、包里有 subtitle 段）走的是第二条，读出来的数与改动前一样——
+# 这条兼容性由 `test_subtitle_templates.py` 的 ④ 守着。
+SUB_TEMPLATES = Path(__file__).resolve().parent.parent / "styles" / "subtitles.yaml"
+# 必填字段：少一个就报错，不许「缺了当没说」——那等于又回到「参数散在包里」。
+SUB_FIELDS = ("id", "name", "font", "size_px", "line_spacing", "letter_spacing",
+              "color", "stroke", "shadow", "emphasis", "position",
+              "max_units_per_line", "case_rules")
+# 这些许可字样本身就等于「可商用」，不用再翻 commercial_ok
+SUB_COMMERCIAL_LICENCES = ("open font license", "apache", "mit license", "cc0",
+                           "public domain")
+
+try:                                        # 模板表是 YAML；仓内 vendor/ 有一份
+    import yaml  # noqa: E402
+except ImportError:                                                        # pragma: no cover
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor"))
+    import yaml  # noqa: E402
+
+
+class SubtitleTemplateError(ValueError):
+    """模板表 / 模板引用有问题。消息是给人看的（CLI 直接打这一句，不打 traceback）。"""
+
+
+def _font_entry(name: str, table: dict) -> tuple[str | None, dict | None]:
+    """字体别名 / 文件名 / 同族变体 → (条目名, 条目)。与 fonts.entry_of 同口径。"""
+    fonts = (table or {}).get("fonts") or {}
+    if name in fonts:
+        return name, fonts[name]
+    for k, v in fonts.items():
+        if v.get("file") == name:
+            return k, v
+    low = str(name).lower()
+    for k, v in fonts.items():
+        for pref in (v.get("file_prefixes") or []):
+            if low == str(pref).lower() or low.startswith(str(pref).lower() + "-"):
+                return k, v
+    return None, None
+
+
+def font_licence(name: str, table: dict | None = None) -> dict:
+    """模板用字的授权口径：必须在 fonts.yaml 里有 license，且不是 unverified。
+
+    返回 {"license":..., "ok": bool, "why": str, "alias":..., "commercial_ok":...}。
+    「查不到」一律按不许用处理——模板是要拿去出片的，不许赌。
+    """
+    if table is None:
+        import fonts as _f                                        # noqa: PLC0415
+        table = _f.load()
+    alias, ent = _font_entry(str(name or ""), table)
+    if not ent:
+        return {"alias": None, "license": "unverified", "ok": False, "commercial_ok": None,
+                "why": f"styles/fonts.yaml 里没有「{name}」这只字体（先去登记，再进模板）"}
+    lic = str(ent.get("license") or "").strip()
+    if not lic or lic.lower() == "unverified":
+        return {"alias": alias, "license": lic or "unverified", "ok": False,
+                "commercial_ok": ent.get("commercial_ok"),
+                "why": f"字体「{alias}」在 fonts.yaml 里没填 license（或写着 unverified）"
+                       f"——未核验授权的字不许进字幕模板"}
+    low = lic.lower()
+    auto = any(s in low for s in SUB_COMMERCIAL_LICENCES)
+    if not auto and ent.get("commercial_ok") is not True:
+        return {"alias": alias, "license": lic, "ok": False,
+                "commercial_ok": ent.get("commercial_ok"),
+                "why": f"字体「{alias}」的许可「{lic}」不在自动认定的可商用名单里，"
+                       f"fonts.yaml 也没写 commercial_ok: true——先人工确认再进模板"}
+    return {"alias": alias, "license": lic, "ok": True,
+            "commercial_ok": ent.get("commercial_ok", True), "why": ""}
+
+
+def _validate_template(t: dict, key: str, where: str, table: dict) -> list[str]:
+    """一套模板的全部校验。返回人话错误清单（空 = 通过）。"""
+    errs: list[str] = []
+    if not isinstance(t, dict):
+        return [f"{where} 模板「{key}」不是一个字典（YAML 缩进写坏了？）"]
+    miss = [f for f in SUB_FIELDS if f not in t]
+    if miss:
+        errs.append(f"{where} 模板「{key}」缺字段：{'、'.join(miss)}")
+        return errs
+    if str(t.get("id")) != key:
+        errs.append(f"{where} 模板「{key}」里的 id 是「{t.get('id')}」，与键名不一致"
+                    f"（brief.json 写的是键名，对不上就等于选不到）")
+    lic = font_licence(t.get("font"), table)
+    if not lic["ok"]:
+        errs.append(f"{where} 模板「{key}」{lic['why']}")
+    try:
+        size = int(t.get("size_px"))
+        if not 20 <= size <= 240:
+            errs.append(f"{where} 模板「{key}」的 size_px={size} 不像个字幕字号（20–240）")
+    except (TypeError, ValueError):
+        errs.append(f"{where} 模板「{key}」的 size_px 不是整数：{t.get('size_px')!r}")
+    for k in ("line_spacing", "letter_spacing"):
+        try:
+            float(t.get(k))
+        except (TypeError, ValueError):
+            errs.append(f"{where} 模板「{key}」的 {k} 不是数字：{t.get(k)!r}")
+    for k in ("color",):
+        v = t.get(k)
+        if not isinstance(v, str) or not v.strip() or v.strip().lower() == "none":
+            errs.append(f"{where} 模板「{key}」的 {k} 必须是一个颜色（例如 #FFFFFF）")
+    if not _stroke_css(t.get("stroke"), errs=errs, key=key, where=where):
+        pass
+    if not isinstance(t.get("emphasis"), dict):
+        errs.append(f"{where} 模板「{key}」的 emphasis 必须是字典（color/bold/scale/plate）")
+    else:
+        em = t["emphasis"]
+        on = [k for k in ("color", "bold", "scale", "plate")
+              if em.get(k) not in (None, False, 0, 0.0, "", "none", 1.0)]
+        # scale=1.0 / bold=False / plate=none 都算「没开」，所以上面把它们排除
+        if not on:
+            errs.append(f"{where} 模板「{key}」的 emphasis 一个方案都没开"
+                        f"（颜色 / 加粗 / 放大 / 底衬 至少选一个）")
+    pos = t.get("position")
+    if not isinstance(pos, dict) or "center_y_px" not in pos:
+        errs.append(f"{where} 模板「{key}」的 position 必须给 center_y_px")
+    else:
+        try:
+            float(pos.get("center_y_px"))
+        except (TypeError, ValueError):
+            errs.append(f"{where} 模板「{key}」的 position.center_y_px 不是数字")
+    try:
+        mu = float(t.get("max_units_per_line"))
+        if mu < 4:
+            errs.append(f"{where} 模板「{key}」的 max_units_per_line={mu} 太窄"
+                        f"（一条字幕至少放得下 4 个单位，否则一闪一闪）")
+        elif mu > MAX_UNITS + 1e-9:
+            errs.append(f"{where} 模板「{key}」的 max_units_per_line={mu} 超过共用上限 "
+                        f"{MAX_UNITS:g}——模板只能收窄行宽，改模板不改判据")
+    except (TypeError, ValueError):
+        errs.append(f"{where} 模板「{key}」的 max_units_per_line 不是数字")
+    cr = t.get("case_rules")
+    if not isinstance(cr, dict):
+        errs.append(f"{where} 模板「{key}」的 case_rules 必须是字典"
+                    f"（keep_together / no_break_after / no_break_before）")
+    else:
+        for k in ("keep_together", "no_break_after", "no_break_before"):
+            v = cr.get(k)
+            if v is not None and not isinstance(v, (list, tuple)):
+                errs.append(f"{where} 模板「{key}」的 case_rules.{k} 必须是列表")
+    return errs
+
+
+def _stroke_css(v, errs: list | None = None, key: str = "", where: str = "") -> str | None:
+    """模板里的 stroke（none / CSS 串 / {width_px,color}）→ CSS 的 `-webkit-text-stroke` 值。"""
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        try:
+            w = float(v.get("width_px"))
+        except (TypeError, ValueError):
+            if errs is not None:
+                errs.append(f"{where} 模板「{key}」的 stroke.width_px 不是数字")
+            return None
+        col = str(v.get("color") or "").strip()
+        if not col:
+            if errs is not None:
+                errs.append(f"{where} 模板「{key}」的 stroke 给了宽度却没给颜色")
+            return None
+        return f"{w:g}px {col}"
+    s = str(v).strip()
+    if not s or s.lower() == "none":
+        return None
+    return s
+
+
+def load_subtitle_templates(path: str | Path | None = None,
+                            fonts_table: dict | None = None) -> dict:
+    """读 `styles/subtitles.yaml` 并**整套校验**。坏了抛 `SubtitleTemplateError`。
+
+    返回 {"canvas": {width,height}, "default": <id>, "templates": {id: 模板}}。
+    校验的三条底线：字段齐全、字体在 fonts.yaml 里且许可可商用、行宽不超过共用上限。
+    """
+    p = Path(path) if path else SUB_TEMPLATES
+    where = p.name if p.parent != SUB_TEMPLATES.parent else f"styles/{p.name}"
+    if not p.exists():
+        raise SubtitleTemplateError(f"字幕模板表不存在：{p}")
+    try:
+        doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as e:
+        line = str(e).splitlines()[0] if str(e) else ""
+        raise SubtitleTemplateError(f"字幕模板表 {where} 的 YAML 坏了：{line}")
+    if not isinstance(doc, dict):
+        raise SubtitleTemplateError(f"字幕模板表 {where} 顶层不是字典")
+    tpls = doc.get("templates")
+    if not isinstance(tpls, dict) or not tpls:
+        raise SubtitleTemplateError(f"字幕模板表 {where} 里没有 templates（至少要 4 套）")
+    table = fonts_table
+    if table is None:
+        import fonts as _f                                        # noqa: PLC0415
+        table = _f.load()
+    errs: list[str] = []
+    for key, t in tpls.items():
+        errs += _validate_template(t, str(key), where, table)
+    if errs:
+        raise SubtitleTemplateError("；".join(errs[:6]) + ("…" if len(errs) > 6 else ""))
+    default = str(doc.get("default") or "")
+    if default not in tpls:
+        raise SubtitleTemplateError(
+            f"字幕模板表 {where} 的 default=「{default}」不在 templates 里"
+            f"（可选：{' / '.join(tpls)}）")
+    canvas = doc.get("canvas") or {}
+    return {"canvas": {"width": int(canvas.get("width") or 1080),
+                       "height": int(canvas.get("height") or 1920)},
+            "default": default,
+            "templates": {str(k): v for k, v in tpls.items()}, "path": str(p)}
+
+
+def subtitle_template(tid: str, path: str | Path | None = None,
+                      fonts_table: dict | None = None) -> dict:
+    """按 id 取一套模板。id 不存在给**可读**错误并列出可选 id。"""
+    doc = load_subtitle_templates(path, fonts_table)
+    t = doc["templates"].get(str(tid))
+    if not t:
+        raise SubtitleTemplateError(
+            f"没有「{tid}」这套字幕模板。可选："
+            + " / ".join(f"{k}（{v.get('name')}）" for k, v in doc["templates"].items()))
+    return {**t, "_canvas": doc["canvas"]}
+
+
+def template_to_subtitle(tpl: dict) -> dict:
+    """模板 → 渲染器认识的 subtitle 字典（键名与 packs/*.yaml 的 subtitle 段一致）。
+
+    这样 `render_hf.py` 里画字幕那条链路**一行都不用改**：字号、字色、描边、
+    阴影、纵位置、行宽、强调色全从同一个字典来。多出来的 `line_spacing` /
+    `letter_spacing` / `em_*` / `cap_plate` 只给 CSS 用，老包没有这些键 → 不出那几行。
+    """
+    em = _em_norm(tpl.get("emphasis") or {})
+    pos = tpl.get("position") or {}
+    plate = tpl.get("plate")
+    return {
+        "font": tpl["font"],
+        "size_px": int(tpl["size_px"]),
+        # 模板字号是设计选择，按它画（不反算）。只有模板会带这个键。
+        "font_size_locked": True,
+        "line_spacing": float(tpl.get("line_spacing") or 1.28),
+        "letter_spacing": float(tpl.get("letter_spacing") or 0.01),
+        "color": tpl["color"],
+        "stroke": _stroke_css(tpl.get("stroke")),
+        # 模板写 none 就**真的没有阴影**：渲染端 `sub.get("shadow") or 默认阴影` 的口径
+        # 会把 None 当「没写」补一层默认影，那不是模板要的效果，所以这里输出 "none"。
+        "shadow": "none" if str(tpl.get("shadow") or "").strip().lower() in ("", "none")
+        else str(tpl["shadow"]),
+        "center_y_px": int(pos.get("center_y_px") or 1294),
+        "safe_bottom_px": int(pos.get("safe_bottom_px") or 300),
+        "max_chars_per_line": int(round(float(tpl["max_units_per_line"]))),
+        "entry": "hard_cut",
+        "colorize_emphasis": bool(em.get("color")),
+        "em_color": em.get("color"),
+        "em_bold": em["bold"],
+        "em_scale": em["scale"],
+        "em_plate": em["plate"],
+        # 强调块的内缩（上下, 左右）：比纸带小一档，才像「标记」而不是「第二块底板」
+        "em_plate_pad": ([float(x) for x in (em.get("plate_pad_em") or [0.04, 0.16])[:2]]
+                         if em["plate"] else None),
+        "cap_plate": (None if not isinstance(plate, dict) else {
+            "fill": str(plate.get("fill") or "rgba(246,236,219,0.72)"),
+            "pad_em": list(plate.get("pad_em") or [0.26, 0.34]),
+            "radius_em": float(plate.get("radius_em") or 0.16),
+            # 极轻的纸边影（可选）：没有就是 none，老模板/包装包不会凭空长出一层阴影
+            "edge": str(plate.get("edge") or "").strip() or None}),
+        "light_text": False,
+        "_template": tpl.get("id"),
+    }
+
+
+def _em_norm(em: dict) -> dict:
+    """强调方案归一：`plate: none` 是字符串，别让它冒充「开了底衬」。"""
+    plate = em.get("plate")
+    plate_s = str(plate).strip() if plate is not None else ""
+    pad = em.get("plate_pad_em")
+    return {"color": (str(em.get("color")).strip() if em.get("color") else None),
+            "bold": bool(em.get("bold")),
+            "scale": float(em.get("scale") or 1.0),
+            "plate": None if plate_s.lower() in ("", "none", "false") else plate_s,
+            "plate_pad_em": ([float(x) for x in list(pad)[:2]] if isinstance(pad, (list, tuple))
+                             else None)}
+
+
+def _from_template(tpl: dict, canvas: dict) -> dict:
+    """模板 → 判定/渲染共用的**生效口径**（check_subs 与 render_hf 都读这一份）。"""
+    em = _em_norm(tpl.get("emphasis") or {})
+    pos = tpl.get("position") or {}
+    size = int(tpl["size_px"])
+    lic = font_licence(tpl.get("font"))
+    return {
+        "template": True, "id": str(tpl.get("id")), "name": tpl.get("name"),
+        "suits": tpl.get("suits"), "not_suits": tpl.get("not_suits"),
+        "one_line": tpl.get("one_line"),
+        "font": tpl["font"], "size_px": size,
+        # 模板字号就是实际字号（渲染端 font_size_locked 同源），判定端也用它算像素
+        "render_size_px": size,
+        "line_spacing": float(tpl.get("line_spacing") or 1.28),
+        "letter_spacing": float(tpl.get("letter_spacing") or 0.01),
+        "color": tpl.get("color"), "stroke": _stroke_css(tpl.get("stroke")),
+        "shadow": tpl.get("shadow"),
+        "emphasis": dict(em), "em_color": em.get("color"),
+        "center_y_px": int(pos.get("center_y_px") or 1294),
+        "safe_bottom_px": int(pos.get("safe_bottom_px") or 300),
+        "max_units_per_line": float(tpl["max_units_per_line"]),
+        "case_rules": {k: list((tpl.get("case_rules") or {}).get(k) or [])
+                       for k in ("keep_together", "no_break_after", "no_break_before")},
+        "colorize": bool(em.get("color")),
+        "plate": tpl.get("plate") if isinstance(tpl.get("plate"), dict) else None,
+        "canvas": dict(canvas),
+        "font_license": lic["license"], "font_license_alias": lic["alias"],
+        "raw": tpl,          # 原始模板：`template_to_subtitle()` 要按原键名翻译
+    }
+
+
+def _from_pack(sub: dict, style: dict, canvas: dict) -> dict:
+    """包装包自带的 subtitle 段 → 同一套生效口径（老项目的路）。"""
+    emph = (style or {}).get("emphasis") or {}
+    pack_canvas = (style or {}).get("canvas") or {}
+    cv = {"width": int(pack_canvas.get("width") or canvas.get("width") or 1080),
+          "height": int(pack_canvas.get("height") or canvas.get("height") or 1920)}
+    font = sub.get("font")
+    size = int(sub.get("size_px") or 72)
+    render = size
+    try:                                       # 与 render_hf 同一个反算（老包仍走它）
+        import fonts as _f                                        # noqa: PLC0415
+        render = int(_f.size_px(font, cv["width"], fallback=size))
+    except Exception:                                             # noqa: BLE001
+        render = size
+    mc = sub.get("max_chars_per_line")
+    try:
+        # 包写的是「每行几个字」，当展示单位用；但**只许收窄**：包写 14 也不能judge得比 10 松
+        mu = min(float(mc), MAX_UNITS) if mc else MAX_UNITS
+    except (TypeError, ValueError):
+        mu = MAX_UNITS
+    em_col = sub.get("em_color") or emph.get("keyword_color") or "#FFD400"
+    return {
+        "template": False, "id": None, "name": (style or {}).get("label"),
+        "one_line": (style or {}).get("look_notes"),
+        "suits": None, "not_suits": None,
+        "font": font, "size_px": size, "render_size_px": render,
+        "line_spacing": float(sub.get("line_spacing") or 1.28),
+        "letter_spacing": float(sub.get("letter_spacing") or 0.01),
+        "color": sub.get("color") or "#FFFFFF",
+        "stroke": sub.get("stroke") or None,
+        "shadow": sub.get("shadow"),
+        "emphasis": {"color": em_col, "bold": False, "scale": 1.0, "plate": None},
+        "em_color": em_col,
+        "center_y_px": int(sub.get("center_y_px") or 1294),
+        "safe_bottom_px": int(sub.get("safe_bottom_px") or 300),
+        "max_units_per_line": float(mu),
+        "case_rules": {"keep_together": [], "no_break_after": [], "no_break_before": []},
+        "colorize": bool(sub.get("colorize_emphasis", True)),
+        "plate": None,
+        "canvas": cv,
+        "font_license": None, "font_license_alias": None,
+    }
+
+
+def subtitle_config(project: str | Path | None = None, style: dict | None = None,
+                    path: str | Path | None = None,
+                    fonts_table: dict | None = None) -> dict:
+    """生效的字幕口径。优先级：项目选的模板 > 包装包的 subtitle 段 > 默认模板。
+
+    `project` 给的是项目目录（读 `brief.json` 的 `subtitle_template`）；
+    `style` 给的是包装包/样式包的字典（读它的 `subtitle` 段）。
+    模板 id 写错**不静默退回**：抛 `SubtitleTemplateError`，让调用方报错——用户选了
+    A 却按 B 出片，是比崩掉更坏的失败。
+    """
+    doc = load_subtitle_templates(path, fonts_table)
+    brief: dict = {}
+    if project:
+        bp = Path(project) / "brief.json"
+        if bp.exists():
+            try:
+                brief = json.loads(bp.read_text(encoding="utf-8")) or {}
+            except json.JSONDecodeError:
+                brief = {}
+    tid = str(brief.get("subtitle_template") or "").strip()
+    if tid:
+        tpl = doc["templates"].get(tid)
+        if not tpl:
+            raise SubtitleTemplateError(
+                f"brief.json 里选的 subtitle_template「{tid}」不存在。可选："
+                + " / ".join(doc["templates"]))
+        cfg = _from_template(tpl, doc["canvas"])
+        cfg["source"] = f"template:{tid}"
+        return cfg
+    sub = ((style or {}).get("subtitle") or {})
+    if sub:
+        cfg = _from_pack(sub, style or {}, doc["canvas"])
+        cfg["source"] = "pack"
+        return cfg
+    cfg = _from_template(doc["templates"][doc["default"]], doc["canvas"])
+    cfg["source"] = f"default:{doc['default']}"
+    return cfg
+
+
 def build(segments, index_by_id, chars_cache, lib, load_chars,
-          colorize: bool = True, fps: int = 30) -> list[dict]:
+          colorize: bool = True, fps: int = 30,
+          max_units: float | None = None, case_rules: dict | None = None) -> list[dict]:
     """`colorize=False` 时一个字都不变色（Jerry 2026-11-09：重点词变色取消）。
 
     每条字幕带 `units`（展示单位）与 `sf/ef`（半开帧窗 [sf, ef)）。
     帧窗是后面所有重叠/对齐判据的唯一口径——秒数保留只为向后兼容。
+
+    `max_units` / `case_rules` 来自字幕模板（`styles/subtitles.yaml` 的
+    `max_units_per_line` 与 `case_rules`）：**不传就是原来的 10 单位**，
+    所以没选模板的项目走的是同一条路、同样的数（向后兼容）。
     """
+    with width_scope(max_units, case_rules):
+        return _build(segments, index_by_id, chars_cache, lib, load_chars,
+                      colorize=colorize, fps=fps)
+
+
+def _build(segments, index_by_id, chars_cache, lib, load_chars,
+           colorize: bool = True, fps: int = 30) -> list[dict]:
+    """`build()` 的本体：口径已经由 `width_scope` 设好，这里只跟 `_W` 读。"""
+    MU = _W["max_units"]
     cues: list[dict] = []
     lex = lexicon.load(Path(lib) / "_cutskills")
     # 探针账要每跑一次重算：上一次的「量不成」不能污到这一片。
@@ -872,7 +1346,7 @@ def build(segments, index_by_id, chars_cache, lib, load_chars,
                 merged_u = fixed[-1]["units"] + c["units"] + 1.0
                 # 合并只许发生在同一格内：跨格拼出来的字幕一边说「茶」、
                 # 一边已经把下一格的「我哋一共」写出来了，观众看到的字比听到的话超前。
-                if merged_u <= MAX_UNITS and fixed[-1].get("el") == c.get("el"):
+                if merged_u <= MU and fixed[-1].get("el") == c.get("el"):
                     fixed[-1]["text"] += c["text"]
                     fixed[-1]["html"] = emphasis_html(fixed[-1]["text"]) if colorize else None
                     fixed[-1]["chars"] = len(fixed[-1]["text"])

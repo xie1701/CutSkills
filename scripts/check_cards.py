@@ -55,7 +55,6 @@ from libs import resolve_lib as _resolve_lib  # noqa: E402
 
 CARD_HOLD_MIN = 2.6       # 读完一张**信息卡**的下限（秒）
 KEYWORD_HOLD_MIN = 0.9    # 大字只有四五个字，读得快；但也不能闪一下就过
-KEYWORD_HOLD_MAX = 2.4
 CARD_HOLD_MAX = 4.5       # 再长就是赖着不走
 CARD_GAP = 0.20           # 相邻两张卡之间的空档
 MIN_LEAD = 0.12           # 卡不许早于它锚定的词（声音在前）

@@ -100,7 +100,8 @@ def card(proj: Path, page: Path) -> str:
             '<span class="tip">双击启动（同目录的 .command 文件）</span></a>')
     if (proj / "board").is_dir() and (proj / "board" / "index.html").exists():
         links.append(f'<a class="lnk" href="{html.escape(os.path.relpath(proj / "board" / "index.html", page.parent))}">看板（改片的表）</a>')
-    for label, rel_p in (("时间轴真值源", "timeline.json"), ("验收报告", "verify-report.md"),
+    for label, rel_p in (("我替你做的决定", "assumptions.md"),
+                         ("时间轴真值源", "timeline.json"), ("验收报告", "verify-report.md"),
                          ("决策留痕", "decisions.md")):
         q = proj / rel_p
         if q.exists():

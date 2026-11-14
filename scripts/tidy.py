@@ -18,7 +18,11 @@
 | `timeline.json` `brief.json` `intent.json` `plan.json` `thesis.json` `edl.json` | 真值源 |
 | `decisions.md` `方案.md` `paper-edit.md` `bgm.json` `audio-map.json` | 决策留痕 |
 | `approval.json` `lock.json` | 拍板与签锁，渲前闸门读它 |
-| `verify-report.md` `cover/` `board/` `edl-history/` `plan-history/` | 验收报告与可追溯记录 |
+| `verify-report.md` `verify.json` | 验收报告与机器读数（`gate` / `first_frame` 读它） |
+| `out/licensing.json` `out/licensing.md` | 授权总表，交付时要给用户看 |
+| `out/jianying-export.json` | 剪映导出状态与降级原因，出问题要能复盘 |
+| `out/cover.png` `out/cover/` | 封面成品与发布文案 |
+| `cover/` `board/` `edl-history/` `plan-history/` | 验收报告与可追溯记录 |
 | `out/film-hf.mp4`（或 `out/film.mp4`） | 成片 |
 | `out/{subs,shots,cards,sfx}.json` | 验收与闸门读的就是这几份 |
 | `hf/meta.json` `hf/index.html` `hf/assets/` | 渲器元数据与素材 |
@@ -33,6 +37,8 @@
 | `out/_hf_raw.mp4` `_hf_bed.mp4` `_hf_fg.mp4` | 重渲 |
 | `out/film.mp4`（当 `film-hf.mp4` 存在时） | 旧 ffmpeg 链残留，留着会被 `verify_film` 按 mtime 误读 |
 | `out/film-P*.mp4` | `render_style_preview.py` |
+| `out/preview-roughcut.mp4` `out/preview.json` | `plan_card.py --preview`（撕了这张就是让人以为那是成片） |
+| `out/_preview/` | 低清预览的临时工程（正常渲完自己会删，中途中断才残留） |
 | `work/` | 重渲 |
 | `hooks/*.mp4` `hooks/cand-*/` | `hooks.py`（`review-kit.md` 留） |
 | `ab/*/` | `ab_open.py`（`compare.md` `plan-*.json` 留） |
@@ -54,20 +60,6 @@ import shutil
 import sys
 from pathlib import Path
 
-# 项目根下这些名字整份保留
-KEEP_NAMES = {
-    "timeline.json", "brief.json", "intent.json", "plan.json", "thesis.json", "edl.json",
-    "decisions.md", "方案.md", "paper-edit.md", "bgm.json", "audio-map.json", "bgm.wav",
-    "approval.json", "lock.json", "verify-report.md",
-    "cover", "board", "edl-history", "plan-history", "out", "hf", "l2", "l2s",
-    "index.json", "lexicon.json", "cache", "_cutskills", "subtitles",
-}
-# out/ 里这些整份保留
-OUT_KEEP = {"subs.json", "shots.json", "cards.json", "sfx.json"}
-# hf/ 里这些整份保留
-HF_KEEP = {"meta.json", "index.html", "assets", "clips"}
-# hf/work 里这些整份保留（闸门证据）
-HFWORK_KEEP_PREFIX = ("faces", "pstats", "mask", "stab")
 # hooks / ab 里这些留（决策留痕）
 HOOKS_KEEP = {"review-kit.md"}
 AB_KEEP = {"compare.md"}
@@ -102,6 +94,15 @@ def plan_project(proj: Path) -> list[tuple[int, str, Path]]:
     if out.is_dir():
         for q in sorted(out.glob("film-P*.mp4")):
             rows.append((_size(q), f"风格预览 out/{q.name}（render_style_preview 重出）", q))
+        # 低清粗剪预览：拍板后就没用了，留着容易被当成交付成片错发出去
+        for f, why in (("preview-roughcut.mp4", "plan_card --preview 重出"),
+                       ("preview.json", "plan_card --preview 重出")):
+            q = out / f
+            if q.exists():
+                rows.append((_size(q), f"低清预览 out/{f}（{why}；别当成交付成片）", q))
+        q = out / "_preview"
+        if q.is_dir():
+            rows.append((_size(q), "低清预览临时工程 out/_preview/（正常渲完自己会删）", q))
 
     for d in PROCESS_DIRS:
         q = proj / d

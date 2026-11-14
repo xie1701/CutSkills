@@ -26,11 +26,13 @@ import lexicon          # noqa: E402  残词 / 口吃重尾的判据只有一份
 import lint_transcript  # noqa: E402  量级判据表与待审工单同源，不另写一份
 
 PUNCT = "，。！？、；：…—～,.!?;:"
-MAX_CHARS = 10
-WIDE_TOL = 10             # 与 subs.MAX_CHARS 对齐：80px × 10 字 = 800 = 74%W，再长就压边
 # 判的是「中位数落在这个带里」：10–14 是拆长句的目标，短句本来就是 6–9 字。
 # 真卡死的是上限（>15 一刀不放过）和「一刀两断」（断词）。
 WIDTH_BAND = (6.5, 10.0)   # 上限 10 单位之后，中位落在 6.5–10 之间；7 是正常值
+# 字幕横向的**像素**安全区：占画幅宽的比例上限（左右各留 3%）。单位数判的是「写了几个字」，
+# 判不了「几个字 × 多大字号 = 出不出画」——模板字号一变，同样 9 个字的像素宽就差 30%。
+# 0.94 是从成片量出来的口径：参考片字幕最宽 88%W，留 6 个点是给左右滑栏/安全边的余量。
+SAFE_W_RATIO = 0.94
 TIGHT_GAP = 0.12          # 两条字幕贴得比这还近＝在同一口气里被切开了
 FADE_MAX = 0.12
 OVERLAP_EPS = 0.005       # 秒：小于这个算「相接」，允许
@@ -299,6 +301,31 @@ def main() -> int:
         raise SystemExit("还没有 out/subs.json（先跑 render_hf.py）")
     cues = d.get("cues") or []
 
+    # 生效的字幕口径：项目显式选的模板 > 包装包自带的 subtitle 参数 > 默认模板。
+    # 包装包的解析顺序与 render_hf 一致（brief.pack → packs/，老项目退回 styles/style_pack），
+    # 判据量的必须是**画上去的那一套**，两边各猜一套的话，判红判绿都失去意义。
+    bp = load(proj / "brief.json") or {}
+    root = Path(__file__).resolve().parent.parent
+    tl_doc = load(proj / "timeline.json") or {}
+    style = None
+    # 与 render_hf 同顺序：时间轴的 pack > brief 的 pack > 老的 style_pack（timeline 优先）
+    _pid = str(tl_doc.get("pack") or bp.get("pack") or "").strip()
+    _sp = tl_doc.get("style_pack") or bp.get("style_pack")
+    for _cand in ([root / "packs" / f"{_pid}.yaml"] if _pid else []) + \
+                 ([root / "styles" / f"{_sp}.yaml"] if _sp else []):
+        if _cand.exists():
+            import yaml
+            style = yaml.safe_load(_cand.read_text())
+            break
+    try:
+        import subs as _subs_mod
+        eff = _subs_mod.subtitle_config(proj, style)
+    except _subs_mod.SubtitleTemplateError as e:
+        print(f"字幕模板配置有问题：{e}", file=sys.stderr)
+        return 1
+    sub = (style or {}).get("subtitle") or {}
+    fade = float(sub.get("fade_s") or 0.10)
+
     punct = [c for c in cues if any(ch in PUNCT for ch in str(c.get("text") or ""))]
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from subs import (HAVE_JIEBA, word_bounds, display_units, MAX_UNITS,  # noqa: E402
@@ -309,7 +336,37 @@ def main() -> int:
                      else display_units(str(c.get("text") or "")))
 
     units = [_u(c) for c in cues]
-    wide = [c for c in cues if _u(c) > MAX_UNITS + 0.4]
+    # 行宽上限按**生效的那一套**判：模板 > 包装包 > 默认模板。
+    # 注意判据本身没松：模板的 max_units_per_line 在加载时就被钉在 ≤ MAX_UNITS（只许收窄）。
+    mu = float(eff.get("max_units_per_line") or MAX_UNITS)
+    wide = [c for c in cues if _u(c) > mu + 0.4]
+    # 像素安全区：字号 × 字宽比 × 单位数，看最宽那条会不会出画。
+    # 模板换了字号（72/96/64/66px），单位数一样、像素宽差三成——这条判据就是补这个洞，
+    # 也是「选了模板之后按模板口径判」能看见差别的地方。
+    _cw = int((eff.get("canvas") or {}).get("width") or 1080)
+    _ratio, _fp = 1.0, None
+    try:
+        import fonts as _fonts                                         # noqa: PLC0415
+        _fp = _fonts.resolve(eff.get("font")) or None
+        _ratio = float((_fp or {}).get("ratio") or 1.0)
+    except Exception:                                                  # noqa: BLE001
+        _ratio = 1.0
+    _sz = float(eff.get("render_size_px") or eff.get("size_px") or 72)
+    _ls = float(eff.get("letter_spacing") or 0.0)
+    widest_px = round(max((u * _sz * _ratio + max(0.0, u - 1.0) * _ls * _sz
+                           for u in units), default=0.0), 1)
+    safe_px = round(_cw * SAFE_W_RATIO, 1)
+    # 选了模板就要真按模板渲：subs.json 里记的模板与 brief.json 选的不一致 = 这一版是旧的
+    _want_tpl = None
+    try:
+        _want_tpl = str((bp or {}).get("subtitle_template") or "").strip() or None
+    except AttributeError:
+        _want_tpl = None
+    _got_tpl = str(d.get("subtitle_template") or "").strip() or None
+    tpl_match = (not _want_tpl) or (_got_tpl == _want_tpl)
+    _em_want = str(eff.get("em_color") or "")
+    _em_got = str(d.get("em_color") or "")
+    em_match = (not _em_want) or (not _em_got) or (_em_want.lower() == _em_got.lower())
     widths = sorted(units)
     med = widths[len(widths) // 2] if widths else 0
     em = sum(1 for c in cues if "<span class" in str(c.get("html") or ""))
@@ -378,20 +435,6 @@ def main() -> int:
         if bad:
             tight.append({"a": a_[-6:], "b": b_[:6], "gap_ms": round(gap * 1000)})
 
-    style = None
-    for f in (proj / "style.yaml", ):
-        if f.exists():
-            import yaml
-            style = yaml.safe_load(f.read_text())
-    if style is None:
-        bp = load(proj / "brief.json") or {}
-        sp = bp.get("style_pack")
-        root = Path(__file__).resolve().parent.parent / "styles"
-        if sp and (root / f"{sp}.yaml").exists():
-            import yaml
-            style = yaml.safe_load((root / f"{sp}.yaml").read_text())
-    sub = (style or {}).get("subtitle") or {}
-    fade = float(sub.get("fade_s") or 0.10)
 
     # 语义常识门禁（T-017）：残词 / 口吃重尾 / 荒谬量级。
     # 这三类都是「字幕上已经印出来」的硬伤，与标点超宽同一层；
@@ -400,7 +443,15 @@ def main() -> int:
 
     checks = {
         "punct": {"value": len(punct), "pass": not punct, "need": 0},
-        "over_wide": {"value": len(wide), "pass": not wide, "need": f"<={MAX_UNITS} 单位"},
+        "over_wide": {"value": len(wide), "pass": not wide,
+                      "need": f"<={mu:g} 单位"
+                              + ("" if eff.get("template") else "（包装包口径）")},
+        "text_width_px": {"value": widest_px, "pass": widest_px <= safe_px,
+                          "need": f"<={safe_px:g}px（{SAFE_W_RATIO:.0%}W，{_sz:g}px×{_ratio:g}）"},
+        "template_applied": {"value": _got_tpl or eff.get("id") or "—", "pass": tpl_match,
+                             "need": (_want_tpl or "—") + "（brief 选的 = 这一版渲的）"},
+        "em_color": {"value": _em_got or _em_want or "—", "pass": em_match,
+                     "need": (_em_want or "—") + "（强调色与生效口径一致）"},
         "width_median": {"value": round(med, 1), "pass": WIDTH_BAND[0] <= med <= WIDTH_BAND[1],
                          "need": WIDTH_BAND},
         "word_split": {"value": len(tight), "pass": not tight, "need": 0},
@@ -440,16 +491,30 @@ def main() -> int:
                         "magnitude_bad": sem["magnitude_bad"][:8],
                         "magnitude_note": sem["magnitude_note"][:8]},
            "widths": {"min": widths[0] if widths else 0, "max": widths[-1] if widths else 0,
-                      "median": round(med, 2), "unit": "汉字宽"}}
+                      "median": round(med, 2), "unit": "汉字宽",
+                      "widest_px": widest_px, "safe_px": safe_px,
+                      "size_px": round(_sz, 1), "ratio": _ratio},
+           # 判的是哪一套字幕样式（模板 id / 包装包 / 默认模板）——读数要能对上脸
+           "subtitle_style": {"source": eff.get("source"), "id": eff.get("id"),
+                              "font": eff.get("font"), "size_px": eff.get("size_px"),
+                              "max_units": mu, "em_color": _em_want or None,
+                              "license": eff.get("font_license")}}
 
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=1))
         return 0 if ok else 1
 
+    if eff.get("template"):
+        print(f"字幕口径：模板「{eff.get('name')}」{eff.get('id')} · {eff.get('font')} "
+              f"{_sz:g}px · 授权 {eff.get('font_license')} · 行宽 ≤{mu:g} 单位")
+    else:
+        print(f"字幕口径：包装包自带参数（{eff.get('font')} · 行宽 ≤{mu:g} 单位）")
     print(f"字幕 {len(cues)} 条 · 宽度 中位 {med:.1f} 单位（{widths[0] if widths else 0}–"
-          f"{widths[-1] if widths else 0}）")
+          f"{widths[-1] if widths else 0}） · 最宽 {widest_px:g}px"
+          f"（{widest_px / _cw:.0%}W，安全区 ≤{safe_px:g}px）")
     print(f"  标点 0 处{'✅' if not punct else '✗ ' + str(len(punct))}")
-    print(f"  超宽（>{MAX_UNITS} 展示单位）{'✅' if not wide else '✗ ' + str(len(wide))}")
+    print(f"  超宽（>{mu:g} 展示单位）{'✅' if not wide else '✗ ' + str(len(wide))}"
+          f" · 像素 {widest_px:g}/{safe_px:g}px{'✅' if widest_px <= safe_px else '✗'}")
     print(f"  断词 {'✅' if not tight else '✗ ' + str(len(tight))}（贴着切的，像同一口气被劈开）")
     print(f"  重叠 {'✅' if not overlap else '✗ ' + str(len(overlap))}"
           f" · 帧窗 {'✅' if has_frames and not bad_frames else ('✗' if bad_frames else '老文件')}")

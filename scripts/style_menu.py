@@ -11,6 +11,8 @@
   style_menu.py --bars                        # 渲 4 张节奏条 PNG
   style_menu.py --choose S2-live-mid P1-warm --project <项目>   # 记下选择
   style_menu.py --show S3-probe-slow          # 单套详情
+  style_menu.py --subtitles                   # 4 套字幕模板（中文名 / 适合什么 / 字体与授权）
+  style_menu.py --subtitles --choose cool-thin --project <项目>  # 只换字幕，不换整套包装
 """
 from __future__ import annotations
 
@@ -146,6 +148,8 @@ def cmd_list(show_paths: bool = False) -> int:
         pv = p.get("preview")
         print(f"    样例：{pv if (pv and show_paths) else (pv or '待渲')}")
         print()
+    print("字幕想单独换？（只换字幕，不换剪法、不换包装）")
+    print("  style_menu.py --subtitles        # 4 套：极简白字 / 大字重描边 / 纸感底衬 / 冷色细体")
     print("回一句「S2 + P2」就定；说「都差不多」我再补样例或拿你的素材试 10 秒。")
     return 0
 
@@ -188,17 +192,78 @@ def cmd_choose(plan: str, pack: str | None, project: str | None) -> int:
     return 0
 
 
+# ── 字幕模板菜单（styles/subtitles.yaml）────────────────────────────────
+# 字幕独立成一层：用户想「只把字幕换个样子」时，不该被逼着连卡片和色调一起换。
+# 四套的字体都必须是 fonts.yaml 里核过授权的（OFL/明确可商用）——这条由 subs 加载时守。
+
+def sub_templates() -> dict:
+    """读模板表（走 subs 那一份加载与校验，别在这里再写一套）。"""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import subs
+    return subs.load_subtitle_templates()
+
+
+def cmd_subtitles(choose: str | None = None, project: str | None = None) -> int:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import subs
+    try:
+        doc = sub_templates()
+    except subs.SubtitleTemplateError as e:
+        print(f"字幕模板表有问题：{e}", file=sys.stderr)
+        return 1
+    if choose:
+        if choose not in doc["templates"]:
+            print(f"没有这套字幕模板：「{choose}」。可选："
+                  + " / ".join(f"{k}（{v.get('name')}）" for k, v in doc["templates"].items()),
+                  file=sys.stderr)
+            return 1
+        if not project:
+            print(f"选了字幕模板 {choose}（没给 --project，只打印不落盘）")
+            return 0
+        proj = Path(project).expanduser().resolve()
+        bf = proj / "brief.json"
+        brief = json.loads(bf.read_text()) if bf.exists() else {}
+        brief["subtitle_template"] = choose
+        bf.write_text(json.dumps(brief, ensure_ascii=False, indent=1))
+        dec = proj / "decisions.md"
+        line = (f"- {__import__('datetime').date.today()} 字幕模板：`{choose}`"
+                f"（{doc['templates'][choose]['name']}）\n")
+        dec.write_text((dec.read_text() if dec.exists() else "") + line)
+        print(f"记下了：字幕模板 {choose}（{doc['templates'][choose]['name']}）→ {bf}")
+        return 0
+    print(f"现在有 {len(doc['templates'])} 套字幕模板，字体都核过授权（可直接商用）：\n")
+    for tid, t in doc["templates"].items():
+        lic = subs.font_licence(t.get("font"))
+        print(f"  {tid:<14} {t.get('name')}　—　{t.get('one_line') or ''}")
+        print(f"    字体 {t.get('font')} {t.get('size_px')}px · 授权 {lic['license']}"
+              f" · 行宽 ≤{t.get('max_units_per_line')} 单位"
+              f" · 位置 {((t.get('position') or {}).get('center_y_px'))}px")
+        print(f"    适合：{t.get('suits') or '—'}")
+        print(f"    不适合：{t.get('not_suits') or '—'}")
+        print()
+    print("回一句「字幕用 cool-thin」我就存下来；也可以 "
+          "`style_menu.py --subtitles --choose <id> --project <项目>`。")
+    print("不选就沿用包装包自带的字幕参数（老项目行为不变）。")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--paths", action="store_true", help="样例给出绝对路径（聊天里要发文件时用）")
     ap.add_argument("--bars", action="store_true")
     ap.add_argument("--show", default=None)
-    ap.add_argument("--choose", nargs="+", default=None, metavar="PLAN [PACK]")
+    ap.add_argument("--choose", nargs="+", default=None,
+                    metavar="PLAN [PACK] | <字幕模板 id>")
     ap.add_argument("--project", default=None)
+    ap.add_argument("--subtitles", action="store_true",
+                    help="列出 4 套字幕模板（配合 --choose <id> 只换字幕，不换整套包装）")
     a = ap.parse_args()
     if a.bars:
         return cmd_bars()
+    if a.subtitles:
+        # 这里的 --choose 是「字幕模板 id」（只一个词）。剪法/包装仍是 --choose PLAN [PACK]。
+        return cmd_subtitles((a.choose[0] if a.choose else None), a.project)
     if a.show:
         return cmd_show(a.show)
     if a.choose:

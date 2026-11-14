@@ -18,7 +18,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
+_HERE = Path(__file__).resolve().parent
+# 第三方依赖的两处挂载，缺一个都会把「一台干净机器」挡在门外：
+#   ① pyyaml 是纯 Python，随仓放在 scripts/vendor（和 render_hf.py / subs.py 同一个做法）；
+#   ② pillow / numpy 是 C 扩展装不进 vendor，落在 $CUTSKILLS_HOME/py（deps.json）；
+#      runtime.sh 用它导 PYTHONPATH，但直接 `python3 scripts/verify_film.py` 时没有人导。
+# 2026-11-15 实测：本机没装 pyyaml，`verify_film.py --help` 直接 ModuleNotFoundError，
+# test_sub_density 跟着 FAIL（它 import 本模块取 subtitle_density）。
+sys.path.insert(0, str(_HERE / "vendor"))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+from libs import cutskills_home as _cutskills_home       # noqa: E402
+_PY_DEPS = _cutskills_home() / "py"
+if _PY_DEPS.exists() and str(_PY_DEPS) not in sys.path:
+    sys.path.append(str(_PY_DEPS))
+
+import yaml  # noqa: E402
 
 # 参考片一条字幕多长（字）。来源是同一条 126.58 s 知识口播片的逐帧反解：
 # 113 条、每条均 8.9 / 中位 8 / 上限 12（talking-head-packaging/references/measured-spec.md）。
@@ -32,6 +47,29 @@ REF_CHARS_PER_CUE = 8.0
 # 遮挡多少交给成片看，不假装能从一个数里量出来。
 KW_FLOOR_BEHIND = 0.0008
 KW_FLOOR_KEYWORD = 0.004
+
+# ── BRIEF「自动质检」里原先缺的三项，一律红（不是黄）───────────────────────────
+# 阈值出处全部是需求原文，不许就地调松：
+#   ① 静音段：BRIEF「超过 0.8 秒的静音段」→ 任何 >0.8s 的静音段不交付。
+#   ② 平台 UI 遮挡：BRIEF「字幕和贴纸是否进入平台 UI 遮挡区」→ 相交即红。
+#      三个安全区数值在 scripts/platform_safe.py（竖屏默认 顶部 10% / 右侧 13% / 底部 17%）。
+#   ③ 前 3 秒画面变化：BRIEF 剪辑表第 4 条「前 3 秒至少要有 2 次画面变化，而且每次变化
+#      都要对应一个音频事件」→ 变化次数 ≥2，每个变化点离最近音频事件 ≤80ms
+#      （80ms 复用 sync_check.TOL_MS，不另立一套口径）。
+SILENCE_MAX_S = 0.8
+FIRST_SEC_S = 3.0
+FIRST_SEC_MIN_CHANGES = 2
+
+# 音画同步的两条红判据，口径全部照 BRIEF 原文写：
+#   「同期声口型与声音的偏差不超过 1 帧」→ 同源切片起点/末点必须逐帧一致；
+#   「渲染后音视频轨的总时长差不超过 1 帧」→ ffprobe 两条流的 duration 差 ≤1/fps。
+# 为什么不能拿 sync_check 的 85% 同步率代替：那是「视觉事件落在词边界 ±80ms 内的比例」，
+# 口径不同（拿它当门，正片会因字幕/卡片换句而红），而且那个数自己写着没有校准过。
+# 这两条与素材、与包装无关，只问「声音和画面是不是同一秒的东西」。
+AV_FRAME_MAX = 1.0
+# 音事件表的片长与时间轴差多少算「那张表是旧轴算的」：1 帧太紧（帧取整 + 渲尾填充就有
+# 30–60ms，r1a-shougong 实测 50ms 且完全正常），取 150ms。
+AM_STALE_S = 0.15
 
 
 def _pixels(im) -> list:
@@ -586,6 +624,264 @@ def load_timeline_or_edl(proj: Path) -> dict:
     return {**json.loads((proj / "edl.json").read_text()), "_src": "edl"}
 
 
+def silence_verdict(runs: list[tuple[float, float]] | None,
+                    limit: float = SILENCE_MAX_S) -> tuple[str, str, str]:
+    """静音段判定（BRIEF：超过 0.8 秒的静音段 → 不交付）。
+
+    `runs` 来自 `silence.runs_strict()` —— **真实探针**（相对阈值，每 20ms 一帧 RMS），
+    不另写一套 ffmpeg silencedetect：那套固定绝对阈值在手机素材上会整片判不出静音
+    （见 scripts/silence.py 文件头）。`None` 表示没量成，调用方必须先单独报出来。
+    """
+    if runs is None:
+        return ("yellow", "没量成", "成片音频解不出 PCM——这条没量到，不算过")
+    bad = [(float(a), float(b)) for a, b in runs if float(b) - float(a) > limit]
+    if not bad:
+        longest = max((float(b) - float(a) for a, b in runs), default=0.0)
+        return ("green", f"0 段（最长停顿 {longest:.2f}s）",
+                f"超过 {limit}s 的死气一段都没有")
+    worst = max(bad, key=lambda r: r[1] - r[0])
+    return ("red", f"{len(bad)} 段 · 最长 {worst[1] - worst[0]:.2f}s（{worst[0]:.2f}s 起）",
+            f"BRIEF：超过 {limit}s 的静音段不交付；"
+            + "、".join(f"{a:.2f}–{b:.2f}s" for a, b in bad[:3]))
+
+
+def change_points(tl: dict) -> list[dict]:
+    """成片里「画面换了」的时刻：硬切（新镜头起）+ 卡片/贴纸入场（overlay）。
+
+    不重新做像素检测：真正的换镜和卡片入场都写在时间轴上，而像素口径分不清
+    「字幕换了一句」和「换了个镜头」（本文件早先踩过这个坑，见剪辑点节奏那一段的注释）。
+    事件表直接复用 `sync_check.element_starts()`——两处判据同一个口径，不各写一份。
+    """
+    if not tl:
+        return []
+    try:
+        import sync_check as _sc
+    except ImportError:                      # 判据文件缺失时按「量不到」处理，不静默给空
+        return []
+    return _sc.element_starts(tl)
+
+
+def audio_event_bounds(am: dict | None) -> list[float]:
+    """音频事件表（audio-map.json）→ 句首/句尾的时刻。口径与 sync_check 一致。
+
+    用句读边界而不是「每个重音点」：BRIEF 说的「音频事件」在剪辑表里就是句首、句尾、
+    关键词和重音，搬到这里能机器对账的只有**块边界**（块 = 一口气）。
+    """
+    blocks = [b for b in (am or {}).get("blocks") or [] if not b.get("is_filler")]
+    out = set()
+    for b in blocks:
+        try:
+            out.add(round(float(b["t"]), 3))
+            out.add(round(float(b["t"]) + float(b["dur"]), 3))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sorted(out)
+
+
+def first_seconds_verdict(changes: list[dict], bounds: list[float] | None,
+                          *, first: float = FIRST_SEC_S,
+                          need: int = FIRST_SEC_MIN_CHANGES,
+                          tol_ms: int | None = None) -> tuple[str, str, str]:
+    """前 3 秒画面变化（BRIEF 剪辑表第 4 条）。
+
+    两条一起判：① 前 `first` 秒内硬切 + 卡片入场 ≥`need` 次；
+    ② 每个变化点离最近的音频事件 ≤`tol_ms`（默认取 sync_check.TOL_MS = 80ms）。
+    0s 那一刻不算「变化」——那是片头第一帧，不是变化。
+    """
+    import sync_check as _sc
+    tol = float(_sc.TOL_MS if tol_ms is None else tol_ms)
+    win = [c for c in changes if 1e-6 < float(c.get("t") or 0.0) <= first + 1e-6]
+    where = ", ".join(f"{float(c['t']):.2f}s" for c in win[:5]) or "—"
+    if len(win) < need:
+        return ("red", f"{len(win)} 次（需 ≥{need}）",
+                f"前 {first:g}s 内画面只变了 {len(win)} 次（{where}）："
+                f"BRIEF 要求硬切+卡片入场 ≥{need} 次")
+    if not bounds:
+        return ("yellow", f"{len(win)} 次 · 对齐没量成",
+                f"前 {first:g}s 有 {len(win)} 次变化，但没有 audio-map.json 的事件表——"
+                "对不对得上音频没量到（先跑 scripts/audio_map.py），不当它通过")
+    devs = []
+    for c in win:
+        t = float(c.get("t") or 0.0)
+        near = min(bounds, key=lambda b: abs(b - t))
+        devs.append((abs(near - t) * 1000.0, t))
+    far = [f"{t:.2f}s 差 {ms:.0f}ms" for ms, t in devs if ms > tol]
+    worst_ms = max(ms for ms, _ in devs)
+    if far:
+        return ("red", f"{len(win)} 次 · 最远 {worst_ms:.0f}ms",
+                f"变化点离最近的音频事件超过 {tol:.0f}ms：" + "、".join(far[:3]))
+    return ("green", f"{len(win)} 次 · 最远 {worst_ms:.0f}ms",
+            f"每次变化都落在句读边界 ±{tol:.0f}ms 内（{where}）")
+
+
+def first_frame_verdict(m: dict) -> tuple[str, str, str]:
+    """首帧信息密度（BRIEF 第 4 步「首帧要有足够的画面信息密度」）。
+
+    判据实现与阈值全在 `scripts/first_frame.py`（8 支真成片第 0 帧实测分布定阈，
+    表在那个文件头）。这里只把读数翻成报告行，**不复制阈值**——两处各写一套必然分叉，
+    那时「报告说绿、脚本说红」就要人来猜该信谁。
+
+    判不了（取不到帧/文件坏）→ **red**：同 `amap_fresh_verdict` 的口径，成片的首帧
+    没人能确认，就不算通过；不许以 yellow 混过去。
+    """
+    import first_frame as _ff
+    level, why = _ff.verdict(m)
+    if m.get("error"):
+        return ("red", "判不了",
+                f"首帧没量到：{m['error']}——不当通过，先查成片能不能解码")
+    val = (f"边缘 {float(m['edge_density']) * 100:.1f}% · 熵 {float(m['entropy']):.2f}"
+           f" · 显著 {float(m['salient_ratio']) * 100:.1f}%")
+    # verdict 的理由开头会把读数再报一遍；读数已经在「实测」列，这里只留结论与改法
+    tail = why.split("：", 1)[1] if "：" in why else why
+    return (level, val, tail)
+
+
+def platform_verdict(boxes: list[dict], zones: list[dict],
+                     unboxed: list[str] | None = None) -> tuple[str, str, str]:
+    """字幕/贴纸有没有压进平台 UI 遮挡区（BRIEF：相交 → 不交付）。
+
+    `boxes` 是 `platform_safe.sub_boxes()` + `card_boxes()` 吐出来的像素框，
+    `zones` 是同一套安全区。相交面积 > 0 就红——一个字压住按钮，观众就看不清。
+    """
+    import platform_safe as _ps
+    if not zones:
+        return ("yellow", "不适用（横屏）",
+                "横屏的平台 UI 分布没有实测口径，不拿竖屏的数硬套；这条没量到")
+    hits = []
+    for b in boxes:
+        name, area, ratio = _ps.worst_overlap(b["box"], zones)
+        if name and area > 0:
+            hits.append((b["label"], name, ratio, float(b.get("t0") or 0.0)))
+    unboxed = unboxed or []
+    if hits:
+        worst = max(hits, key=lambda h: h[2])
+        return ("red", f"{len(hits)} 处压住 UI · 最狠 {worst[2] * 100:.0f}%",
+                "、".join(f"{lb}压{zn}{rt * 100:.0f}%（{t0:.1f}s）"
+                         for lb, zn, rt, t0 in hits[:3]))
+    if unboxed:
+        return ("yellow", f"{len(unboxed)} 处没框",
+                "这些卡没有可对账的框（旧渲染器产物）：" + "、".join(unboxed[:3])
+                + "——重渲一次再判")
+    if not boxes:
+        return ("green", "0 处（没有可查的字/贴纸）", "这套片子没有字幕层也没有卡")
+    return ("green", f"{len(boxes)} 个字/卡全在安全区", "没压住顶部导航、右侧按钮列、底部文案条")
+
+
+def amap_fresh_verdict(amap: dict | None, tl_dur: float,
+                       *, stale_s: float = AM_STALE_S) -> tuple[str, str, str]:
+    """音事件表是不是当前这条时间轴算的（陈旧 = 红，不是提示）。
+
+    `audio-map.json` 是「重音块 / 气口边界」的唯一真值源，断章率、卡片锚词、
+    前 3 秒事件对齐全都读它。它如果还是旧时间轴算的，那么这一整组读数都不成立——
+    2026-11-15 实测：dianzan-a 的映射片长 73.53s、时间轴 45.20s，断章率 19%、
+    锚词 829 这些数看着像真账，其实是拿错的表算的。
+
+    本仓口径：「判不了」不等于「判过了」（见 gate.parse_sync 同类注释），所以
+    陈旧映射判 **red** 并在结论里直说先重跑 `audio_map.py`，不许以提示形式溜过去。
+    容差 `AM_STALE_S` 是为尾帧取整留的（r1a 实测差 50ms，属正常）。
+    """
+    if not amap:
+        return ("yellow", "没有音事件表",
+                "没有 audio-map.json：断章率 / 卡片锚词 / 前 3 秒事件对齐都量不了"
+                "（先跑 scripts/audio_map.py）")
+    try:
+        am_dur = float(amap.get("duration_s") or 0.0)
+        tl_dur = float(tl_dur or 0.0)
+    except (TypeError, ValueError):
+        return ("yellow", "读不到", "audio-map 的 duration_s 不是数字")
+    if not (am_dur and tl_dur):
+        return ("yellow", "读不到",
+                "audio-map 或时间轴缺 duration_s，对不了新鲜度")
+    diff = am_dur - tl_dur
+    val = f"映射 {am_dur:.2f}s / 轴 {tl_dur:.2f}s（{diff:+.2f}s）"
+    if abs(diff) <= stale_s + 1e-9:
+        return ("green", val, f"音事件表是这条时间轴算的（容差 {stale_s * 1000:.0f}ms）")
+    return ("red", val,
+            f"这张音事件表是**旧时间轴**算的：断章率 / 卡片锚词 / 前 3 秒事件对齐"
+            f"这一组读数全部作废（不是片子的问题，是核对的表过期）。"
+            f"先跑 scripts/audio_map.py 重算再判——在此之前这些数不许当结论用")
+
+
+def av_duration_verdict(vdur: float, adur: float, fps: float,
+                        *, max_frames: float = AV_FRAME_MAX) -> tuple[str, str, str]:
+    """音视频轨总时长差（BRIEF：≤1 帧 → 不交付）。
+
+    拿成片自己的两条流量（ffprobe 的 video.duration / audio.duration），不读时间轴自证。
+    「1 帧」按视频帧率算：30fps 就是 33.3ms。
+    """
+    try:
+        vdur, adur, fps = float(vdur or 0), float(adur or 0), float(fps or 0)
+    except (TypeError, ValueError):
+        vdur = adur = fps = 0.0
+    if not (vdur and adur and fps):
+        return ("yellow", "读不到", "ffprobe 没给两条流的 duration，这条没量到")
+    diff = adur - vdur
+    frames = diff * fps
+    val = f"{diff * 1000:+.0f}ms（{frames:+.2f} 帧 @ {fps:.0f}fps）"
+    if abs(frames) <= max_frames + 1e-6:
+        return ("green", val, f"两条流一样长（容差 {max_frames:g} 帧 = {1000.0 * max_frames / fps:.0f}ms）")
+    return ("red", val,
+            f"BRIEF：总时长差超过 {max_frames:g} 帧；"
+            + ("声轨比画面短：最后一个字被砍或结尾静音" if diff < 0
+               else "声轨比画面长：尾巴多出一截，后面字幕与口型会漂"))
+
+
+def mouth_sync_verdict(elements: list[dict], amap: dict | None, fps: float,
+                       *, tl_dur: float = 0.0,
+                       max_frames: float = AV_FRAME_MAX) -> tuple[str, str, str]:
+    """口型/同源偏差（BRIEF：≤1 帧 → 不交付）。
+
+    本仓是 Audio-First：声音先锁，画面切片套上去。所以「口型对不上」在这条链路上只有
+    一种形态——**同一个 talking 切片，视频入点与它配音的音频入点不是同一个源时间**。
+    判据就拿 timeline 的 `in/out` 与 `audio.in/out` 直接对：差 / fps = 几帧。
+    跨素材的 B-roll（画面换、声音不动）不是同期声，这条不适用，单独计数。
+    audio-map 的两件事也在这里对：
+      ① 它的片长与时间轴对不上 = 这张音事件表是旧时间轴算的，必须说出来（不当它通过）；
+      ② 表与轴对得上时，它的块边界才可信。
+    """
+    try:
+        fps = float(fps or 30.0)
+    except (TypeError, ValueError):
+        fps = 30.0
+    worst, worst_n, checked, cross = 0.0, None, 0, 0
+    for el in elements or []:
+        if el.get("track") == "overlay" or el.get("kind") != "clip":
+            continue                      # overlay 不占时间轴；gen/image 没有同期声
+        vin, vout = float(el.get("in") or 0.0), float(el.get("out") or 0.0)
+        au = el.get("audio") or {}
+        if au.get("asset"):
+            if au.get("asset") != el.get("asset"):
+                cross += 1                # B-roll 换画面不动声音：不是同期声
+                continue
+            ain, aout = float(au.get("in") or 0.0), float(au.get("out") or 0.0)
+        else:
+            ain, aout = vin, vout          # 没写 audio = 用本片自己的声音，天然同段
+        checked += 1
+        dev = max(abs(ain - vin), abs(aout - vout))
+        if dev > worst:
+            worst, worst_n = dev, el.get("n")
+    stale = ""
+    if amap:
+        try:
+            am_dur = float(amap.get("duration_s") or 0.0)
+        except (TypeError, ValueError):
+            am_dur = 0.0
+        if am_dur and tl_dur and abs(am_dur - float(tl_dur)) > AM_STALE_S:
+            stale = (f"；！audio-map 片长 {am_dur:.2f}s 与时间轴 {float(tl_dur):.2f}s 对不上，"
+                     f"这张音事件表是旧轴算的，需要重跑 audio_map.py")
+    frames = worst * fps
+    extra = (f"{cross} 段 B-roll 非同期声不计" if cross else "")
+    if not checked:
+        return ("yellow", "没有同期声切片", "全片没有 talking 切片，这条不适用")
+    val = f"{worst * 1000:.0f}ms（{frames:.2f} 帧 @ {fps:.0f}fps）"
+    if frames > max_frames + 1e-6:
+        return ("red", val,
+                f"BRIEF：口型偏差超过 {max_frames:g} 帧；第 {worst_n} 格的画面入点与音频入点"
+                f"不是同一个源时间（视频/音频切片错位）" + (f"；{extra}" if extra else "") + stale)
+    return ("green", val,
+            (f"每个 talking 切片的视频入点与配音入点一致" + (f"；{extra}" if extra else "")) + stale)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
@@ -728,6 +1024,24 @@ def main() -> int:
             "" if abs(vs0 - as0) <= tol else f"超过 {tol * 1000:.0f} ms：整片口型会偏")
     except (TypeError, ValueError):
         add("流起点差", "读不到", "yellow", "ffprobe 没给 start_time")
+
+    # ── BRIEF 音画同步的两条硬判据（替掉「拿 sync_check 的 85% 当硬门」）──────────
+    # ① 「渲染后音视频轨的总时长差不超过 1 帧」——上面「音画等长」那行是 2026-11-11 按
+    #    20 支参考片标出的经验区间（-50~+250ms，容了编码器尾部填充），这一行是 BRIEF
+    #    写死的 1 帧，两条并排：前者讲「尾部填充有多常见」，后者讲「交付标准是几帧」。
+    _lv, _val, _note = av_duration_verdict(vdur, adur, fps_v)
+    add("音视频时长差（≤1 帧）", _val, _lv, _note)
+    # ② 「同期声口型与声音的偏差不超过 1 帧」——同期声切片：视频入点 vs 配音入点。
+    _tl_els = (json.loads((proj / "timeline.json").read_text()).get("elements") or []
+               if (proj / "timeline.json").exists() else [])
+    _amap_doc = (json.loads((proj / "audio-map.json").read_text())
+                 if (proj / "audio-map.json").exists() else None)
+    _lv, _val, _note = mouth_sync_verdict(_tl_els, _amap_doc, fps_v,
+                                          tl_dur=float(edl.get("duration_s") or dur))
+    add("口型同源（≤1 帧）", _val, _lv, _note)
+    # ③ 音事件表新不新鲜：陈旧 → 红，因为断章率/锚词/前 3 秒对齐都读它（本仓：判不了≠判过了）。
+    _lv, _val, _note = amap_fresh_verdict(_amap_doc, float(edl.get("duration_s") or dur))
+    add("音事件表新鲜度", _val, _lv, _note)
 
     # color tag：未标注的片子在手机上会被当另一个色彩空间解，看起来暗一半。
     # 20 支参考片 18 支有、2 支缺——所以这是我们**自家的规矩**，不是行业普遍事实，只判黄。
@@ -1574,6 +1888,57 @@ def main() -> int:
         "yellow" if _bad else "green",
         ("口播画面冻住，最早 " + f"{_bad[0][0]:.1f}s" ) if _bad else "空镜/静帧/片尾不计")
 
+    # ── BRIEF 自动质检：四条原先缺的硬门，其中三条落在本文件（第四条是 sync_check 进 gate）──
+    # BRIEF 原话：每条成片都必须跑，未通过的不交付。所以下面三条一律红。
+    #
+    # ① 静音段 —— BRIEF「超过 0.8 秒的静音段」。探针用 scripts/silence.py 的相对阈值实现
+    #    （每 20ms 一帧 RMS，阈值跟着这条片自己的说话电平走），不另写一套 ffmpeg
+    #    silencedetect：那套固定绝对阈值在底噪高的手机素材上会把整片判成「没有静音」。
+    import silence as _silence
+    _sil_runs = _silence.runs_strict(film, 0.0, dur)
+    _qc_lv, _qc_val, _qc_note = silence_verdict(_sil_runs)
+    add("静音段（>0.8s）", _qc_val, _qc_lv, _qc_note)
+
+    # ② 平台 UI 遮挡 —— BRIEF「字幕和贴纸是否进入平台 UI 遮挡区」。
+    #    框读产线落盘的 out/subs.json 与 out/cards.json（渲器真正的落点），
+    #    安全区读 scripts/platform_safe.py（竖屏默认，项目可覆盖）。
+    import platform_safe as _psafe
+    _pspec, _psrc = _psafe.load_spec(proj)
+    _pzones = _psafe.zones(W, H, _pspec)
+    _subs_doc = (json.loads((proj / "out" / "subs.json").read_text())
+                 if (proj / "out" / "subs.json").exists() else {})
+    _cards_doc = (json.loads((proj / "out" / "cards.json").read_text())
+                  if (proj / "out" / "cards.json").exists() else {})
+    _boxes = ((_psafe.sub_boxes(_subs_doc, W, H) if _has_subs else [])
+              + _psafe.card_boxes(_cards_doc, W, H))
+    _qc_lv, _qc_val, _qc_note = platform_verdict(_boxes, _pzones, _psafe.unboxed(_cards_doc))
+    add("平台 UI 遮挡", _qc_val, _qc_lv, _qc_note + (f" · 安全区 {_psrc}" if _pzones else ""))
+
+    # ③ 前 3 秒画面变化 —— BRIEF 剪辑表第 4 条：前 3 秒至少 2 次画面变化，
+    #    每次变化都要对应一个音频事件（±80ms，复用 sync_check 的事件表）。
+    _tlp_raw = proj / "timeline.json"
+    _tl_raw = json.loads(_tlp_raw.read_text()) if _tlp_raw.exists() else {}
+    _amp = proj / "audio-map.json"
+    _am = json.loads(_amp.read_text()) if _amp.exists() else None
+    if not _tl_raw:
+        add("前 3 秒画面变化", "数不出", "yellow",
+            "没有 timeline.json（edl 链路）：硬切与卡片入场没有机器可读的事件表")
+    else:
+        _qc_lv, _qc_val, _qc_note = first_seconds_verdict(change_points(_tl_raw),
+                                                         audio_event_bounds(_am))
+        add("前 3 秒画面变化", _qc_val, _qc_lv, _qc_note)
+
+    # ④ 首帧信息密度 —— BRIEF 第 4 步「首帧要有足够的画面信息密度」。
+    #    ③ 只数「前 3 秒变了几次」：首帧是一块纯色底板、一张全黑过渡、一片糊掉的空镜，
+    #    只要 1.2s 后切一刀它照样全绿，而观众手指一滑看到的第一眼是空的。
+    #    这条量**第 0 帧本身**（不是第 1 秒），口径与阈值见 scripts/first_frame.py。
+    import first_frame as _first_frame
+    _ffm = _first_frame.measure(film, proj=proj)
+    _qc_lv, _qc_val, _qc_note = first_frame_verdict(_ffm)
+    if not _ffm.get("error"):
+        _qc_note += f" · 口径 {_ffm.get('safe_source') or '—'}（{_ffm.get('width')}×{_ffm.get('height')} 分析图）"
+    add("首帧信息密度", _qc_val, _qc_lv, _qc_note)
+
     # 最暗 1 秒：全片偏暗或某段全黑，手机上看着像“没渲染”。
     # 标定依据：20 支参考片平均亮度 p25 0.30 / p50 0.39，最暗 1s 最低可以到 0.001——
     # 所以不拿“亮度区间”当门，只拿“平均值太暗”和“连续 1 秒几乎全黑”两个诊断。
@@ -1648,6 +2013,16 @@ def main() -> int:
         lines.append(f"| {name} | {value} | {icon[level]} | {note} |")
     lines += ["", "> 这份报告只覆盖能量出来的东西。节奏是不是顺、话说清没清，得人看一遍。"]
     (proj / "verify-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # 机器读数：report.md 是给人读的，gate / 复盘要的是 JSON。同一次测量两处落盘，不重跑。
+    # `first_frame` 里是首帧四项原始读数与取样区（BRIEF 第 4 步那条判据的对账依据）。
+    (proj / "verify.json").write_text(json.dumps({
+        "project": proj.name,
+        "film": f"out/{film.name}",
+        "duration": round(dur, 3), "width": W, "height": H, "fps": round(fps_v, 3),
+        "rows": [{"name": _n, "value": _v, "level": _l, "note": _t}
+                 for _n, _v, _l, _t in rows],
+        "first_frame": _ffm,
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"验收：🟢 {len(rows)-len(red)-len(yellow)} · 🟡 {len(yellow)} · 🔴 {len(red)}")
     for name, value, level, note in red + yellow:
         print(f"  {icon[level]} {name} {value}  {note}")

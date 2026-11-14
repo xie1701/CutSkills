@@ -36,8 +36,11 @@ import evidence_guard as EG  # noqa: E402
 import lexicon as LX  # noqa: E402
 
 CARD_LAG_MIN = 0.15       # 卡起点至少晚锚词这么多
-ELEM_LAG_MIN = 0.12       # 卡内元素至少晚自己台词这么多
 TOL = 0.02                # 时间抖动容差
+
+# BRIEF 硬要求：「渲染后音视频轨的总时长差 ≤ 1 帧」。口径与 verify_film.AV_FRAME_MAX 相同。
+AV_FRAME_MAX = 1.0
+DEFAULT_FPS = 30.0
 
 
 def cards_of(proj: Path) -> list[dict]:
@@ -82,19 +85,117 @@ def _window_text(lib: Path, tr: "EG.Truth", a_in: float, a_out: float) -> str:
 
 
 def film_bounds(els: dict) -> dict[int, tuple[float, float]]:
-    """元素号 → 它在**成片时间轴**上的 `[起, 止)`（口径与字幕那条一致：跳 overlay）。"""
+    """元素号 → 它在**成片时间轴**上的 `[起, 止)`（口径与字幕那条一致：跳 overlay）。
+
+    这是**声音**的口径：`audio.out - audio.in` 累加。J-cut 解耦只动画面层，这个时钟
+    一秒不变（字幕、卡片、音效、audio-map 全都挂在它上面）。要看画面窗口用
+    `picture_bounds()`。
+    """
     out: dict[int, tuple[float, float]] = {}
     acc = 0.0
     for n, el in els.items():
         if (el.get("track") or "video") == "overlay":
             continue
-        au = el.get("audio") or {}
-        dur = float(au.get("out") or 0) - float(au.get("in") or 0)
-        if dur <= 0:
-            dur = float(el.get("out") or 0) - float(el.get("in") or 0)
-        out[int(n)] = (round(acc, 3), round(acc + (dur or 0.0), 3))
-        acc += dur or 0.0
+        out[int(n)] = (round(acc, 3), round(acc + element_span(el), 3))
+        acc += element_span(el)
     return out
+
+
+def element_span(el: dict) -> float:
+    """这一格占成片多久（= 声音窗口长度）。没写 audio 的格退回画面区间。"""
+    au = el.get("audio") or {}
+    dur = float(au.get("out") or 0) - float(au.get("in") or 0)
+    if dur <= 0:
+        dur = float(el.get("out") or 0) - float(el.get("in") or 0)
+    return round(dur or 0.0, 3)
+
+
+def picture_bounds(els: dict, fps: float = DEFAULT_FPS) -> dict[int, tuple[float, float]]:
+    """元素号 → 它在成片上**画面**的 `[起, 止)`。J-cut 之后两个时钟不是同一个。
+
+    口径必须与 `render_hf.py` 发射的 `<video data-start/data-duration>` 完全同一条：
+      `pic_start_i = t_i + L_i/fps`（`t_i` = 声音起点，`L_i` = 该元素的 `pic_lead`）
+      `pic_dur_i   = dur_i + (L_{i+1} - L_i)/fps`
+    于是全片画面从 0 开始、到**声音总长**结束：上一镜画面自然多留 L 帧（J-cut），
+    首格 L 恒为 0（不黑屏）、末格不写 L（不截断）——两端都在 `timeline.apply_jcut` 的位置闸里。
+    """
+    fps = float(fps or DEFAULT_FPS)
+    order = [el for _n, el in sorted(els.items()) if (el.get("track") or "video") != "overlay"]
+    leads = [max(0, int(el.get("pic_lead") or 0)) for el in order]
+    out: dict[int, tuple[float, float]] = {}
+    acc = 0.0
+    for i, el in enumerate(order):
+        nxt = leads[i + 1] if i + 1 < len(order) else 0
+        d = element_span(el)
+        p0 = round(acc + leads[i] / fps, 3)
+        p1 = round(acc + d + nxt / fps, 3)      # = 下一格画面的起点：首尾相接，不留空、不重叠
+        out[int(el.get("n"))] = (p0, p1)
+        acc += d
+    return out
+
+
+def _fps_of(project: Path, name: str | None = None) -> float:
+    """成片帧率：包装包的 `canvas.fps`。判「差 1 帧」要用对分母（30fps=33ms，24fps=42ms）。
+
+    读不到就回 DEFAULT_FPS——不当「判过了」，只影响「1 帧」的宽度。
+    """
+    root = HERE.parent
+    if not name:
+        for f in (project / "timeline.json", project / "brief.json"):
+            try:
+                name = json.loads(f.read_text()).get("style_pack")
+            except (OSError, json.JSONDecodeError, AttributeError):
+                name = None
+            if name:
+                break
+    for nm in ([name] if name else []) + ["talking-head-v1"]:
+        f = root / "styles" / f"{nm}.yaml"
+        if not f.exists():
+            continue
+        try:
+            sys.path.insert(0, str(HERE / "vendor"))
+            import yaml as _yaml
+            st = _yaml.safe_load(f.read_text()) or {}
+            fps = (st.get("canvas") or {}).get("fps")
+            if isinstance(fps, (list, tuple)):
+                fps = fps[0] if fps else None
+            if fps:
+                return float(fps)
+        except Exception:                                          # noqa: BLE001
+            continue
+    return DEFAULT_FPS
+
+
+def av_span_verdict(els: dict, fps: float = DEFAULT_FPS,
+                    max_frames: float = AV_FRAME_MAX) -> tuple[str, str, str]:
+    """画面总长 vs 声音总长（BRIEF：≤1 帧）。解耦之后这两条真会不一样长，得分开量。
+
+    三件事一起对：
+      ① 画面从 0 开始（第一帧不许黑），声音也从 0 开始；
+      ② 画面总长 − 声音总长 ≤ `max_frames` 帧（且另一个方向也一样）；
+      ③ 末格的画面止点 == 声音总长（片尾不许被截断、也不许多拖）。
+    量不到（没有元素）返回 yellow。
+    """
+    fps = float(fps or DEFAULT_FPS)
+    pb = picture_bounds(els, fps)
+    if not pb:
+        return ("yellow", "量不到", "时间轴里没有 video 轨元素，音视频总长对不了")
+    a_total = round(sum(element_span(el) for el in els.values()
+                        if (el.get("track") or "video") != "overlay"), 3)
+    p_start = min(v[0] for v in pb.values())
+    p_total = round(max(v[1] for v in pb.values()) - p_start, 3)
+    frames = abs(p_total - a_total) * fps
+    lead = sorted({int(el.get("pic_lead") or 0) for el in els.values()} - {0})
+    val = (f"画面 {p_total:.3f}s / 声音 {a_total:.3f}s"
+           f"（差 {frames:.2f} 帧 @ {fps:g}fps"
+           + (f"，J-cut 提前量 {'/'.join(str(x) for x in lead)} 帧" if lead else "") + "）")
+    if p_start > 1e-6:
+        return ("red", val, f"第一格画面从 {p_start:.3f}s 才开始——片头会黑")
+    if frames > max_frames + 1e-6:
+        return ("red", val, f"BRIEF：音视频轨总时长差超过 {max_frames:g} 帧（解耦把它弄松了）")
+    if abs(p_total - a_total) > 1e-6:
+        return ("red", val, "画面总长与声音总长不是同一个数——末格画面被截断或多拖了")
+    return ("green", val, "画面与声音从同一刻开始、同一刻结束（逐帧对得上）")
 
 
 def card_window(card: dict, els: dict,
@@ -147,6 +248,11 @@ def check(project: Path, lib: Path | None = None) -> list[tuple[str, str]]:
         out.append(("warning", "该项目没有时间轴（v2），声音在前判据跳过"))
     els = {e.get("n"): e for e in ((tl or {}).get("elements") or [])}
     _bounds = film_bounds(els)
+    # BRIEF「渲后音视频轨总时长差 ≤ 1 帧」：J-cut 解耦之后画面层与声音层是两个窗口，
+    # 这条必须**渲之前**按帧量一遍（渲完 verify_film 还会拿 ffprobe 的成片再量一遍）。
+    _flv, _fval, _fnote = av_span_verdict(els, _fps_of(project))
+    out.append(("info" if _flv == "green" else _flv,
+                f"音视频总长（画面/声音）：{_fval} —— {_fnote}"))
 
     if not have_lib:
         out.append(("warning", f"找不到素材库（{lib} 下没有 _cutskills/index.json）——"

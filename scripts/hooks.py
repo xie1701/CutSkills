@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -34,12 +33,50 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from libs import resolve_lib  # noqa: E402
 
-REJUDGE = re.compile(r"其实|不是|别|千万|记住|关键|问题是|说到底|本质")
 HOOK_MAX_S = 3.6
 
 
 def load(p: Path, default=None):
     return json.loads(p.read_text()) if p.exists() else default
+
+
+def present_state(brief: dict | None) -> str:
+    """观众现在信什么——3 秒钩子的唯一依据。
+
+    字段名以消费方（本文件 pick_gen / basis）为准：`audience_present_state`。
+    历史项目里这个格叫过 `belief_now`（ideate.py 早期 --to-plan、init_project.py 建项时都写过这个名字），
+    所以读的时候必须兼容旧名——旧项目 JSON 不能直接崩，也不能静悄悄拿到空值。
+    """
+    b = brief or {}
+    return str(b.get("audience_present_state") or b.get("belief_now") or "")
+
+
+def _first_clause(value: str, n: int = 10) -> str:
+    """取一个能读的短句：先按标点断到第一个分句，仍超长就按**词界**截（jieba 在 scripts/vendor）。
+
+    直接切片会把「觉得茶楼差不多就行」砍成「觉得茶楼差不多就」，打在 2.6 秒的 keyword 卡上
+    像被刀切的；但这张卡单排墨迹要撑到画幅宽的 70%（check_keyword_text），所以也不能不截。
+    """
+    s = str(value or "").strip(" 。！？，、；")
+    for sep in "，。！？；、,.;":
+        if sep in s:
+            s = s.split(sep)[0].strip()
+            break
+    if len(s) <= n:
+        return s
+    try:
+        _vendor = HERE / "vendor"
+        if str(_vendor) not in sys.path:
+            sys.path.insert(0, str(_vendor))
+        import jieba
+        cur = ""
+        for w in jieba.lcut(s):
+            if cur and len(cur) + len(w) > n:
+                break
+            cur += w
+        return cur or s[:n]
+    except Exception:
+        return s[:n]
 
 
 def pick_conclusion(plan: dict | None, index: dict) -> dict | None:
@@ -90,10 +127,10 @@ def pick_scene(index: dict) -> dict | None:
 def pick_gen(brief: dict) -> dict:
     """C 反差提问：库里没有能打的画面时，用代码造一个。"""
     change = str((brief or {}).get("change") or "").strip("。")
-    state = str((brief or {}).get("audience_present_state") or "").strip("。")
+    state = present_state(brief).strip("。")
     # 钩子念的是**观众现在信的那句**，不是我们要他做的事。
     # 一开始写反了：把 change 截 6 字打成「比价前先问三」，读起来像被刀切的。
-    text = (state[:8] or change[:8] or "真的越贵越好？").rstrip("，、 ") + "？"
+    text = (_first_clause(state) or _first_clause(change) or "真的越贵越好") + "？"
     sub = change[:14] if change else ""
     return {"kind": "gen", "template": "keyword", "dur": 2.6,
             "props": {"text": text, "sub": sub}, "source": "generated",
@@ -214,7 +251,9 @@ def build(proj: Path, lib: Path, index: dict,
         c["duration_s"] = total
 
     doc = {"version": 1, "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-           "basis": {k: brief.get(k) for k in ("audience", "audience_present_state", "change")},
+           "basis": {"audience": brief.get("audience"),
+                     "audience_present_state": present_state(brief),
+                     "change": brief.get("change")},
            "candidates": cands, "chosen": keep_chosen}
     if keep_votes is not None:
         doc["votes"] = keep_votes

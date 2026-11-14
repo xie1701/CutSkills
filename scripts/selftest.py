@@ -62,6 +62,22 @@ OFFLINE_TESTS = [
     "test_scene_sandbox.py",
     "test_r0_guards.py",
     "test_hygiene_fixtures.py",
+    "test_content_log.py",
+    "test_qc_brief.py",
+    "test_index_merge.py",
+    "test_licensing.py",
+    "test_calendar.py",
+    "test_normalize.py",
+    "test_jianying_export.py",
+    "test_assumptions.py",
+    "test_platform.py",
+    "test_subtitle_templates.py",
+    "test_first_frame.py",
+    "test_jcut.py",
+    "test_av_decouple.py",
+    "test_inventory.py",
+    "test_denoise.py",
+    "test_three_gates.py",
 ]
 
 
@@ -92,9 +108,22 @@ def build_library(lib: Path) -> bool:
         except ValueError:
             dur = 6.0
         mp4 = batch / f"{name}.mp4"
+        # 素材不能是纯色底板：首帧信息密度、黑帧、可读性 ΔL 这些判据在纯色上量不出意义，
+        # 反而会让一帧真片本来就该判红的东西永远测不到。这里叠几块**静态**几何色块：
+        # 有边缘、有层次，但没有运动（帧差仍为 0，不会干扰晃动否决与节奏判据）。
+        _pat = (
+            "drawbox=x=64:y=210:w=412:h=560:color=0xE8D9B0@0.90:t=fill,"
+            "drawbox=x=64:y=210:w=412:h=14:color=0x101820:t=fill,"
+            "drawbox=x=112:y=300:w=316:h=180:color=0x2C4A63@0.95:t=fill,"
+            "drawbox=x=112:y=520:w=210:h=26:color=0x101820@0.85:t=fill,"
+            "drawbox=x=112:y=570:w=300:h=26:color=0x101820@0.85:t=fill,"
+            "drawbox=x=112:y=620:w=160:h=26:color=0x101820@0.85:t=fill,"
+            "drawbox=x=112:y=820:w=316:h=56:color=0x9FB7C9@0.95:t=fill"
+        )
         r = sh([ff, "-v", "error", "-y",
                 "-f", "lavfi", "-i", f"color=c={color}:s=540x960:d={max(3.0, dur):.2f}",
                 "-i", str(wav), "-shortest",
+                "-vf", _pat,
                 "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", str(mp4)])
         wav.unlink(missing_ok=True)
@@ -331,6 +360,32 @@ def main() -> int:
                                       "--project", str(proj)]).returncode == 0)
     must("边界审计（edge_audit）", sh([PY, str(ROOT / "scripts" / "edge_audit.py"),
                                       "--project", str(proj)]).returncode == 0)
+
+    # 声画同步（BRIEF「音画同步：同期声口型与声音的偏差不超过 1 帧」）进的是**门禁**
+    # （gate.py 的检查器列表）。这里做的是「它跑得起来、算得出读数、按门禁的口径不报 error」：
+    # 音事件表要先用 audio_map.py 从锁定音轨倒出来，否则 sync_check 无输入。
+    # 不断言这支 18 秒合成样片过 85%：它是三句话拼的管线样片，不是交付片；
+    # 交付片过不过由 gate.py / verify_film.py 的红绿决定。
+    r_am = sh([PY, str(ROOT / "scripts" / "audio_map.py"), "--project", str(proj),
+               "--library", str(lib)])
+    must("audio_map 音事件表", r_am.returncode == 0 and (proj / "audio-map.json").exists(),
+         (r_am.stderr or r_am.stdout).strip()[-160:])
+    r_sync = sh([PY, str(ROOT / "scripts" / "sync_check.py"), "--project", str(proj), "--json"])
+    out_sync = ((r_sync.stdout or r_sync.stderr or "").strip())
+    # 口径跟门禁走：`sync_check --json` 交给 **gate.parse_sync** 判红黄，不在自测里再定一套。
+    # 85% 同步率与断章率是**未标定、口径不同**的数（连字幕换句都算「视觉事件」），
+    # 所以它们只报黄；拦交付的是「卡片抢拍（lag<0）」与「跑不起来」。
+    # 所以这条断言问的是「接线通了、读数算得出、没有 error」，
+    # 不是「这支三句话拼的管线样片必须 85%」——那是拿一个未标定的数当交付门。
+    import gate as _gate
+    _sync_err, _sync_warn, _sync_concl = _gate.parse_sync(out_sync, r_sync.returncode)
+    must("音画同步检查器（sync_check）接线",
+         _sync_err == 0 and r_sync.returncode in (0, 1),
+         f"error {_sync_err} · warning {_sync_warn}" + ("" if _sync_err == 0 else out_sync[-200:]))
+    print(f"     {_sync_concl}")
+    for ln in out_sync.splitlines():
+        if ln.startswith(("声画同步", "断章率", "卡片锚词")):
+            print(f"     {ln.strip()}")
 
     print("⑥ 全仓说明书与 Schema 双向对账（audit_skill）")
     r = sh([PY, str(ROOT / "scripts" / "audit_skill.py"),

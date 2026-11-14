@@ -10,7 +10,10 @@
 
 1. 文档里点名的每个 `scripts/x.py` / `references/x.md` / `styles/x.yaml` 是否真存在
 2. 文档命令里的每个 `--flag`，那个脚本是否真接受（反之亦然：脚本有、文档没写）
-3. `scripts/` 里每个脚本是否在文档里出现过（没出现 = 别人永远不会跑它）
+3. `scripts/` 里每个脚本是否在**手写**文档里出现过（没出现 = 别人永远不会跑它）。
+   判据只认 SKILL.md / README.md / references/*.md 里的手写文字，**不算自动生成的
+   `references/cli.md`**——它是由脚本自己拼出来的，拿它当依据等于自己证明自己，
+   孤儿脚本永远过闸。
 4. frontmatter 是不是合法 YAML、必填字段在不在
 5. 全部脚本能不能编译
 
@@ -27,6 +30,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+# 本机 pip 走代理、装不了包，pyyaml 就放在 scripts/vendor/ 里（跟 subs 同一个办法）。
+# 不把它挂上 sys.path，frontmatter 那条永远是「没有 yaml」的假红，等于判据没在跑。
+sys.path.insert(0, str(HERE / "vendor"))
 
 FLAG_IN_CMD = re.compile(r"(?<![\w-])(--[A-Za-z0-9][\w-]*)")
 FLAG_IN_SRC = re.compile(r"add_argument\(\s*[\"'](--[A-Za-z0-9][\w-]*)[\"']")
@@ -246,15 +254,23 @@ def main() -> int:
         yellow.append(f"{len(orphan_flags)} 个参数连 cli.md 都没有（脚本读参数的方式跟 add_argument 不一样？）："
                       + "、".join(orphan_flags[:8]) + ("…" if len(orphan_flags) > 8 else ""))
 
-    # ---- 5. scripts/ 里的脚本有没有被文档提过
+    # ---- 5. scripts/ 里的脚本有没有被**手写**文档提过
+    # cli.md 是从脚本的 argparse 自动生成的：把它算进来，任何脚本都会「出现在文档里」，
+    # 这条判据就永远绿——孤儿脚本靠自证明过关。所以只认手写的那几份。
+    hand = [doc]
+    readme = root / "README.md"
+    if readme.exists():
+        hand.append(readme.read_text())
+    hand += [p.read_text() for p in refs if p.name != "cli.md"]
+    hand_corpus = "\n".join(hand)
     dead: list[str] = []
     for p in sorted((root / "scripts").glob("*.py")):
-        if p.name not in corpus:
+        if p.name not in hand_corpus:
             dead.append(p.name)
     for x in dead:
-        red.append(f"脚本 `{x}` 在文档里从没出现——写了没人会跑")
+        red.append(f"脚本 `{x}` 在手写文档里从没出现——写了没人会跑")
     if not dead:
-        green.append("scripts/ 里每个脚本都在文档里出现过")
+        green.append("scripts/ 里每个脚本都在手写文档（SKILL.md / README / references 除 cli.md）里出现过")
 
     # ---- 6. references/ 有没有被文档链接
     orphan_ref: list[str] = []

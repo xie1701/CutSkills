@@ -10,13 +10,17 @@
   date/日期, title/标题, views/播放, avg_watch_pct/平均观看时长占比, likes/点赞,
   comments/评论, shares/分享, saves/收藏, follows/涨粉, topic_type/内容类型(A1-A5 可选)
 
+数据来源只认一本账，优先级写死：**先读 <素材库>/content-log.jsonl**（content_log.py 落的账，
+一条发布一行、带项目真值），没有这本账才退到 `--csv` 手导。两套数据不许各说各话——
+账本存在时 CSV 一律不参与（避免同一条发布在两处口径不同）。
+
 产出：
   <项目或库>/insights/report.md      —— 人话版「下一条内容改什么」
   <项目或库>/insights/metrics.json   —— 机器读数（供 Agent 转述）
 
 用法：
-  python3 scripts/insights.py --library <库根> --csv 发布数据.csv
-  python3 scripts/insights.py --library <库根> --csv 发布数据.csv --topic-type-col 内容类型
+  python3 scripts/insights.py --library <库根>                       # 有 content-log 就自动读它
+  python3 scripts/insights.py --library <库根> --csv 发布数据.csv     # 没有账本时的兜底
 """
 from __future__ import annotations
 
@@ -85,6 +89,46 @@ def _num(s: str, *, pct_col: bool = False) -> float | None:
     if pct_col and not (0.0 <= v <= 1.0):
         return None                  # 「占比」列归一后仍超出 0–100%：坏数据，不许进分位
     return v
+
+
+def _library_of(base: Path) -> Path:
+    """从项目目录或库根往上找到素材库根（有 _cutskills 的那一级），账本就在它下面。"""
+    for up in (base, *base.parents):
+        if (up / "_cutskills").is_dir():
+            return up
+    return base
+
+
+def load_log_rows(log: Path) -> tuple[list[dict], int]:
+    """读 <库>/content-log.jsonl（content_log.py 落的账）→ 与分析同形状的记录。
+
+    优先于 CSV：一条发布一行、带项目真值（题材/包装包/节奏），比手导 CSV 口径更稳。
+    返回 (记录列表, 还没回填播放的条数)——未回填的不能算「播放 0」，如实计数后剔除。
+    """
+    sys.path.insert(0, str(HERE))
+    from content_log import latest_by_id, read_log      # 账本读写只此一份
+    rows, unfilled = [], 0
+    for rec in latest_by_id(read_log(log)).values():
+        views = rec.get("views")
+        if not isinstance(views, (int, float)) or views < 0:
+            unfilled += 1
+            continue
+        rec2 = {
+            "date": str(rec.get("posted_at") or ""),
+            "title": str(rec.get("topic") or rec.get("project") or rec.get("id")),
+            "views": float(views),
+            "watch": rec.get("avg_watch_pct") if isinstance(rec.get("avg_watch_pct"), (int, float)) else None,
+            "likes": float(rec.get("likes") or 0.0),
+            "comments": float(rec.get("comments") or 0.0),
+            "shares": float(rec.get("shares") or 0.0),
+            "saves": float(rec.get("saves") or 0.0),
+            "follows": float(rec.get("follows") or 0.0),
+            "topic_type": str(rec.get("topic_type") or ""),
+        }
+        rec2["inter_rate"] = round((rec2["likes"] + rec2["comments"] * 2 + rec2["shares"] * 3
+                                    + rec2["saves"] * 2) / max(rec2["views"], 1) * 100, 2)
+        rows.append(rec2)
+    return rows, unfilled
 
 
 def load_rows(csv_path: Path) -> tuple[list[dict], int]:
@@ -231,7 +275,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="内容循环辅助分析（R4）")
     ap.add_argument("--library", default="", help="库根（report 落 <库>/insights/）")
     ap.add_argument("--project", default="", help="或落到某个项目下")
-    ap.add_argument("--csv", required=True, help="发布后台导出的数据 CSV（用户主动提供）")
+    ap.add_argument("--csv", default=None,
+                    help="发布后台导出的数据 CSV（用户主动提供；账本存在时不参与）")
     ap.add_argument("--out", default="", help="显式输出目录（缺省按 --project/--library 推）")
     a = ap.parse_args()
     base = Path(a.out) if a.out else (
@@ -239,11 +284,31 @@ def main() -> int:
     if base is None:
         print("✗ 需要 --library 或 --project（决定 report 落点）", file=sys.stderr)
         return 2
-    rows, skipped = load_rows(Path(a.csv))
-    if skipped:
-        print(f"· 跳过 {skipped} 行解析不了的（缺播放或标题）")
-    if not rows:
-        print("✗ 一条有效数据都没有——检查 CSV 表头（标题/播放）", file=sys.stderr)
+    log = _library_of(base) / "content-log.jsonl"
+    if log.exists():
+        try:
+            rows, unfilled = load_log_rows(log)
+        except Exception as e:                      # content_log.LogError 等一律说人话
+            print(f"✗ 读不了账本 {log}：{e}", file=sys.stderr)
+            return 2
+        print(f"· 数据源：{log}（优先读账本；{a.csv} 不参与）" if a.csv else f"· 数据源：{log}")
+        if unfilled:
+            print(f"· {unfilled} 条还没回填播放（content_log.py --update --id … --views N），未计入")
+        if not rows:
+            print("✗ 账本里没有回填过播放的条目——先 content_log.py --update --views …，"
+                  "或用 --csv 手导一份", file=sys.stderr)
+            return 2
+    elif a.csv:
+        rows, skipped = load_rows(Path(a.csv))
+        if skipped:
+            print(f"· 跳过 {skipped} 行解析不了的（缺播放或标题）")
+        if not rows:
+            print("✗ 一条有效数据都没有——检查 CSV 表头（标题/播放）", file=sys.stderr)
+            return 2
+    else:
+        print(f"✗ 没有 {log}，也没有给 --csv。\n"
+              f"  先记账：python3 scripts/content_log.py --add --project <项目> ...\n"
+              f"  或临时用 --csv 手导一份发布数据。", file=sys.stderr)
         return 2
     an = analyze(rows)
     out_dir = base / "insights"

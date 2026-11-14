@@ -5,7 +5,7 @@ L0（元数据 + 抽帧 + 画质）、L1（词级转写）、L2 候选队列；�
 
 用法：
   index_assets.py --library "<素材库>"                 # 建/更新索引
-  index_assets.py --library "<素材库>" --merge-l2      # 把 l2/*.json 合进索引
+  index_assets.py --library "<素材库>"                 # 扫描（已含把 l2/*.json 合进索引）
   index_assets.py --library "<素材库>" --only 熊工      # 只处理路径含该子串的文件
   index_assets.py --library "<素材库>" --report         # 只打印现状，不干活
 
@@ -44,6 +44,11 @@ LUMA_DARK = 28.0
 LUMA_BRIGHT = 232.0
 ANA_FPS = 4                 # 画质分析的采样率；指标时间分辨率 = 1/ANA_FPS 秒
 L2_BUDGET = 0.15            # L2 覆盖率软上限（预算指标：一段 L2 = 一次视觉调用）
+# L2 记录（手写）的枚举与必填字段：合并时逐条核对结构与归属，见 merge_l2()
+L2_SHOTS = {"close", "medium", "wide", "detail", "graphic", "pov", "screen", "unknown"}
+L2_GRADES = {"must-use", "backup", "do-not-use"}
+L2_FIELDS = ("asset", "in", "out", "shot", "people", "action", "text_on_screen",
+             "tag", "summary", "grade", "why", "confidence", "flags")
 
 PUNCT_BREAK = set("，。？！；、…—,?!;")
 LINE_MAX = 22
@@ -632,31 +637,106 @@ def write_pickup(lib: Path, assets: list[dict]) -> None:
     (lib / SYS_DIR / "pickup.md").write_text("\n".join(lines) + "\n")
 
 
-def merge_l2(lib: Path, assets: list[dict]) -> int:
+def merge_l2(lib: Path, assets: list[dict], strict: bool = False) -> tuple[int, list[str]]:
+    """把 `_cutskills/l2/*.json` 合进索引，并核对**每条记录属于谁**。
+
+    L2 是唯一手写的一环，最容易出的错就是「名字写的是 A，内容判的是 B」：记录照样
+    合并成功，改出来的名字却是别人的内容。柒造那库真出过——`材料搅拌` 和 `地面涂刷`
+    两支素材的名字互换，两边记录都「有理由、有摘要」，只有对着素材本身看才发现。
+
+    所以归属不符不再静默 continue：逐条点名、说明为什么不符（文件名哈希对不上哪支
+    素材的 legacy_key / uid），`--strict` 下整轮非零退出。默认仍继续合并、但留告警。
+
+    返回 (合进的记录数, 归属/结构上的硬错)。硬错 = 该修的；缺字段、枚举外、tag 长度
+    这类只提示，不阻断。
+    """
     d = lib / SYS_DIR / "l2"
     if not d.exists():
-        return 0
+        return 0, []
     by_id = {a["id"]: a for a in assets}
     by_alias = {al: a for a in assets for al in (a.get("aliases") or [])}
     for a in assets:
         a["l2_segments"] = []          # 每次重建，避免重复合并
     n = 0
+    errs: list[str] = []
+    warns: list[str] = []
     for f in sorted(d.glob("*.json")):
         try:
             rec = json.loads(f.read_text())
-        except json.JSONDecodeError:
-            print(f"  ! 跳过无法解析的 {f.name}", file=sys.stderr)
+        except json.JSONDecodeError as e:
+            errs.append(f"{f.name}：JSON 读不出（{e}）")
+            print(f"  ! L2 {f.name}：JSON 读不出（{e}）", file=sys.stderr)
             continue
-        a = by_id.get(rec.get("asset")) or by_alias.get(rec.get("asset"))
+
+        rec_asset = str(rec.get("asset") or "")
+        a = by_id.get(rec_asset) or by_alias.get(rec_asset)
         if not a:
+            errs.append(f"{f.name}：asset「{rec_asset}」不在索引里")
+            print(f"  ! L2 {f.name}：asset「{rec_asset}」不在索引里——这条判断没有主人，跳过",
+                  file=sys.stderr)
             continue
+
+        # 归属：文件名里的哈希（`<key>-<秒>.json`）必须是这支素材的 legacy_key 或 uid
+        stem_key = f.stem.rsplit("-", 1)[0]
+        own = {str(x) for x in (a.get("legacy_key"), a.get("uid")) if x}
+        if not own:
+            errs.append(f"{f.name}：素材 {a['id']} 没有 legacy_key / uid，核对不了归属")
+            print(f"  ! L2 {f.name}：素材 {a['id']} 没有 legacy_key / uid，核对不了归属",
+                  file=sys.stderr)
+        elif stem_key not in own:
+            errs.append(f"{f.name}：文件名哈希 {stem_key} 对不上素材 {a['id']} 的 "
+                        f"{'/'.join(sorted(own))}")
+            print(f"  ! L2 {f.name}：这条记在 {a['id']} 名下，但文件名哈希 {stem_key} 不是它的"
+                  f"（{a['id']} = {'/'.join(sorted(own))}）——很可能记到了别人头上",
+                  file=sys.stderr)
+
+        miss = [k for k in L2_FIELDS if k not in rec]
+        if miss:
+            warns.append(f"{f.name}：缺字段 {', '.join(miss)}")
+
+        # 范围：in < out，且 out 不超出素材时长（照片除外）
+        dur = a.get("duration") or (a.get("spec") or {}).get("duration") or 0
+        try:
+            i_t, o_t = float(rec.get("in", 0)), float(rec.get("out", 0))
+        except (TypeError, ValueError):
+            errs.append(f"{f.name}：in/out 不是数字")
+            print(f"  ! L2 {f.name}：in/out 不是数字", file=sys.stderr)
+            i_t = o_t = 0.0
+        if a.get("kind") in {"video", "audio"}:
+            if o_t <= i_t:
+                errs.append(f"{f.name}：out({o_t}) 不大于 in({i_t})")
+                print(f"  ! L2 {f.name}：out({o_t}) 不大于 in({i_t})", file=sys.stderr)
+            if dur and o_t > float(dur) + 0.5:
+                errs.append(f"{f.name}：out({o_t}) 超出素材时长 {float(dur):.1f}s")
+                print(f"  ! L2 {f.name}：out({o_t}) 超出素材时长 {float(dur):.1f}s", file=sys.stderr)
+
+        if rec.get("shot") not in L2_SHOTS:
+            warns.append(f"{f.name}：shot={rec.get('shot')} 不在枚举里")
+        if rec.get("grade") not in L2_GRADES:
+            errs.append(f"{f.name}：grade={rec.get('grade')} 不在枚举里")
+            print(f"  ! L2 {f.name}：grade={rec.get('grade')} 不在枚举里", file=sys.stderr)
+        tag = str(rec.get("tag") or "")
+        if not (2 <= len(tag) <= 8):
+            warns.append(f"{f.name}：tag「{tag}」应该是 2–8 个字的名词短语")
+        try:
+            conf = float(rec.get("confidence", -1))
+            if not 0 <= conf <= 1:
+                warns.append(f"{f.name}：confidence={conf} 超出 0–1")
+        except (TypeError, ValueError):
+            warns.append(f"{f.name}：confidence 不是数字")
+
         a.setdefault("l2_segments", []).append({k: v for k, v in rec.items() if k != "asset"})
         n += 1
+    for w in warns:
+        print(f"  ~ L2 {w}", file=sys.stderr)
+    if errs:
+        print(f"  ! L2 归属/结构硬错 {len(errs)} 条"
+              f"{'（--strict 会因此失败）' if not strict else ''}", file=sys.stderr)
     # L2 段覆盖 L0 段
     for a in assets:
         if a.get("l2_segments"):
             a["segments"] = sorted(a["l2_segments"], key=lambda s: s.get("in", 0))
-    return n
+    return n, errs
 
 
 def l2_budget_note(lib: Path, cli_note: str = "") -> str | None:
@@ -739,7 +819,8 @@ def main() -> int:
                     help="l0=只探针抽帧画质；l1=只转写；rephrase=从转写缓存重算句子（不重跑模型）；"
                          "finish=只重算分级并出报告；migrate=给老索引补规格与指纹，不重跑任何重活")
     ap.add_argument("--only", default=None, help="只处理路径含该子串的文件")
-    ap.add_argument("--merge-l2", action="store_true")
+    ap.add_argument("--merge-l2", action="store_true",
+                    help="把 l2/*.json 合进索引。**始终执行**（每轮扫描都会合），保留此开关只为兼容旧命令，可省略")
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--l2-cap", type=int, default=24)
     ap.add_argument("--l2-per-asset", type=int, default=0,
@@ -750,6 +831,8 @@ def main() -> int:
     ap.add_argument("--l2-budget-note", default="",
                     help="L2 覆盖率超 15%% 时留一句原因（写进 _cutskills/l2_budget.json，跨轮保留）")
     ap.add_argument("--force", action="store_true", help="忽略指纹，全部重算")
+    ap.add_argument("--strict", action="store_true",
+                    help="L2 记录的归属/结构对不上时非零退出（默认只告警，仍照常合并）")
     a = ap.parse_args()
 
     lib = Path(a.library).expanduser().resolve()
@@ -801,7 +884,10 @@ def main() -> int:
             n += 1
         assets = [old[k] for k in sorted(old)]
         apply_grades(assets)
-        n_l2 = merge_l2(lib, assets)
+        n_l2, l2_errs = merge_l2(lib, assets, a.strict)
+        if l2_errs and a.strict:
+            print(f"L2 归属/结构硬错 {len(l2_errs)} 条，--strict 下不写索引：", file=sys.stderr)
+            return 1
         write_index(lib, assets, n_l2, a, queue=False)
         print(f"迁移完成：{n} 个素材补上规格/指纹（未重跑解码与转写）")
         return 0
@@ -917,7 +1003,12 @@ def main() -> int:
 
     assets = [results[k] for k in sorted(results)]
     apply_grades(assets)
-    n_l2 = merge_l2(lib, assets)
+    n_l2, l2_errs = merge_l2(lib, assets, a.strict)
+    if l2_errs and a.strict:
+        print(f"L2 归属/结构硬错 {len(l2_errs)} 条，--strict 下不写索引：", file=sys.stderr)
+        for e in l2_errs:
+            print(f"  ✗ {e}", file=sys.stderr)
+        return 1
     index = write_index(lib, assets, n_l2, a)
 
     c = index["counts"]

@@ -27,7 +27,6 @@ TOL_MS = 80
 PASS_SYNC = 0.85
 PASS_CUT = 0.25    # 参考片自己 24%：切在重音上是常态，不是毛病
 PASS_LAG_MS = 120    # 卡片允许比锚定的词晚多少：只许晚，不许早
-PASS_KW_MS = 120
 
 
 def load(p: Path, default=None):

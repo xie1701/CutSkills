@@ -21,13 +21,14 @@
 
 退出码：0 成功；2 参数/文件错；3 静态检查拒绝（含违规 import）；4 超时或子进程崩溃；
 5 本机没有 sandbox-exec 且未显式放行（评审 G-03：无隔离不跑 AI 代码）。
+    sandbox-exec 是 macOS 的 seatbelt；Windows / Linux 上没有等价物，所以那些平台上
+    **默认同样是退 5 拒跑**——Windows 上暂不支持 AI 场景生成，可用实拍素材或内置模板替代。
 """
 from __future__ import annotations
 
 import argparse
 import ast
 import os
-import resource
 import shutil
 import subprocess
 import sys
@@ -35,8 +36,19 @@ import tempfile
 import time
 from pathlib import Path
 
+# resource 是 POSIX 专属（Windows 上 import 直接 ModuleNotFoundError）。
+# 围栏的 rlimit 部分因此按平台降级：没有 resource 就不设 rlimit，靠墙钟超时停车。
+try:
+    import resource
+except ImportError:                                  # pragma: no cover - 只在 Windows 上走到
+    resource = None                                  # type: ignore[assignment]
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+
+# 平台判定留一个可注入的常量：单测在 macOS 上把 PLATFORM 换成 "win32" 验 Windows 分支，
+# 不需要一台真的 Windows 机器。
+PLATFORM = sys.platform
 
 # 场景代码允许 import 的东西：画图与纯计算。白名单外一律拒绝——
 # 宁可让作者来申请加白，也不给「顺手 import requests」留门。
@@ -118,7 +130,43 @@ def static_check(scene_file: Path) -> list[str]:
     return bad
 
 
+def os_family(plat: str | None = None) -> str:
+    """纯函数：sys.platform / 显式注入值 → darwin / windows / linux / other。"""
+    p = (plat if plat is not None else PLATFORM or sys.platform).lower()
+    if p.startswith("darwin"):
+        return "darwin"
+    if p.startswith("win") or p.startswith(("cygwin", "msys")):
+        return "windows"
+    if p.startswith("linux"):
+        return "linux"
+    return "other"
+
+
+def sandbox_available(plat: str | None = None) -> bool:
+    """本平台有没有能用的系统围栏。目前只有 macOS 的 sandbox-exec 算数。"""
+    return os_family(plat) == "darwin" and bool(shutil.which("sandbox-exec"))
+
+
+def _refuse_text(plat: str | None = None) -> str:
+    """拒跑时的报错文案：跨平台可读，并说明本平台该怎么办。"""
+    fam = os_family(plat)
+    if fam == "windows":
+        return ("✗ AI 场景拒绝执行：Windows 上没有 sandbox-exec，也没有等价的系统围栏（评审 G-03）。\n"
+                "  Windows 上暂不支持 AI 场景生成——用实拍素材或内置场景模板替代；\n"
+                "  不接受裸跑：--allow-unsandboxed 只给确认过的内网开发机，不是 Windows 的默认路径。")
+    if fam == "linux":
+        return ("✗ AI 场景拒绝执行：Linux 上没有 sandbox-exec，也没有等价的系统围栏（评审 G-03）。\n"
+                "  要用 AI 场景：迁到 macOS，或自己接一层 bwrap/nsjail 后改本文件的围栏实现；\n"
+                "  确认过的内网开发机可加 --allow-unsandboxed 显式放行（rlimit 与白名单仍生效）。")
+    return ("✗ 本机没有 sandbox-exec——AI 场景拒绝在无隔离环境执行（评审 G-03）。\n"
+            "  macOS 的 sandbox-exec 在 /usr/bin/sandbox-exec，被删了就恢复系统组件；\n"
+            "  或确认内网开发机后加 --allow-unsandboxed 显式放行。")
+
+
 def _limits(cpu_s: int):
+    if resource is None:                             # Windows：没有 rlimit，返回 None 不传 preexec_fn
+        return None
+
     def apply():                             # 子进程 fork 后、exec 前执行
         # 逐项设、设不了的跳过：macOS 不让设 RLIMIT_AS/DATA/RSS（
         # "current limit exceeds maximum limit"），内存围栏退到 CPU + 墙钟 + FSIZE。
@@ -131,7 +179,7 @@ def _limits(cpu_s: int):
     return apply
 
 
-def _sandbox_profile(scratch: Path, out: Path) -> str | None:
+def _sandbox_profile(scratch: Path, out: Path, plat: str | None = None) -> str | None:
     """macOS seatbelt profile：拒网 + 写盘只许工作目录与产物目录。
 
     2026-11-15 对抗审查 P0：旧写法 `(allow default)` + `(deny file-write* /Users)`
@@ -141,8 +189,12 @@ def _sandbox_profile(scratch: Path, out: Path) -> str | None:
     而测试跑在 /var/folders 临时目录，掩盖了实况。
     改为**显式放行**：不开 allow default，只白名单读/执行/必要写盘——
     这才是「默认拒绝」的正确写法。
+
+    平台分叉：seatbelt profile 是 macOS 专有格式，Windows / Linux 上没有可用的等价系统围栏
+    （Linux 的 bwrap 需要另装，本仓没接）。所以非 darwin 一律返回 None → 调用方退 5 拒跑，
+    **不会**退成「无围栏裸跑」。
     """
-    if not shutil.which("sandbox-exec"):
+    if os_family(plat) != "darwin" or not shutil.which("sandbox-exec"):
         return None
     return (
         "(version 1)\n"
@@ -214,7 +266,7 @@ def render(args: argparse.Namespace) -> int:
                  "--fps", str(args.fps), "--size", args.size]
         if args.marks:
             inner += ["--marks", args.marks]
-        profile = _sandbox_profile(scratch, out)
+        profile = _sandbox_profile(scratch, out, PLATFORM)
         if profile:
             pf = scratch / "scene-sandbox.sb"
             pf.write_text(profile)
@@ -224,15 +276,15 @@ def render(args: argparse.Namespace) -> int:
             print("  ⚠ 显式放行：本机没有 sandbox-exec，拒网围栏缺席（rlimit 与白名单仍然生效）",
                   file=sys.stderr)
         else:
-            print("✗ 本机没有 sandbox-exec——AI 场景拒绝在无隔离环境执行（评审 G-03）。\n"
-                  "  装系统自带 sandbox-exec，或确认内网开发机后加 --allow-unsandboxed 显式放行。",
-                  file=sys.stderr)
+            print(_refuse_text(PLATFORM), file=sys.stderr)
             return 5
         t0 = time.monotonic()
+        posix = os_family(PLATFORM) != "windows"     # preexec_fn / start_new_session 是 POSIX 语义
         try:
-            r = subprocess.run(cmd, cwd=scratch, preexec_fn=_limits(cpu_s),
+            r = subprocess.run(cmd, cwd=scratch,
+                               preexec_fn=_limits(cpu_s) if posix else None,
                                capture_output=True, text=True, timeout=wall_s,
-                               start_new_session=True)
+                               start_new_session=posix)
         except subprocess.TimeoutExpired:
             print(f"✗ 场景渲染超时（>{wall_s}s）——通常是死循环或每帧太重，改代码",
                   file=sys.stderr)

@@ -17,14 +17,45 @@ import html as _html
 import json
 from pathlib import Path
 
-POS_STYLE: dict[str, str] = {
-    "top-right": "left:auto;right:5.2%;top:14.5%;bottom:auto;",
-    "top-left": "left:5.2%;right:auto;top:14.5%;bottom:auto;",
-    "mid-right": "left:auto;right:4.6%;top:39.5%;bottom:auto;",
-    "mid-left": "left:4.6%;right:auto;top:39.5%;bottom:auto;",
-    "bottom-right": "left:auto;right:5.2%;top:54.5%;bottom:auto;",
-    "bottom-left": "left:5.2%;right:auto;top:54.5%;bottom:auto;",
+# 贴纸落角：**只能落在平台安全区里**。
+# 竖屏满屏播放时右侧 13% 宽是点赞/评论/转发按钮列、顶部 10% 是导航、底部 17% 是文案条
+# （`platform_safe.DEFAULTS`，项目可覆写）。贴纸宽 154/1080 = 14.3%W，旧值 `right:5.2%`
+# 的右边缘压到 94.8%W——整块坐在按钮列上（top-right 那款大面积被按钮遮蔽），
+# 而 `verify_film.platform_verdict` 正是把这一块判成「压住平台 UI」。
+# 所以落角按安全区反算，不再手写百分比。
+STK_W = 154 / 1080           # 贴纸宽度（画幅比例）：.stk 的 width 与 W 等比
+STK_H = 156 / 1080           # 高度（图标 + 短签，1080 基准，同样按 W 缩放）
+STK_PAD = 0.016              # 离安全区边留一点气（贴纸有投影，贴边看着像被裁）
+_SLOTS: dict[str, tuple[str, str]] = {
+    "top-right": ("right", "top"),
+    "top-left": ("left", "top"),
+    "mid-right": ("right", "mid"),
+    "mid-left": ("left", "mid"),
+    "bottom-right": ("right", "bottom"),
+    "bottom-left": ("left", "bottom"),
 }
+
+
+def pos_css(pos: str, W: int = 1080, H: int = 1920, spec: dict | None = None) -> str:
+    """一个贴纸落角的 CSS。可落区域 = 平台安全区（`platform_safe`，与判据同一份）。"""
+    import platform_safe as _ps
+    s = _ps._merge(_ps.DEFAULTS, spec)
+    top_min = float(s["top_h"]) + STK_PAD
+    right_min = float(s["right_w"]) + STK_PAD          # 桶：距右边至少这么宽
+    bottom_max = 1.0 - float(s["bottom_h"]) - STK_PAD
+    h = STK_H * (float(W) / float(H or W * 16 / 9))     # 高度占 H 的比例
+    side, row = _SLOTS.get(str(pos or "top-right"), _SLOTS["top-right"])
+    y = {0: 0.145, 1: 0.395, 2: 0.545}[("top", "mid", "bottom").index(row)]
+    y = min(max(y, top_min), max(top_min, bottom_max - h))
+    if side == "right":
+        return (f"left:auto;right:{round(right_min * 100, 1)}%;"
+                f"top:{round(y * 100, 1)}%;bottom:auto;")
+    return (f"left:{round((float(s.get('left_w') or 0.052) + STK_PAD) * 100, 1)}%;right:auto;"
+            f"top:{round(y * 100, 1)}%;bottom:auto;")
+
+
+# 默认落角（无项目覆写时）：值全落在竖屏安全区里（顶部 10% / 右侧 13% / 底部 17%）
+POS_STYLE: dict[str, str] = {k: pos_css(k) for k in _SLOTS}
 
 STICKER_SFX: dict[str, str] = {
     "bang": "impact",
@@ -207,12 +238,17 @@ STICKER_CATALOG: dict[str, dict] = {
     },
 }
 
-def packaging_css(W: int = 1080) -> str:
+def packaging_css(W: int = 1080, spec: dict | None = None) -> str:
     s = max(0.35, float(W) / 1080.0)
     px = lambda v: f"{max(1, round(v * s, 1))}px"
+    # 悬念标题条也是一张「卡」：它同样不许钻到平台 UI 下面。
+    # 旧值 top:5.8% 在竖屏满屏里正好是状态栏与顶部导航那一带（顶部 10%），
+    # 于是「开篇钩子」在手机上看起来是被系统 UI 盖住的一条胶囊。
+    import platform_safe as _ps
+    _tb_top = max(0.058, float(_ps._merge(_ps.DEFAULTS, spec)["top_h"]) + STK_PAD)
     return f"""
 /* 百万剪辑师网感包装层：显式覆盖 .clip 的 inset:0/height:100%，并按画幅等比缩放 */
-.clip.title-bar {{ position:absolute; inset:auto; left:0; right:0; top:5.8%; bottom:auto;
+.clip.title-bar {{ position:absolute; inset:auto; left:0; right:0; top:{round(_tb_top * 100, 1)}%; bottom:auto;
   width:100%; height:auto; z-index:26; display:flex; justify-content:center; align-items:flex-start;
   background:none; pointer-events:none; }}
 .title-bar .tb-inner {{ display:inline-flex; align-items:center; gap:{px(14)}; max-width:90%;
@@ -245,8 +281,6 @@ def packaging_css(W: int = 1080) -> str:
   background:radial-gradient(78% 68% at 50% 46%, rgba(0,0,0,0) 54%, rgba(8,6,4,.42) 100%); }}
 """
 
-
-PACKAGING_CSS = packaging_css(1080)
 
 PACKAGING_JS = """
 // 悬念标题条：弹簧落定 + 收尾干净上收
@@ -283,8 +317,13 @@ def _esc(s: str) -> str:
     return _html.escape(str(s), quote=True)
 
 
-def collect_packaging(tl_doc: dict, segs: list[dict], total: float, W: int = 1080) -> dict:
-    """从 timeline 顶层和元素提取标题条、贴纸、镜头特效与配套音效事件。"""
+def collect_packaging(tl_doc: dict, segs: list[dict], total: float, W: int = 1080,
+                      H: int = 0, spec: dict | None = None) -> dict:
+    """从 timeline 顶层和元素提取标题条、贴纸、镜头特效与配套音效事件。
+
+    `H` 与 `spec` 只影响贴纸落角（平台安全区），缺省按 9:16 与竖屏默认安全区算。
+    """
+    spec_ = spec
     html_nodes: list[str] = []
     vfx_js_lines: list[str] = [f"const totalDur = {total:.3f};"]
     sfx_events: list[dict] = []
@@ -327,12 +366,12 @@ def collect_packaging(tl_doc: dict, segs: list[dict], total: float, W: int = 108
         if at >= total - 0.3:
             continue
         dur = round(min(float(st.get("dur") or 2.2), total - at), 3)
-        pos_css = POS_STYLE.get(str(st.get("pos") or "top-right"), POS_STYLE["top-right"])
+        pos_css_ = pos_css(str(st.get("pos") or "top-right"), W, H, spec_)
         label = st.get("label") if st.get("label") is not None else spec["label"]
         pill = f'<span class="stk-pill">{_esc(label)}</span>' if str(label).strip() else ""
         html_nodes.append(
             f'    <div id="stk-{idx:02d}" class="clip stk" data-start="{at:.3f}" data-duration="{dur:.3f}" '
-            f'style="{pos_css}--stk-accent:{spec["accent"]};">{spec["svg"]}{pill}</div>'
+            f'style="{pos_css_}--stk-accent:{spec["accent"]};">{spec["svg"]}{pill}</div>'
         )
         sfx_name = STICKER_SFX.get(sid, "pop")
         sfx_events.append({"t": at, "name": sfx_name, "gain_db": 0.0, "for": f"stk-{sid}"})
@@ -375,10 +414,47 @@ def collect_packaging(tl_doc: dict, segs: list[dict], total: float, W: int = 108
         html_nodes.insert(0, f'    <div class="clip vfx-vignette" data-start="0" data-duration="{total:.3f}"></div>')
 
     return {
-        "css": packaging_css(W),
+        "css": packaging_css(W, spec_),
         "html": "\n".join(html_nodes),
         "js": "\n".join(vfx_js_lines) + "\n" + PACKAGING_JS,
         "sfx": sfx_events,
+    }
+
+
+def licensing_declaration() -> dict:
+    """贴纸授权声明——按代码事实说，不按「应该是原创」猜。
+
+    事实（可现场复核，不是自述）：
+      1. 每一款贴纸的图形是 `STICKER_CATALOG[...]["svg"]` 里的一段内联 SVG 字符串，
+         直接写在 `scripts/stickers.py` 源码里，仓里没有对应的图片/字体文件；
+      2. 没有任何 `<image>` / `href` 外链 / `url(http…)` 位图嵌入——`external_refs` 为空
+         才能说「纯代码自绘」；一旦有人往后塞外部素材，这里会当场标红。
+    """
+    import re
+    ids = sorted(STICKER_CATALOG)
+    items, refs = [], []
+    for sid, v in sorted(STICKER_CATALOG.items()):
+        svg = str(v.get("svg") or "")
+        hits = sorted(set(re.findall(r"<image\b|href\s*=|url\(\s*['\"]?https?:|data:image", svg)))
+        if hits:
+            refs.append({"id": sid, "hits": hits})
+        items.append({"id": sid, "label": v.get("label"), "accent": v.get("accent"),
+                      "origin": "code_drawn" if not hits else "external_asset",
+                      "needs_review": bool(hits)})
+    return {
+        "kind": "code_drawn_svg",
+        "author": "本仓库（CutSkills · scripts/stickers.py）",
+        "origin": "代码内自绘：16 款多层矢量徽章直接写成 SVG 字符串，无外部图形素材",
+        "count": len(ids),
+        "ids": ids,
+        "items": items,
+        "external_refs": refs,
+        "license": "本仓库原创素材，随仓分发；代码与文档许可见 README「📄 许可」一节",
+        "third_party_risk": False if not refs else True,
+        "animation_engine": "gsap（贴纸入场/呼吸/退场动画由 assets/gsap.min.js 驱动，非图形素材）",
+        "needs_review": [] if not refs else [r["id"] for r in refs],
+        "note": ("自绘 SVG = 无第三方素材侵权风险；但如果以后往 svg 字符串里嵌外部图片/字体，"
+                 "licensing.py 会把它从「自绘」改成「外部素材·需核验」"),
     }
 
 
@@ -387,7 +463,12 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="打印全部 16 款贴纸 ID 与默认短签")
     ap.add_argument("--json", action="store_true", help="以 JSON 输出目录")
     ap.add_argument("--preview", default=None, help="生成一页所有贴纸的 HTML 预览卡目录")
+    ap.add_argument("--licence", action="store_true", help="打印贴纸授权声明（代码自绘 or 外部素材）")
     a = ap.parse_args()
+
+    if a.licence:
+        print(json.dumps(licensing_declaration(), ensure_ascii=False, indent=2))
+        return 0
 
     if a.json:
         print(json.dumps({k: {"label": v["label"], "accent": v["accent"], "sfx": STICKER_SFX.get(k)}
