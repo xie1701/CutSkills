@@ -44,3 +44,34 @@
 - G-01/G-06 缺「先造失败样例」的负样本：G-06 已补金额负样本；G-01 的旧代码失败样例无法在修复后补造，如实记录不再冒充。
 
 **顺序偏差承认**：R4 在 R1 盲评证据为零时提前做了。insights.py 本身克制（相对信号、小样本拒判），但 R4 后续扩展冻结，优先补 R1 的真人证据。
+
+## 对抗审查②（代码级）结论与收尾（2026-11-15 01:0x，commit 00fad76）
+
+审查②给了一条 **P0**，是真的，而且是会挡住交付的：
+
+- **沙箱 profile 自相矛盾（P0）**：旧 profile 是 `(allow default)` + `(deny file-write* /Users)`
+  + `(allow file-write* (subpath out.parent))`。seatbelt 里 **deny 永远压过 allow**，于是
+  /Users 下的产物路径全被拒——真实项目（都在 /Users）的项目级场景一律
+  `Operation not permitted`。G-01 的测试跑在 `/var/folders` 临时目录，**绿得虚假**。
+  修：profile 改**显式放行**（不开 allow default，只白名单读/执行/scratch+out.parent 写盘）；
+  G-01 测试改到 `Path.home()` 下的临时目录；真片复验（r1b field-flood 1080×1920 · 188 帧 ·
+  6.27s · 3s 帧内容正常）。
+- **gen_scene 进 import 白名单 = 后门（P1）**：场景写 `import gen_scene; gen_scene.subprocess.run(...)`
+  静态检查零命中、沙箱里真跑。修：`gen_scene` 只开 `marks`/`MARKS` 两个属性口子，
+  `getattr/setattr/vars/globals/locals` 一并禁；实测 `gen_scene.subprocess` 已被拒。
+- **revise 文案解析误伤（P1）**：「音效换成鼓点」「背景音乐换成轻快的」会静默改卡面。
+  修：意图门控（提到音效/音乐/贴纸/节奏/字幕等就拒并给正确说法）+ 捕获组在标点处截断。
+- **G-02 校验顺序（P2）**：冒名文件的顶层代码在 SCENE_ID 比对之前就执行了。修：
+  先 `_peek_scene_id`（AST 取字面量）比对，对不上**一行都不执行**；测试样本改成语法合法。
+- **签收删源码不失效（P2）**：删掉已签收的 `.py` 指纹静默消失。修：构造型场景源码缺失记
+  `scene_sha1="missing"` → 签收失效（r1b 实证）；另补任务单 `scene_id` 与引用名对账。
+- **revise 快路径绕守卫（P2）**：自动 `--approve` 往决策留痕写机器行冒充人工确认。修：
+  `plan_card --source` 标来源（revise 写 `agent-revise`），渲后明确打印「gate/check_sfx 还没跑」。
+- 其余 P2 已修：sfx offset 夹取 ±9dB、G-05 任务单读不出渲停（不留 props 旁路）、
+  manifest 零素材说人话、场景名防穿越、insights 支持「万/亿」、拒负值、表格竖线转义、
+  locate「中间」运算符优先级 bug。
+
+**仍残留（如实记，不冒充已修）**：
+- `check_timeline` 的场景名包含性校验仍只做 `exists()`（渲染入口已拦，纵深浅一层）；
+- 场景沙箱 profile 允许 `file-read*` 全域（要枚举系统库才能真 default-deny，成本远大于收益）；
+- revise 的时间轴读改写无文件锁（单机单工位无影响，多工位并发需加锁）。
