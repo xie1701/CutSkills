@@ -39,6 +39,8 @@ python3 scripts/doctor.py            # 体检全 ✅ 即可开工
 后台对应流水线：
 ```bash
 source scripts/runtime.sh env
+# 0. `<素材库>` 没有现成的？随便指定一个新目录即可（如 `~/CutSkills_lib`），
+#    voiceover 会自动建库并写入 index.json——零拍摄路线不需要任何素材
 # 1. 出 3 套双流向选题 + 黄金3秒钩子 + 《小白 10 分钟拍片卡》(shoot-guide.md)
 python3 scripts/ideate.py --project <项目目录> --topic "你的行业或想法" --guide
 # 2. 若选择零拍摄直接出片：AI 配音自动合成并生成字级时间戳 → 转时间轴 → 卡点 → 渲染
@@ -62,8 +64,15 @@ python3 scripts/init_project.py --library "<素材库>" --slug my-film --intent 
 python3 scripts/plan_card.py --project "<素材库>/_cutskills/projects/my-film" --approve "认可"
 python3 scripts/render_hf.py --project "<素材库>/_cutskills/projects/my-film"
 python3 scripts/verify_film.py --project "<素材库>/_cutskills/projects/my-film"
-python3 scripts/tidy.py --apply
+python3 scripts/tidy.py --project "<素材库>/_cutskills/projects/my-film" --apply
 ```
+
+### 把项目搬到另一台机器（移机）
+> 项目目录和素材库是一对：只拷项目过去，重渲不会报错、但字幕会变 0 条（词级真值丢了）。
+> 必须把素材库侧的 `_vo/`（配音）和 `_cutskills/index.json` 里的资产条目一起带过去；
+> **最稳的做法是整个素材库目录一起拷**（含 `_cutskills/` 与 `_vo/`）。
+> 搬完先跑 `python3 scripts/doctor.py` 再继续改。
+
 
 ## 第 4 步 · 一键端到端自检与打包分享给朋友
 

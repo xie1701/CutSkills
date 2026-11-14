@@ -8,3 +8,6 @@ audit.md
 **/out/_hf_raw.mp4
 **/hf/assets/fonts/
 config.json
+
+# README 示例用的本地素材库（配音与项目真值源，不该进仓）
+_lib/

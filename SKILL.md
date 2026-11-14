@@ -148,7 +148,7 @@ python3 scripts/tidy.py --apply
 
 1. **几何靠量，动静靠剖面**：视觉大模型只用来检查「字读不读得清、画面有没有穿帮」，**绝不用视觉模型目测几何坐标或动效节奏**。几何上下关系一律用 `scripts/measure_geom.py` 量像素带，场景动静一律用 `scripts/measure_motion.py` 与 `scripts/scene_review.py` 量帧间差分，面板可读性一律用 `scripts/measure_panel.py` 量 `ΔL ≥ 12`。
 2. **第三方品牌询问原则**：实拍画面检出其它品牌字样（`scripts/brand_safety.py`）时，先询问用户是否属于正常工具/场景出镜；无需避开时用结构化核销行记入 `decisions.md`（`scripts/log_decision.py`），不盲目打码裁切。
-3. **跨机器可移植与全仓自检**：任何代码或文档改动后，必须跑通以下三项：
+3. **跨机器可移植与全仓自检**：任何代码或文档改动后，必须跑通以下四项：
 
 ```bash
 python3 scripts/gen_cli_ref.py

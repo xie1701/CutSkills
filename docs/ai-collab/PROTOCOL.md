@@ -49,6 +49,8 @@ ai/<工具名>/<任务号>          例：ai/cola/T-101
 | 内置 CC0 音频包 | 仓库内 `assets/audio/{bgm,sfx}` | ✓ |
 | 渲染产物 | `<项目>/out/`、`<项目>/hf/` | ✗（可重建，收工跑 `tidy.py`） |
 
+**移机硬规则**：项目目录和素材库必须成对搬——只拷项目，重渲不报错但字幕归零（`<素材库>/_cutskills/index.json` 的资产条目与 `<素材库>/_vo/` 配音是词级真值的另一半）。最稳口径：整个素材库目录连 `_cutskills/` 与 `_vo/` 一起拷，搬完先跑 `doctor.py`。
+
 1. **同一项目同一时刻只允许一个工位写。** 两个工位要改同一支片子 → 各自复制 `<slug>-<tool>` 副本。
 2. **共享只读区**：`~/.cutskills/`（或 `$CUTSKILLS_HOME`）由 `bash scripts/runtime.sh install` 统一安装维护，严禁手删手改。
 

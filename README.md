@@ -72,18 +72,24 @@ python3 scripts/verify_film.py --project $P && python3 scripts/check_sfx.py --pr
 python3 scripts/tidy.py --project $P --apply                            #    渲→验→清
 ```
 
+> **把项目搬到另一台机器**：只拷项目目录不够——素材库侧的 `_vo/` 配音资产和
+> `_cutskills/index.json` 里的资产条目必须一起过去，否则重渲后词级真值丢失、
+> 字幕 0 条（还不报错）。整库拷是最稳的移机方式。
+
 ### 从一堆现成素材出片
 
 ```bash
+source scripts/runtime.sh env
 python3 scripts/index_assets.py --library "<素材库>"                    # 多模态索引
 python3 scripts/init_project.py --library "<素材库>" --slug my-film --intent "你的原话需求"
 python3 scripts/plan_card.py --project "<素材库>/_cutskills/projects/my-film" --show
 python3 scripts/plan_card.py --project "<素材库>/_cutskills/projects/my-film" --approve "认可"
 python3 scripts/render_hf.py --project "<素材库>/_cutskills/projects/my-film"
 python3 scripts/verify_film.py --project "<素材库>/_cutskills/projects/my-film"
+python3 scripts/tidy.py --project "<素材库>/_cutskills/projects/my-film" --apply     # 渲→验→清
 ```
 
-> 完整命令速查（103 个脚本 / 312 个参数）见 [references/cli.md](references/cli.md)，
+> 完整命令速查（108 个脚本 / 312 个参数）见 [references/cli.md](references/cli.md)，
 > 面向 AI 工位的完整说明书见 [SKILL.md](SKILL.md)，人类上手一页纸见 [GETTING-STARTED.md](GETTING-STARTED.md)。
 
 ---
@@ -114,7 +120,7 @@ HyperFrames 真渲（render_hf.py · 调色/字幕/花字/贴纸/动效卡/音�
 
 | 目录 | 内容 |
 |---|---|
-| `scripts/` | 103 个产线脚本（索引 / 编导 / 渲染 / 验收 / 清理 / 自检） |
+| `scripts/` | 108 个产线脚本（索引 / 编导 / 渲染 / 验收 / 清理 / 自检） |
 | `packs/` | 5 套正交视觉包装包（`P1`–`P5`） |
 | `plans/` | 4 套剪辑骨架节奏方案（快 / 中 / 慢 / 倒叙） |
 | `styles/` | 字体、调色、包装包预览样张 |
@@ -127,7 +133,7 @@ HyperFrames 真渲（render_hf.py · 调色/字幕/花字/贴纸/动效卡/音�
 ```bash
 python3 scripts/gen_cli_ref.py   # 重新生成 CLI 速查（禁止手改）
 python3 scripts/audit_skill.py   # 文档 × CLI × Schema 三向对账，必须 🔴0 🟡0
-python3 scripts/selftest.py      # 端到端真渲染自检 + 31 支契约与真音频回归单测
+python3 scripts/selftest.py      # 端到端真渲染自检 + 33 支契约与真音频回归单测
 python3 scripts/pack_dist.py     # 分发包完整性 + 全仓私有路径零泄漏扫描
 ```
 
