@@ -145,6 +145,7 @@ def main() -> int:
 
     red: list[str] = []
     yellow: list[str] = []
+    notes: list[str] = []          # 提示，不参与判定（不影响 README 口径的可读项）
     green: list[str] = []
 
     # ---- 1. frontmatter
@@ -155,9 +156,16 @@ def main() -> int:
         for k in ("name", "description"):
             if not fm.get(k):
                 red.append(f"frontmatter 缺 `{k}`")
+        # 目录名不一致只在**挂载到 skills 目录**时才是问题：靠 name 找 skill，对不上会加载不到。
+        # 用户把分发包解压到「我的剪辑」「distcheck」这种自定义文件夹是完全正常的用法，
+        # 不该被这条判黄——否则每一个真实用户跑自检都会红一片，红到没人再看读数。
         if fm.get("name") and fm["name"] != root.name.lower():
-            yellow.append(f"frontmatter name「{fm['name']}」和目录名「{root.name}」不一样"
-                          "（挂载后靠 name 找 skill，对不上会加载不到）")
+            if root.name.lower().replace("-", "") == fm["name"].lower().replace("-", ""):
+                green.append(f"目录名「{root.name}」与 name「{fm['name']}」只差大小写/连字符")
+            else:
+                notes.append(f"目录名「{root.name}」与 frontmatter name「{fm['name']}」不同"
+                             "——解压到自定义文件夹不影响使用；"
+                             f"装进 skills 目录时请保持目录名等于 name（`{fm['name']}`）")
         if not fm_err:
             green.append("frontmatter 合法，name / description 都在")
 
@@ -349,6 +357,8 @@ def main() -> int:
         print(f"  🔴 {x}")
     for x in yellow:
         print(f"  🟡 {x}")
+    for x in notes:
+        print(f"  ℹ️  {x}")
     if a.out:
         print(f"→ {a.out}")
     return 1 if red else 0
