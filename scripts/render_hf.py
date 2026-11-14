@@ -1788,14 +1788,16 @@ document.querySelectorAll(".gen").forEach((c) => {{
         {{ opacity: 1, y: 0, duration: 0.3, ease: "power2.out", immediateRender: false }}, at);
     }});
   }}
-  // 长卡的呼吸感：子件都进场后，每 1.6s 做一次 8% 的轻亮度脉冲（0.36s 完成）。
+  // 长卡的呼吸感：子件都进场后，均匀铺一整卡周期的 8% 轻亮度脉冲（0.36s 完成）。
   // 试过 1.2% 慢缩放——太温和，验收的帧差地板（0.6）量不出来，照样判「不是画面」；
-  // 脉冲的瞬态变化量级足够能被量到，节奏又轻到不抢戏。
+  // 试过 floor((d-1.0)/1.6) 从头铺——尾部会剩 ≥2s 空窗（实测 8.6s 卡尾静止 2.0s 被判红），
+  // 所以改成 round(d/1.6) 颗均匀铺满：首尾空窗都 ≤0.9s。
   if (d > 3.0) {{
-    const pulses = Math.max(1, Math.floor((d - 1.0) / 1.6));
+    const pulses = Math.max(1, Math.round(d / 1.6));
+    const spacing = d / pulses;
     for (let k = 0; k < pulses; k++) {{
       tl.to(c, {{ opacity: 0.92, duration: 0.18, yoyo: true, repeat: 1,
-                  ease: "sine.inOut", immediateRender: false }}, t + 1.0 + k * 1.6);
+                  ease: "sine.inOut", immediateRender: false }}, t + 0.9 + k * spacing);
     }}
   }}
   // 天平：横杆先向下倾（只比原料价 → 左边沉），口径换成成品总价时，
