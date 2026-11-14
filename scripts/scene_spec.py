@@ -55,6 +55,21 @@ def scene_sig(proj: Path, scene_id: str, spec: dict) -> dict:
         out["events_sha1"] = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
     except (TypeError, ValueError):
         out["events_sha1"] = "unreadable"
+    # 时间线绑定（评审 §12.2 反证⑤）：场景元素在 timeline 里的 dur / marks 改动也必须
+    # 使签收失效——画面拍点变了、长度变了，旧签收就不能再背书新画面。
+    try:
+        tl = json.loads((proj / "timeline.json").read_text())
+        el = next((e for e in tl.get("elements") or []
+                   if (e.get("props") or {}).get("scene_spec") == scene_id
+                   or (e.get("props") or {}).get("scene") == scene_id), None)
+        if el is not None:
+            tlp = json.dumps({"dur": el.get("dur"),
+                              "marks": el.get("marks")
+                              or (el.get("props") or {}).get("marks") or ""},
+                             ensure_ascii=False, sort_keys=True)
+            out["tl_sha1"] = hashlib.sha1(tlp.encode("utf-8")).hexdigest()[:12]
+    except (OSError, ValueError, TypeError, StopIteration):
+        pass                       # 没时间轴 / 纯信息卡：不绑定，保持旧行为
     return out
 
 

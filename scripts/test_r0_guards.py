@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import re
 import subprocess
 import sys
 import tempfile
@@ -189,10 +191,18 @@ def test_g05_events_mismatch_hard_fail():
 def test_g06_no_unsourced_claims():
     """G-06：ideate 里不许有无来源数字/效果承诺（发表稿纪律）。"""
     src = (HERE / "ideate.py").read_text(encoding="utf-8")
-    banned = ["90%的人都", "90%踩", "翻倍", "省一半", "保证", "百分百"]
+    banned = ["90%的人都", "90%踩", "翻倍", "省一半", "保证", "百分百", "三万", "三千"]
     hit = [b for b in banned if b in src]
     assert not hit, f"ideate 还有无来源承诺：{hit}"
-    print("  ✅ G-06 ideate 钩子与兜底卡零无来源数字/承诺")
+    # 负样本口径：金额型钩子（花三万/三千/数字+万）也是无来源数字——
+    # 2026-11-15 对抗审查抓出 H03 原样带「三万/三千」，扫源码零命中≠实质清零
+    import ideate
+    money = re.compile(r"[0-9一二两三四五六七八九十百]+[万千百]")
+    for hid, h in getattr(ideate, "HOOK_BANK", {}).items():
+        tpl = str(h.get("tpl") or "")
+        m = money.search(tpl)
+        assert not m, f"钩子 {hid} 还有无来源金额：{m.group(0)}（{tpl}）"
+    print("  ✅ G-06 ideate 钩子与兜底卡零无来源数字/承诺（含金额模式）")
 
 
 def test_g07_manifest_no_cc0_fallback():
@@ -217,11 +227,48 @@ def test_g07_manifest_no_cc0_fallback():
         print("  ✅ G-07 manifest 无 CC0 回退，无留痕如实标 unverified")
 
 
+def test_g03_sandbox_positive_deny():
+    """G-03 正样本：seatbelt profile 真的拒网、真的拦工作区外写盘。
+
+    2026-11-15 对抗审查：此前只有「无 sandbox-exec → exit 5」负样本，没有证明
+    profile 生效的正样本。这里直接拿 _sandbox_profile 生成的同一份 profile 跑
+    探针子进程：连 socket 必败、写 /Users 必败，探针输出 LEAKED 即失败。
+    """
+    import scene_sandbox
+    if not shutil.which("sandbox-exec"):
+        print("  · G-03 正样本跳过（本机无 sandbox-exec）")
+        return
+    with tempfile.TemporaryDirectory(prefix="g03p-") as td:
+        scratch, out_dir = Path(td) / "w", Path(td) / "o"
+        scratch.mkdir(); out_dir.mkdir()
+        pf = scratch / "probe.sb"
+        pf.write_text(scene_sandbox._sandbox_profile(scratch, out_dir))
+        probe = scratch / "probe.py"
+        probe.write_text(
+            "import sys, pathlib\n"
+            "mode = sys.argv[1]\n"
+            "if mode == 'net':\n"
+            "    import socket\n"
+            "    s = socket.socket()\n"
+            "    s.settimeout(2.0)\n"
+            "    s.connect(('example.com', 80))  # 拒网时这里必抛\n"
+            "elif mode == 'write':\n"
+            "    pathlib.Path('/Users/cutskills-g03-probe-should-fail').write_text('x')\n"
+            "print('LEAKED')\n", encoding="utf-8")
+        for mode, why in (("net", "网络"), ("write", "写盘")):
+            r = subprocess.run(["sandbox-exec", "-f", str(pf), sys.executable,
+                                str(probe), mode], capture_output=True, text=True,
+                               timeout=30)
+            assert r.returncode != 0 and "LEAKED" not in r.stdout, \
+                f"沙箱没拦住{why}：exit {r.returncode} · {r.stdout[:120]}"
+        print("  ✅ G-03 正样本：seatbelt profile 实测拒网、拦工作区外写盘")
+
+
 def main() -> int:
     tests = [test_g01_new_scene_routes, test_g02_no_dir_scan,
-             test_g03_no_sandbox_exec_refuses, test_g04_sign_binds_hash,
-             test_g05_events_mismatch_hard_fail, test_g06_no_unsourced_claims,
-             test_g07_manifest_no_cc0_fallback]
+             test_g03_no_sandbox_exec_refuses, test_g03_sandbox_positive_deny,
+             test_g04_sign_binds_hash, test_g05_events_mismatch_hard_fail,
+             test_g06_no_unsourced_claims, test_g07_manifest_no_cc0_fallback]
     for t in tests:
         t()
     print(f"✅ R0 守卫 {len(tests)} 项全过")

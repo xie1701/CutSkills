@@ -144,7 +144,8 @@ python3 scripts/tidy.py --apply
 ## 四、判词口径与自检门禁（Measure, Don't Narrate）
 
 > 端到端验收的实验记录与读数见 [r3-eval-2026-11-14.md](references/r3-eval-2026-11-14.md)
-> （10 段陌生口播全链路：10/10 门禁零红、音效 50/50、响度全部 −14±0.1 LUFS）。
+> （10 段陌生口播全链路：10/10 门禁零红、音效 50/50、响度全部 −14±0.1 LUFS）；
+> R1 三条黄金样片与 R2 对话式改片的验收读数见 [r1-r2-eval-2026-11-15.md](references/r1-r2-eval-2026-11-15.md)。
 
 1. **几何靠量，动静靠剖面**：视觉大模型只用来检查「字读不读得清、画面有没有穿帮」，**绝不用视觉模型目测几何坐标或动效节奏**。几何上下关系一律用 `scripts/measure_geom.py` 量像素带，场景动静一律用 `scripts/measure_motion.py` 与 `scripts/scene_review.py` 量帧间差分，面板可读性一律用 `scripts/measure_panel.py` 量 `ΔL ≥ 12`。
 2. **第三方品牌询问原则**：实拍画面检出其它品牌字样（`scripts/brand_safety.py`）时，先询问用户是否属于正常工具/场景出镜；无需避开时用结构化核销行记入 `decisions.md`（`scripts/log_decision.py`），不盲目打码裁切。

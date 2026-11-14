@@ -5,16 +5,20 @@
 
   定位                                动作
   ───────────────────────────────    ─────────────────────────────────────
-  「第N段」「第N格」                  「换成X」「改成X」→ gen 卡文案（keyword/
-  「开头」「结尾」「N秒附近」            quote/number 的 props.text；有 micro
+  「第N段」「第N格」                「换成X」「改成X」→ gen 卡文案（keyword/
+  「开头」「结尾」「中间」「N秒附近」    quote/number 的 props.text；有 micro
   「那张…卡」「那段…」                 stage 的接力卡按每屏改）
+  「前3秒不抓人」「钩子不吸引」         → 开头钩子改造：给了新文案就换第一张有字的卡；
+                                        没给就把当前钩子念出来、请用户发新钩子（两步对话）
+  「结尾换我自己的话」                 → 同上：先念当前结尾卡文案，请用户发想说的原话
+                                     「中间说明太慢/太快」→ 定位中段 gen 元素 dur ±10%
+                                        （音画同源：talking 段绝不改时长，明确拒绝）
                                      「音效小声点/太吵/大声点」→ props.sfx_gain_offset ±3dB
                                      「删掉贴纸」→ props.sticker = false
                                      「贴纸换成X」→ props.sticker.id = X
-                                     「这段快点/慢点」→ gen 元素 dur ±10%（音画同源：
-                                        talking 段绝不改时长，明确拒绝）
+                                     「这段快点/慢点」→ gen 元素 dur ±10%（同上）
 
-每一笔改动写进 `revisions.jsonl`（谁改的、改了什么、影响范围、缓存复用读数），
+每一笔改动写进 `revisions.jsonl`（谁改的、改了什么、时间轴指纹、渲染缓存复用读数），
 然后自动跑 check_timeline → 重签拍板锁 → render_hf（clip 缓存让未动片段零重渲）。
 渲后不自动跑 gate——由调用方（Agent）跑完把读数念给用户听。
 
@@ -75,7 +79,11 @@ def locate(tl: dict, text: str) -> tuple[dict | None, str]:
     if "结尾" in text or "最后" in text:
         if els:
             return els[-1], f"结尾（第{els[-1].get('n')}格，{els[-1].get('template')}）"
-    return None, "定位不了：说「第N段」「N秒附近」「开头」「结尾」其中一种"
+    if "中间" in text or "中段" in text and els:
+        mid = (float(els[0].get("at") or 0) + float(els[-1].get("at") or 0)) / 2
+        best = min(els, key=lambda e: abs(float(e.get("at") or 0) - mid))
+        return best, f"中段（第{best.get('n')}格，{best.get('template')}，最接近片中点）"
+    return None, "定位不了：说「第N段」「N秒附近」「开头」「中间」「结尾」其中一种"
 
 
 def _card_of(el: dict) -> dict | None:
@@ -116,9 +124,22 @@ def plan_change(el: dict, text: str) -> tuple[dict | None, str]:
                                 "pos": (cur or {}).get("pos") if isinstance(cur, dict) else "top-right"}
             return props, f"第{el.get('n')}格贴纸换成 {m.group(1)}"
 
-    # ---- 文案（gen 卡）
-    m = re.search(r"[换成|改成]+\s*[「『\"]?(.+?)[」』\"]?(?:[。？！]|$)", text)
-    if m and re.search(r"换成|改成", text):
+    # ---- 开头钩子 / 结尾换自己的话：报告 §11 R2 最低演示的三类指令之二。
+    # 这两类本质是「用户对内容不满但还没给新内容」——正确反应是把现状念出来、
+    # 请用户发原话，而不是装听不懂或自作主张编文案。
+    if re.search(r"抓人|不吸引|钩子|开场不|没记忆点", text) and not re.search(r"换成|改成", text):
+        cur = (card or {}).get("text") or props.get("text") or "（这格没有可换的文案）"
+        return None, (f"当前开头钩子是「{cur}」。把你想用的钩子原话发我，"
+                      "格式：开头钩子换成<你的原话>，我改完自动重渲。")
+    if re.search(r"我自己的话|我的原话|自己想说", text) and not re.search(r"换成|改成", text):
+        cur = (card or {}).get("text") or props.get("text") or "（这格没有可换的文案）"
+        return None, (f"当前这格文案是「{cur}」。把你想说的原话发我，"
+                      "格式：结尾那张卡换成<你的原话>，我改完自动重渲。")
+
+    # ---- 文案（gen 卡）。注意：必须是「换成/改成」二选一，不能写成字符类 [换成|改成]
+    #（那是 换/成/|/改 任一字符，会把「换个说法，改成X」切成「个说法，改成X」）
+    m = re.search(r"(?:换成|改成|改写为)\s*[「『\"]?(\S.*?)[」』\"]?(?:[。？！]|$)", text)
+    if m and re.search(r"换成|改成|改写为", text):
         new = m.group(1).strip()
         if not new:
             return None, "换的内容是空的"
@@ -136,15 +157,19 @@ def plan_change(el: dict, text: str) -> tuple[dict | None, str]:
             return None, ("叙事场景的画面不由一句文案决定——要改内容请走 scene-forge 闭环"
                           f"（改 scenes/{(props.get('scene_spec') or props.get('scene'))}.json 再重签）")
     # ---- 节奏（只对代码画面成立；talking 音画同源绝不改时长）
-    if re.search(r"快点|慢点|节奏[快慢]|太慢|太快", text):
+    # 注意方向：用户说「太快/太慢」是在抱怨现状——太慢要加速（缩短），太快要放慢（拉长）
+    if re.search(r"快点|慢点|节奏[快慢]|太快|太慢|太急|太拖", text):
         if str(el.get("kind") or "") == "clip" or el.get("audio"):
             return None, ("这格带着真人声音，改时长就是改口播——音画同源纪律不允许。"
                           "要调这段节奏请回到剪辑层改 in/out（会动到台词取舍），不是一句话的事。")
         if el.get("template"):
             dur = float(el.get("dur") or 0)
-            nd = round(dur * (0.9 if re.search(r"快点|太快|节奏快", text) else 1.1), 3)
+            # 缩短（加速）：快点/太快/太慢/太拖/节奏快；拉长（放慢）：慢点/太急/节奏慢
+            shrink = bool(re.search(r"快点|太快|太慢|太拖|节奏快", text))
+            nd = round(dur * (0.9 if shrink else 1.1), 3)
             el["dur"] = nd
-            return props, f"第{el.get('n')}格时长 {dur:.2f}s → {nd:.2f}s"
+            verb = "加速" if shrink else "放慢"
+            return props, f"第{el.get('n')}格{verb}：时长 {dur:.2f}s → {nd:.2f}s"
     return None, ("听不懂这个组合。目前能改：卡面文案（换成X）、音效大小（音效小声点）、"
                   "贴纸（删掉贴纸/贴纸换成X）、代码画面节奏（这段快点/慢点）。")
 
@@ -162,6 +187,17 @@ def main() -> int:
     tl = json.loads(tl_p.read_text())
 
     el, where = locate(tl, a.instruction)
+    # 钩子/结尾换自己的话：目标必须是有文案的卡，不是落在 3s 的那格 B-roll
+    if re.search(r"抓人|不吸引|钩子|我自己的话|我的原话", a.instruction):
+        has_text = bool((_card_of(el) or {}).get("text") if el else None) or bool(
+            el and (el.get("props") or {}).get("text"))
+        if not has_text:
+            els = [e for e in tl.get("elements") or []
+                   if (_card_of(e) or {}).get("text") or (e.get("props") or {}).get("text")]
+            if els:
+                key = "开头" if re.search(r"抓人|不吸引|钩子|开场", a.instruction) else "结尾"
+                el = els[0] if key == "开头" else els[-1]
+                where = f"{key}（第{el.get('n')}格，{el.get('template')}）"
     print(f"· 定位：{where}")
     if el is None:
         return 2
@@ -203,8 +239,6 @@ def main() -> int:
            "note": note, "timeline_sha": None}
     import hashlib
     rev["timeline_sha"] = hashlib.sha1(tl_p.read_bytes()).hexdigest()[:12]
-    with (proj / "revisions.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(rev, ensure_ascii=False) + "\n")
 
     # 重签拍板锁（用户主动改片 = 新一次拍板；留痕在 revisions.jsonl）
     r = subprocess.run([sys.executable, str(HERE / "plan_card.py"),
@@ -214,15 +248,26 @@ def main() -> int:
     if r.returncode != 0:
         print(f"⚠ 拍板锁重签失败：{r.stderr[-300:]}", file=sys.stderr)
         return 4
-    print(f"· 已改并重签：{rev['timeline_sha']}")
     if a.no_render:
+        with (proj / "revisions.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rev, ensure_ascii=False) + "\n")
+        print(f"· 已改并重签：{rev['timeline_sha']}")
         return 0
     cmd = [sys.executable, str(HERE / "render_hf.py"), "--project", str(proj),
            "--quality", "looks", "--bgm", "auto"]
     if a.library:
         cmd += ["--library", a.library]
     r = subprocess.run(cmd, capture_output=True, text=True)
-    tail = (r.stdout or "").strip().splitlines()[-3:]
+    out = (r.stdout or "") + (r.stderr or "")
+    # 留痕补渲染读数：缓存命中/重用行如实记录，让「只重渲必要内容」可从 revisions.jsonl 复核
+    reuse = [ln.strip() for ln in out.splitlines()
+             if re.search(r"缓存|复用|已存在|跳过", ln)][:4]
+    if reuse:
+        rev["render_reuse"] = reuse
+    rev["render_exit"] = r.returncode
+    with (proj / "revisions.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rev, ensure_ascii=False) + "\n")
+    tail = out.strip().splitlines()[-3:]
     print("\n".join(tail))
     return r.returncode
 

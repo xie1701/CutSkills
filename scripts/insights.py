@@ -53,7 +53,9 @@ def _pick(row: dict, key: str) -> str:
     return ""
 
 
-def _num(s: str) -> float | None:
+def _num(s: str, *, pct_col: bool = False) -> float | None:
+    """pct_col=True 用于「占比」列：35% → 0.35、裸 35 → 0.35、裸 0.4 → 0.4。
+    其它列（播放/点赞等绝对数）一律 pct_col=False，数字原样。"""
     s = (s or "").strip()
     pct = "%" in s
     s = s.replace("%", "").replace(",", "").strip()
@@ -63,12 +65,18 @@ def _num(s: str) -> float | None:
         v = float(s)
     except ValueError:
         return None
-    if pct:                      # 「35%」→ 0.35；裸数字按原样（平台导出两种都碰得到）
+    if pct:
         v /= 100.0
+    elif pct_col:
+        if v > 1.5:                  # 裸「35」按百分数（平台导出两种口径都碰得到，归一）
+            v /= 100.0
+        elif v > 1.0:                # 1.0–1.5 之间不可能是有效占比，坏值
+            return None
+        # 0–1.5 的裸数按占比原样（0.40 → 0.4）
     return v
 
 
-def load_rows(csv_path: Path) -> list[dict]:
+def load_rows(csv_path: Path) -> tuple[list[dict], int]:
     """读 CSV → 统一行名的记录列表；解析失败的行如实跳过并计数。"""
     rows, skipped = [], 0
     with csv_path.open(newline="", encoding="utf-8-sig") as f:
@@ -82,7 +90,7 @@ def load_rows(csv_path: Path) -> list[dict]:
                 "date": _pick(raw, "date"),
                 "title": title,
                 "views": views,
-                "watch": _num(_pick(raw, "watch")),
+                "watch": _num(_pick(raw, "watch"), pct_col=True),
                 "likes": _num(_pick(raw, "likes")) or 0.0,
                 "comments": _num(_pick(raw, "comments")) or 0.0,
                 "shares": _num(_pick(raw, "shares")) or 0.0,
