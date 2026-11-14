@@ -48,7 +48,7 @@ GEN_TEMPLATES = {
                 "required": ["left", "right"]},
     "number":  {"min_dur": 2.5, "max_dur": 6.0,
                 "props": {"value": 8, "label": 14, "unit": 4}, "required": ["value", "label"]},
-    "steps":   {"min_dur": 3.0, "max_dur": 8.0,
+    "steps":   {"min_dur": 3.0, "max_dur": 10.0,
                 "props": {"title": 10, "items": None}, "required": ["items"]},
     "quote":   {"min_dur": 2.8, "max_dur": 7.5,
                 "props": {"text": 24, "who": 8}, "required": ["text"]},

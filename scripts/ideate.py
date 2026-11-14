@@ -355,17 +355,57 @@ def _phrases(line: str) -> list[str]:
 
 
 def _micro_chain(line: str, dur: float) -> list[dict] | None:
-    """按台词标点气口把长卡大字拆成几段接力（渲器 .mstack 逐段换字）。
-    时刻按各短语字数占比分配，保证换字节奏跟配音语流一致。"""
+    """按台词气口把长卡大字拆成几段接力（渲器 .mstack 逐段换字）。
+
+    分段三条硬规矩（判据同源）：任意两段之间 ≤1.2s 要有一次换字
+    （段数 ≥ ceil(dur/1.05)，时刻均匀等分）；单段 ≤5 字左右且不切词
+    （jieba 词界拼段）；优先在标点短语边界断段，标点不上大字。"""
+    import math
     parts = _phrases(line)
     if len(parts) < 2:
         return None
-    total = sum(len(p) for p in parts) or 1
-    out, cur = [], 0.0
-    for p in parts:
-        out.append({"t": round(cur, 2), "text": p})
-        cur += dur * len(p) / total
-    return out
+    toks: list[tuple[str, int]] = []      # (词, 短语序号)
+    try:
+        import jieba
+        for pi, p in enumerate(parts):
+            for w in jieba.lcut(p):
+                w = re.sub(r"[，。！？；：、,.!?;:\s]", "", w)
+                if w:
+                    toks.append((w, pi))
+    except Exception:
+        toks = [(c, i) for i, p in enumerate(parts) for c in p
+                if not re.match(r"[，。！？；：、,.!?;:\s]", c)]
+    total = sum(len(w) for w, _ in toks) or 1
+    need = max(2, math.ceil(dur / 1.05))
+    budget = total / need
+    cap = math.ceil(budget) + 1
+    groups, curg, cur_len = [], [], 0
+    for w, pi in toks:
+        boundary = curg and pi != curg[-1][1] and cur_len >= budget * 0.5
+        if curg and (cur_len + len(w) > cap or boundary):
+            groups.append(curg)
+            curg, cur_len = [], 0
+        curg.append((w, pi))
+        cur_len += len(w)
+    if curg:
+        groups.append(curg)
+    # 段数还凑不够节奏下限 → 把最长的组按词界对半拆（不切词，只拆组）
+    while len(groups) < need and max(sum(len(w) for w, _ in g) for g in groups) >= 2:
+        gi = max(range(len(groups)), key=lambda k: sum(len(w) for w, _ in groups[k]))
+        g = groups.pop(gi)
+        half = sum(len(w) for w, _ in g) / 2
+        acc, cut = 0, 1
+        for k, (w, _) in enumerate(g[:-1]):
+            acc += len(w)
+            if acc >= half:
+                cut = k + 1
+                break
+        groups[gi:gi] = [g[:cut], g[cut:]]
+    chunks = ["".join(w for w, _ in g) for g in groups]
+    if len(chunks) < 2:
+        return None
+    n = len(chunks)
+    return [{"t": round(dur * i / n, 2), "text": c} for i, c in enumerate(chunks)]
 
 
 def _tpl_for_dur(dur: float, base: str, line: str) -> tuple[str, dict]:
@@ -432,6 +472,9 @@ def ideation_to_plan(proj: Path, idea: dict, *, vo_asset: str | None = None,
         micro = _micro_chain(b["line"], dur) if tpl in TEXT_CHAIN_TPLS else None
         if micro:
             seg["micro"] = micro
+        if segments and tpl != segments[-1].get("template"):
+            seg["hard_cut"] = (f"叙事推进：{segments[-1].get('role')} → {b.get('role')}，"
+                               f"{segments[-1].get('template')} 换 {tpl} 卡型承接脚本气口")
         if tpl in NUM_TPLS:
             seg["approx"] = True      # 零拍摄路线没有可引用出处，画面标「示意」
         if vo_asset:
