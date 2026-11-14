@@ -21,6 +21,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE / "vendor"))   # doctor 是新用户的第一条命令，必须零环境自足（yaml 在 vendor）
 REPO = HERE.parent
 
 OK, WARN, BAD = "✅", "⚠️ ", "❌"
