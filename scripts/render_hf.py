@@ -2478,7 +2478,9 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 # whoosh 在无垫乐时抬 18 dB、有垫乐时只剩 8–9 dB）。90ms duck 只能管住入场那一瞬。
 CARD_SFX = {"keyword": ("pop-medium-in", 1.5), "behind": ("impact-light-firm", 1.0),
             "cutout": ("impact-light-firm", 1.0), "idcard": ("whoosh-medium-soft", 0.5),
-            "gen": ("appear-materialise", 4.0)}
+            # gen 卡入场常落在人声起句上，shimmer 类（appear-*）能量散、被口播盖住
+            # （实测 6.30s 净抬升只有 +0.9dB），换瞬态硬的 knock 类才穿得出来。
+            "gen": ("impact-light-firm", 2.5)}
 
 # 音效落在连续人声上，光靠调增益听不出来（实测只涨 1–3 dB）：得让声音给它让位。
 # 90ms、-6dB，耳朵听不出人声被压，但音效的瞬态就露出来了。
