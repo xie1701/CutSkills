@@ -762,7 +762,10 @@ def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> P
     # 缓存键必须含场景源代码哈希与分辨率：改了绘图逻辑/换尺寸不改 marks 也要重画，
     # 否则返工会被旧 mp4 假装完成（评审 P0-03）。
     import hashlib
-    src = Path(__file__).with_name("scenes") / f"{name}.py"
+    # 场景源码：项目 scenes/ 优先（AI 迭代中的新场景可覆盖同名内置场景），否则内置。
+    src_proj = proj / "scenes" / f"{name}.py"
+    src_builtin = Path(__file__).with_name("scenes") / f"{name}.py"
+    src = src_proj if src_proj.exists() else src_builtin
     try:
         shash = hashlib.sha1(src.read_bytes()).hexdigest()[:8] if src.exists() else "nosrc"
     except OSError:
@@ -772,11 +775,22 @@ def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> P
     dst = proj / "hf" / "clips" / f"{tag}.mp4"
     if dst.exists() and dst.stat().st_size > 4096:
         return dst
+    marks_args = ["--marks", str(mk)] if mk else []
+    if src_proj.exists():
+        # AI/项目级场景是刚出生的任意代码：必须走沙箱（拒网 + rlimit + 超时，评审 P1-06），
+        # 不在主进程裸跑。被拒绝/超时都会带着原因退出，改代码而不是拆围栏。
+        cmd = [sys.executable, str(Path(__file__).with_name("scene_sandbox.py")),
+               "--scenes-dir", str(proj / "scenes"), "--scene", name,
+               "--out", str(dst), "--dur", f"{dur:.3f}", "--fps", str(FPS),
+               "--size", f"{W}x{H}"] + marks_args
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0 or not dst.exists():
+            raise SystemExit(f"场景「{name}」在沙箱里没渲出来（exit {r.returncode}）：\n"
+                             f"{(r.stderr or r.stdout)[-800:]}")
+        return dst
     cmd = [sys.executable, str(Path(__file__).with_name("gen_scene.py")),
            "--scene", name, "--dur", f"{dur:.3f}", "--fps", str(FPS),
-           "--size", f"{W}x{H}", "--out", str(dst)]
-    if mk:
-        cmd += ["--marks", str(mk)]
+           "--size", f"{W}x{H}", "--out", str(dst)] + marks_args
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not dst.exists():
         raise SystemExit(f"场景没画出来：{name} {dur}s\n{(r.stderr or r.stdout)[-600:]}")

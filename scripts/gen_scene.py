@@ -661,6 +661,36 @@ SCENES = {"phase": scene_phase, "pour": scene_pour,
           "measure": scene_measure, "lime": scene_lime}
 
 
+def _load_scene_file(path: Path) -> tuple[str, object] | None:
+    """从任意路径加载一个场景模块（项目级 AI 场景用），返回 (SCENE_ID, scene())。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location(f"scene_{path.stem}", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sid, fn = getattr(mod, "SCENE_ID", None), getattr(mod, "scene", None)
+        if sid and callable(fn):
+            return str(sid), fn
+    except Exception as e:                          # noqa: BLE001
+        print(f"⚠ 场景模块 {path.name} 没接上：{e}", file=sys.stderr)
+    return None
+
+
+def register_scenes_dir(d: Path) -> list[str]:
+    """把一个目录里的 *.py 场景接进 SCENES（项目级场景可覆盖同名内置场景）。"""
+    added: list[str] = []
+    if not d.is_dir():
+        return added
+    for f in sorted(d.glob("*.py")):
+        if f.name.startswith("_"):
+            continue
+        got = _load_scene_file(f)
+        if got:
+            SCENES[got[0]] = got[1]
+            added.append(got[0])
+    return added
+
+
 def _register_scene_package() -> None:
     """把 `scripts/scenes/` 下的场景模块接进 SCENES（AI 视听方案 P0 起的新场景）。
 
@@ -786,7 +816,11 @@ def probe_scene(fn, dur: float, W: int, H: int) -> tuple[bool, list[str]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scene", default="phase", choices=sorted(SCENES))
+    ap.add_argument("--scene", default="phase",
+                    help="场景名；--scenes-dir 接进来的项目级场景也能用（手工校验，不用 choices）")
+    ap.add_argument("--scenes-dir", default="",
+                    help="额外的场景源码目录（项目 scenes/）；AI 新写的场景从这里接进注册表，"
+                         "渲染本身应走 scene_sandbox.py（拒网 + rlimit），不要直接裸跑本脚本")
     ap.add_argument("--out", required=True)
     ap.add_argument("--dur", type=float, default=5.0)
     ap.add_argument("--fps", type=int, default=30, help="跟成片一致（talking-head-v1 是 30）")
@@ -798,6 +832,13 @@ def main() -> int:
                     help="只量亮度剖面，不出片：每个场景都要「越演越有东西」，"
                          "结尾比中间空就是节拍写错了（视觉模型判不了这个）")
     a = ap.parse_args()
+    if a.scenes_dir:
+        added = register_scenes_dir(Path(a.scenes_dir).expanduser())
+        if added:
+            print(f"  · 项目场景已注册：{', '.join(added)}")
+    if a.scene not in SCENES:
+        print(f"✗ 场景「{a.scene}」不认识（{'/'.join(sorted(SCENES))}）", file=sys.stderr)
+        return 2
     global MARKS
     MARKS = [float(x) for x in a.marks.replace(" ", "").split(",") if x] if a.marks else []
     W, H = (int(x) for x in a.size.lower().split("x"))

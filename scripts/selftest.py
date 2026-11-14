@@ -59,6 +59,7 @@ OFFLINE_TESTS = [
     "test_measure_geom.py",
     "test_sfx_variety.py",
     "test_scene_review.py",
+    "test_scene_sandbox.py",
     "test_hygiene_fixtures.py",
 ]
 

@@ -17,7 +17,7 @@ CutSkills 是一套**跨电脑可复用、代码驱动、面向非专业用户**
 | 入口 | 用户怎么开口 | 你怎么做 |
 |---|---|---|
 | **入口 A：从零创作接入** | 「我想做账号 / 帮我想个关于 X 的视频 / 没素材怎么做视频」 | 走**双流向选题引擎**（[topic-system.md](references/topic-system.md)）：一次给 **3 个不同流向选题**（漏斗流破圈 / 水桶流人设 / 水桶流转化）+ 黄金 3 秒钩子。用户挑中后生成《小白 10 分钟拍片卡》（`shoot-guide.md`），同时提供「手机拍 3 镜」或「零拍摄 AI 配音+代码动效直出」两条路。 |
-| **入口 B：带素材直接接入** | 「素材在这个文件夹，帮我剪一条…」 | 先跑增量多模态索引（转写词级时间戳、筛除废片与场记口令），搜出最佳原话片段，不足的画面按「实拍 → 图片 → 代码动效卡/叙事场景」兜底，整理出简明《剪辑与包装方案卡》供拍板。 |
+| **入口 B：带素材直接接入** | 「素材在这个文件夹，帮我剪一条…」 | 先跑增量多模态索引（转写词级时间戳、筛除废片与场记口令），搜出最佳原话片段；缺的画面先定「这句话需要什么表达」，再按「清楚 · 真实 · 经济」在实拍 / 可授权素材 / 代码叙事场景 / 信息卡 / 留白里裁决（原则 B14），整理出简明《剪辑与包装方案卡》供拍板。 |
 
 ### 三次拍板节奏（不审讯、先给选项再问）
 1. **拍板 ① · 定选题与脚本**（仅入口 A 需要）：摆出 3 套提案让用户回复 `1/2/3` 即可，每次追问真人故事细节**不超过 2 个问题**。
@@ -33,7 +33,7 @@ CutSkills 是一套**跨电脑可复用、代码驱动、面向非专业用户**
 1. **黄金前 3 秒强钩子**：严禁「大家好我是…」废话开场！用十大钩子模型（[topic-system.md](references/topic-system.md)）配合开场冲击推镜（`vfx: "punch_zoom"`）+ 顶部磨砂悬念标题条（`title_bar`）瞬间锁住划屏手指。
 2. **跳切推近与零废片裁剪**：自动剔除「三二一开机」场记口令（`cue_guard.py`）、语气词与重复重说（`speech_hygiene.py`）；长口播按呼吸气口自动做同源无痕跳切推近（1.0x ↔ 1.14x），切点避开晃动帧（`stability.py`），严守音画锁死同源。
 3. **高颜值无标点呼吸字幕**：采用校准字宽的 `得意黑` / `思源黑体`（[fonts.yaml](styles/fonts.yaml)、[typography.md](references/typography.md)），单排无标点、按真静音拆呼吸组（[subtitle-rules.md](references/subtitle-rules.md)），绝不切断粤语/普通话固定词。
-4. **锚词花字与修辞同构 MG 动效卡**：重点词放大撑满 70% 屏宽（支持人物抠像脑后穿插 `behind` [background-removal.md](references/background-removal.md)），复杂关系自动匹配 7 类代码动效卡（`stat` 数字滚动 / `proportion` 比例条 / `day-night` 时段接力 / `versus` 对抗 / `steps` 步骤 / `term` 释义 / `chips` 招牌名牌，见 [mg-library.md](references/mg-library.md)）及物理天平/代码连续场景（[scene-art-standard.md](references/scene-art-standard.md)）。
+4. **锚词花字与修辞同构 MG 动效卡**：重点词放大撑满 70% 屏宽（支持人物抠像脑后穿插 `behind` [background-removal.md](references/background-removal.md)），复杂关系自动匹配 7 类代码动效卡（`stat` 数字滚动 / `proportion` 比例条 / `day-night` 时段接力 / `versus` 对抗 / `steps` 步骤 / `term` 释义 / `chips` 招牌名牌，见 [mg-library.md](references/mg-library.md)）；没见过的主题用**场景锻造闭环**从对话直接长出新场景（[scene-forge.md](references/scene-forge.md)：任务单 → AI 写代码 → 沙箱受限渲染 → 量化自审 → 签收），及物理天平/代码连续场景（[scene-art-standard.md](references/scene-art-standard.md)）。
 5. **16 款矢量动态情绪贴纸**：拒绝廉价糊脸贴图，用 `stickers.py` 内置多层受光 SVG 矢量徽章 + GSAP 弹簧微摆动画，自动落在四角安全区，绝不遮脸或撞字幕。
 6. **先声夺人与鼓点卡点节奏**：画面跟着声音块重音走（[audio-first.md](references/audio-first.md)、[rhythm-bands.md](references/rhythm-bands.md)），弹性镜头自动吸附 CC0 配乐鼓点（`beat_sync.py`），每处花字/贴纸/切镜精准配 CC0 音效并自动轮换变体防听觉疲劳（[sfx.md](references/sfx.md)）。
 7. **五套正交视觉包装包 + 电影感逐镜调色**：支持对话一键切换 `P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（暗调极简）、`P4-canton-warm`（餐饮烟火）、`P5-viral-pop`（百万博主高赞网感），见 [styles/catalog.json](styles/catalog.json) 与 [talking-head-v1.yaml](styles/talking-head-v1.yaml)。HDR 素材自动色调映射（[ffmpeg-zimg.md](references/ffmpeg-zimg.md)）并逐镜拉平亮度色温（`shot_match.py`）。
