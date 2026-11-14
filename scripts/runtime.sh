@@ -246,7 +246,7 @@ cmd_install() {
     pip3 install --quiet --target "$ROOT/py" "$name$spec" 2>/tmp/cutskills-pip.err && pip_ok=1
     if [ $pip_ok -eq 0 ]; then
       # SOCKS 代理环境缺 PySocks 会让 pip 直接 OSError——剥掉代理再试一次（直连能到 PyPI 就成）
-      env -u all_proxy -u ALL_PROXY -u http_proxy -u https_proxy \
+      env -u all_proxy -u ALL_PROXY -u http_proxy -u HTTP_PROXY -u https_proxy -u HTTPS_PROXY \
            pip3 install --quiet --target "$ROOT/py" "$name$spec" 2>>/tmp/cutskills-pip.err && pip_ok=1
     fi
     if [ $pip_ok -eq 0 ]; then
