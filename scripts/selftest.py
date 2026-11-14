@@ -60,6 +60,7 @@ OFFLINE_TESTS = [
     "test_sfx_variety.py",
     "test_scene_review.py",
     "test_scene_sandbox.py",
+    "test_r0_guards.py",
     "test_hygiene_fixtures.py",
 ]
 

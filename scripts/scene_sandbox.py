@@ -19,7 +19,8 @@
   python3 scripts/scene_sandbox.py --scenes-dir <项目>/scenes --scene <name> \
       --out <mp4> --dur 6.0 --fps 30 --size 1080x1920 [--marks "1.2,3.4"]
 
-退出码：0 成功；2 参数/文件错；3 静态检查拒绝（含违规 import）；4 超时或子进程崩溃。
+退出码：0 成功；2 参数/文件错；3 静态检查拒绝（含违规 import）；4 超时或子进程崩溃；
+5 本机没有 sandbox-exec 且未显式放行（评审 G-03：无隔离不跑 AI 代码）。
 """
 from __future__ import annotations
 
@@ -153,9 +154,10 @@ def render(args: argparse.Namespace) -> int:
 
     with tempfile.TemporaryDirectory(prefix="scene-sandbox-") as td:
         scratch = Path(td)
-        # ② 系统围栏：sandbox-exec 拒网（可用时），外层再叠墙钟超时
+        # ② 系统围栏：sandbox-exec 拒网；围栏缺席时**拒绝执行**——刚出生的 AI 代码
+        # 没有拒网/写盘围栏就是裸跑（评审 G-03），改机器环境或显式 --allow-unsandboxed。
         inner = [sys.executable, str(HERE / "gen_scene.py"),
-                 "--scene", args.scene, "--scenes-dir", str(src_dir),
+                 "--scene", args.scene, "--scene-file", str(scene_file),
                  "--out", str(out), "--dur", f"{float(args.dur):.3f}",
                  "--fps", str(args.fps), "--size", args.size]
         if args.marks:
@@ -165,10 +167,15 @@ def render(args: argparse.Namespace) -> int:
             pf = scratch / "scene-sandbox.sb"
             pf.write_text(profile)
             cmd = ["sandbox-exec", "-f", str(pf)] + inner
-        else:
+        elif args.allow_unsandboxed:
             cmd = inner
-            print("  ⚠ 本机没有 sandbox-exec，拒网围栏缺席（rlimit 与白名单仍然生效）",
+            print("  ⚠ 显式放行：本机没有 sandbox-exec，拒网围栏缺席（rlimit 与白名单仍然生效）",
                   file=sys.stderr)
+        else:
+            print("✗ 本机没有 sandbox-exec——AI 场景拒绝在无隔离环境执行（评审 G-03）。\n"
+                  "  装系统自带 sandbox-exec，或确认内网开发机后加 --allow-unsandboxed 显式放行。",
+                  file=sys.stderr)
+            return 5
         t0 = time.monotonic()
         try:
             r = subprocess.run(cmd, cwd=scratch, preexec_fn=_limits(cpu_s),
@@ -202,6 +209,8 @@ def main() -> int:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--size", default="1080x1920")
     ap.add_argument("--marks", default="")
+    ap.add_argument("--allow-unsandboxed", action="store_true",
+                    help="显式放行无 sandbox-exec 的裸跑（仅供内网开发机；默认拒绝，评审 G-03）")
     a = ap.parse_args()
     return render(a)
 

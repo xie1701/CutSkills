@@ -160,7 +160,9 @@ def pick_bgm(mood: str = "clear", need_s: float = 60.0, seed: str = "") -> dict 
         "dur": float(r["duration_s"] or 60.0),
         "category": r.get("category_zh") or r.get("category") or "",
         "why": spec["why"],
-        "licence": LICENCE,
+        # 许可是逐文件核验的结果，不是目录本身的属性（评审 G-07）：
+        # 库根没有留痕文件时这里就是 None，manifest 会如实标 unverified。
+        "licence": licence_of(BGM_LIB / r["file"]),
     }
 
 
@@ -191,7 +193,7 @@ def pick_sfx(name: str, nth: int = 0) -> dict | None:
         "sync_at": float(hit["sync_at_s"] or 0),
         "gain_db": float(hit["under_voiceover_db"] or -6),
         "use": hit.get("use_zh") or "",
-        "licence": LICENCE,
+        "licence": licence_of(SFX_LIB / hit["file"]),
     }
 
 

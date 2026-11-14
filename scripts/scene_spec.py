@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -34,8 +35,52 @@ BEAT_KEYS = ("subject", "action", "change", "camera", "audience", "sound")
 REVIEW_OK = {"ok", "approved", "signed", "done"}
 
 
+def scene_sig(proj: Path, scene_id: str, spec: dict) -> dict:
+    """签收指纹：场景源码 SHA1 + 音效事件指纹（评审 G-04）。
+
+    签收不再是字符串口号：review 里必须同时存着「签收那一刻」的场景代码哈希与
+    音效事件指纹。代码改一个字节、锚点改一条，指纹就不再吻合，签收自动失效、
+    场景回到待审。没有代码文件的纯信息卡任务单不做此校验。
+    """
+    src = proj / "scenes" / f"{scene_id}.py"
+    out: dict = {}
+    if src.exists():
+        try:
+            out["scene_sha1"] = hashlib.sha1(src.read_bytes()).hexdigest()[:12]
+        except OSError:
+            out["scene_sha1"] = "unreadable"
+    try:
+        payload = json.dumps((spec.get("audio") or {}).get("events") or [],
+                             ensure_ascii=False, sort_keys=True)
+        out["events_sha1"] = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    except (TypeError, ValueError):
+        out["events_sha1"] = "unreadable"
+    return out
+
+
+def sig_stale(sig: dict, spec: dict) -> list[str]:
+    """返回签收过期的原因清单（空 = 指纹吻合）。三项全签 + 指纹吻合才算有效签收。"""
+    rv = spec.get("review") or {}
+    unsigned = [k for k in ("visual", "audio", "truth")
+                if str(rv.get(k) or "").strip().lower() not in REVIEW_OK]
+    if unsigned:
+        return unsigned
+    stale: list[str] = []
+    for key, cur in sig.items():
+        recorded = str(rv.get(key) or "").strip()
+        if not recorded:
+            stale.append(f"{key} 没记指纹（用 scene_spec.py --sign 重签）")
+        elif recorded != cur:
+            stale.append(f"{key} 已过期（签收时 {recorded[:8]}…，现在是 {cur[:8]}…）")
+    return stale
+
+
 def review_signed(spec: dict) -> list[str]:
-    """返回未签收的 review 字段名列表（空列表 = 三项全签了）。"""
+    """返回未签收的 review 字段名列表（空列表 = 三项全签了）。
+
+    只看字符串——完整签收校验（含指纹过期，评审 G-04）在 main 里用
+    scene_sig / sig_stale 做，因为指纹需要 proj 与 scene_id 才能算。
+    """
     rv = spec.get("review") or {}
     return [k for k in ("visual", "audio", "truth")
             if str(rv.get(k) or "").strip().lower() not in REVIEW_OK]
@@ -85,8 +130,28 @@ def main() -> int:
     ap.add_argument("--project", required=True)
     ap.add_argument("--check", action="store_true", help="校验项目里全部 scene_spec 引用")
     ap.add_argument("--init", nargs=2, metavar=("SCENE_ID", "KIND"), default=None)
+    ap.add_argument("--sign", metavar="SCENE_ID",
+                    help="把当前场景代码与音效事件指纹写进任务单 review（签收动作的最后一步）")
     a = ap.parse_args()
     proj = Path(a.project).expanduser().resolve()
+
+    if a.sign:
+        sid = a.sign
+        p = proj / "scenes" / f"{sid}.json"
+        if not p.exists():
+            print(f"✗ 找不到任务单：{p}", file=sys.stderr)
+            return 2
+        spec = json.loads(p.read_text())
+        unsigned = review_signed(spec)
+        if unsigned:
+            print(f"✗ {sid}.json 还没签完（{','.join(unsigned)} 是 pending）——"
+                  f"先把 review 三项改成 ok 再 --sign 盖指纹", file=sys.stderr)
+            return 2
+        spec.setdefault("review", {}).update(scene_sig(proj, sid, spec))
+        p.write_text(json.dumps(spec, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"→ 已把指纹盖进 {p.name}："
+              f"{', '.join(f'{k}={v[:8]}' for k, v in scene_sig(proj, sid, spec).items())}")
+        return 0
 
     if not (a.init or a.check):
         a.check = True   # 默认就是校验，--check 是显式写法
@@ -147,6 +212,11 @@ def main() -> int:
             errs.append(f"gen-{el.get('n')} 的任务单 {sid}.json 审核未签收："
                         f"{','.join(unsigned)} 还是 pending——先跑 scene_review.py 拿到读数、"
                         f"由审核工位把 review.{unsigned[0]} 改成 {sorted(REVIEW_OK)[0]} 才许渲")
+        else:
+            # 评审 G-04：签收必须与场景代码/音效事件指纹绑定，代码改一字节签收即失效。
+            stale = sig_stale(scene_sig(proj, sid, spec), spec)
+            for s in stale:
+                errs.append(f"gen-{el.get('n')} 的任务单 {sid}.json 签收过期：{s}")
 
     for w in warns:
         print(f"  ! {w}")

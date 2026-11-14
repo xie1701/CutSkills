@@ -818,6 +818,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="phase",
                     help="场景名；--scenes-dir 接进来的项目级场景也能用（手工校验，不用 choices）")
+    ap.add_argument("--scene-file", default="",
+                    help="沙箱专用：只加载这一个场景 .py 文件。\n"
+                         "不走目录扫描——同目录里未审查的同伙文件一个都不许执行（评审 G-02）；\n"
+                         "文件里 SCENE_ID 必须与 --scene 一致，否则拒绝渲染。")
     ap.add_argument("--scenes-dir", default="",
                     help="额外的场景源码目录（项目 scenes/）；AI 新写的场景从这里接进注册表，"
                          "渲染本身应走 scene_sandbox.py（拒网 + rlimit），不要直接裸跑本脚本")
@@ -832,7 +836,19 @@ def main() -> int:
                     help="只量亮度剖面，不出片：每个场景都要「越演越有东西」，"
                          "结尾比中间空就是节拍写错了（视觉模型判不了这个）")
     a = ap.parse_args()
-    if a.scenes_dir:
+    if a.scene_file:
+        # 沙箱专用入口：只执行静态检查过的这一个文件，绝不扫目录（评审 G-02）。
+        sf = Path(a.scene_file).expanduser().resolve()
+        got = _load_scene_file(sf)
+        if not got:
+            print(f"✗ 场景文件加载失败：{sf}", file=sys.stderr)
+            return 2
+        if got[0] != a.scene:
+            print(f"✗ 文件里的 SCENE_ID={got[0]!r} 与请求的 --scene {a.scene!r} 不一致，拒绝渲染",
+                  file=sys.stderr)
+            return 2
+        SCENES[got[0]] = got[1]
+    elif a.scenes_dir:
         added = register_scenes_dir(Path(a.scenes_dir).expanduser())
         if added:
             print(f"  · 项目场景已注册：{', '.join(added)}")

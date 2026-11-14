@@ -23,7 +23,7 @@ from pathlib import Path
 
 HOOK_BANK = {
     "H01": {"name": "不字/禁止开头", "tpl": "千万别在没搞懂{core}之前，随便花冤枉钱！"},
-    "H02": {"name": "反常识颠覆", "tpl": "90%的人都以为{core}靠堆预算，其实恰恰相反！"},
+    "H02": {"name": "反常识颠覆", "tpl": "大多数人都以为{core}靠堆预算，其实恰恰相反！"},
     "H03": {"name": "具体数字反差", "tpl": "同样做{core}，有人花三万翻车，有人花三千做出高级感。"},
     "H04": {"name": "做观众嘴替", "tpl": "是不是每次看{core}，都被一堆听不懂的行话绕晕了？"},
     "H05": {"name": "揭秘行业猫腻", "tpl": "做{core}最容易踩的三个暗坑，今天我把底牌亮给你看。"},
@@ -31,7 +31,7 @@ HOOK_BANK = {
     "H07": {"name": "痛点直球疑问", "tpl": "为什么别人做的{core}越看越耐看，你一上手就踩雷？"},
     "H08": {"name": "算清成本明账", "tpl": "把{core}的成本拆成两半看，你就知道钱到底该花在哪儿了。"},
     "H09": {"name": "现场冲突切入", "tpl": "看好了！这就是{core}省掉关键一步的真实后果。"},
-    "H10": {"name": "结果倒叙吸睛", "tpl": "只改了两个小细节，{core}质感直接翻倍，怎么做到的？"},
+    "H10": {"name": "结果倒叙吸睛", "tpl": "只改了两个小细节，{core}质感直接上一个台阶，怎么做到的？"},
 }
 
 STREAMS = [
@@ -148,7 +148,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "sfx": "ding",
                 },
             ]
-            title_bar = {"top": f"做{_short_core(core)}前必看", "main": "90%踩过的隐形坑"}
+            title_bar = {"top": f"做{_short_core(core)}前必看", "main": "大多数人踩过的隐形坑"}
         elif st["stream"] == "bucket_persona":
             beats = [
                 {
@@ -212,7 +212,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                         "template": "balance",
                         "props": {
                             "left": {"title": "好料一步到位", "value": "省心耐用"},
-                            "right": {"title": "贪便宜返工", "value": "耗时翻倍"},
+                            "right": {"title": "贪便宜返工", "value": "越拖越贵"},
                             "note": "算总账别只看单价",
                         },
                     },

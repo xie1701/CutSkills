@@ -753,7 +753,12 @@ def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> P
     """
     from gen_scene import SCENES
     name = str((el.get("props") or {}).get("scene") or "")
-    if name not in SCENES:
+    # 场景源码：项目 scenes/ 优先（AI 迭代中的新场景可覆盖同名内置场景），否则内置。
+    # 项目级新场景不要求先进注册表（评审 G-01）：文件在就直接走沙箱，
+    # 沙箱里 --scene-file 只加载它自己 + SCENE_ID 必须对得上。
+    src_proj = proj / "scenes" / f"{name}.py"
+    src_builtin = Path(__file__).with_name("scenes") / f"{name}.py"
+    if name not in SCENES and not src_proj.exists() and not src_builtin.exists():
         raise SystemExit(f"格 {el.get('n')} 的场景「{name}」不认识（{'/'.join(sorted(SCENES))}）")
     dur = float(el.get("dur") or 0)
     mk = el.get("marks") or (el.get("props") or {}).get("marks") or ""
@@ -762,9 +767,6 @@ def scene_mp4(proj: Path, el: dict, FPS: int, W: int = 1080, H: int = 1920) -> P
     # 缓存键必须含场景源代码哈希与分辨率：改了绘图逻辑/换尺寸不改 marks 也要重画，
     # 否则返工会被旧 mp4 假装完成（评审 P0-03）。
     import hashlib
-    # 场景源码：项目 scenes/ 优先（AI 迭代中的新场景可覆盖同名内置场景），否则内置。
-    src_proj = proj / "scenes" / f"{name}.py"
-    src_builtin = Path(__file__).with_name("scenes") / f"{name}.py"
     src = src_proj if src_proj.exists() else src_builtin
     try:
         shash = hashlib.sha1(src.read_bytes()).hexdigest()[:8] if src.exists() else "nosrc"
@@ -2559,10 +2561,14 @@ def gen_props_sfx(el: dict, proj: Path | None = None) -> list[dict]:
             own_pairs = [(_fnum(e.get("t")), str(e.get("name") or ""))
                          for e in evs if isinstance(e, dict)]
             if own_pairs != spec_pairs:
-                print(f"  ⚠ props.events 与任务单 scenes/{sid}.json 的 audio.events 不一致"
-                      f"（props {len(own_pairs)} 条 / 任务单 {len(spec_pairs)} 条）——"
-                      f"渲染以 props.events 为准；改了动作锚点请同步任务单，"
-                      f"或删掉 props.events 改由任务单编译", file=sys.stderr)
+                # 评审 G-05：事件唯一出处是任务单。两边不一致不再是警告后照渲——
+                # 音效锚点是画面的动作节点，拿 props 自说自话就是拿旧动作骗签收。
+                raise SystemExit(
+                    f"✗ props.events 与任务单 scenes/{sid}.json 的 audio.events 不一致"
+                    f"（props {len(own_pairs)} 条 / 任务单 {len(spec_pairs)} 条）——渲停。\n"
+                    f"  改了动作锚点就同步任务单；或删掉 props.events 改由任务单编译。")
+        except SystemExit:
+            raise
         except Exception:                                 # noqa: BLE001
             pass
     if not isinstance(evs, list):
@@ -2831,9 +2837,13 @@ def write_sfx_manifest(proj: Path, sfx_events: list[dict]) -> Path | None:
         try:
             b = json.loads(stamp.read_text())
             if b.get("source") == "cc0" and b.get("file"):
-                lic = (cc0_lib.licence_of(b["file"]) if cc0_lib else None) or "CC0 1.0 Universal"
-                bgm_row = {"source": "cc0", "title": b.get("title"), "file": b.get("file"),
-                           "licence": lic, "sha256_16": _sha(b["file"]), "why": b.get("why")}
+                # 评审 G-07：许可只认 licence_of（库根有留痕文件才认 CC0）。
+                # 查不到留痕就如实标未核验，绝不回退写死 "CC0 1.0 Universal"。
+                lic = (cc0_lib.licence_of(b["file"]) if cc0_lib else None)
+                bgm_row = {"source": "cc0" if lic else "unverified",
+                           "title": b.get("title"), "file": b.get("file"),
+                           "licence": lic, "sha256_16": _sha(b["file"]), "why": b.get("why"),
+                           **({} if lic else {"note": "许可未核验：商用发布前必须人工确认授权"})}
             else:
                 # 合成的（无 file）与外部指定的（有 file 无许可）都要如实写
                 bgm_row = {"source": b.get("source") or "unknown", "title": b.get("title"),
@@ -2859,20 +2869,28 @@ def write_sfx_manifest(proj: Path, sfx_events: list[dict]) -> Path | None:
             sfx_rows.append({"name": name, "source": "missing", "licence": None})
             continue
         p = spec.get("path") or ""
-        lic = (cc0_lib.licence_of(p) if cc0_lib else None) or spec.get("licence")
+        # 评审 G-07：许可只认 licence_of 逐文件核验；spec 里的默认字符串不算证据。
+        lic = (cc0_lib.licence_of(p) if (cc0_lib and p) else None)
         row = {"name": name, "id": spec.get("id"), "file": p,
                "licence": lic, "sha256_16": _sha(p) if p else None}
-        if lic is None:
+        if not p:
             row["source"] = "procedural"
-            row["note"] = "本地代码合成，无第三方素材风险" if p else "未找到音效文件"
+            row["note"] = "本地代码合成，无第三方素材风险"
+        elif lic is None:
+            row["source"] = "unverified"
+            row["note"] = "逐文件许可未核验：商用发布前必须人工确认授权"
         else:
             row["source"] = "cc0"
         sfx_rows.append(row)
 
-    lic_all = {r.get("licence") for r in ([bgm_row] + sfx_rows) if r}
-    summary = ("全部 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名）"
-               if lic_all == {"CC0 1.0 Universal"}
-               else "存在未核验或非 CC0 来源：商用发布前逐条人工确认")
+    rows_all = [r for r in ([bgm_row] + sfx_rows) if r]
+    n_unverified = sum(1 for r in rows_all if r.get("licence") is None)
+    lic_all = {r.get("licence") for r in rows_all}
+    if lic_all == {"CC0 1.0 Universal"}:
+        summary = ("全部 CC0 1.0 Universal（公有领域：可商用、可再分发、无需署名）")
+    else:
+        summary = (f"存在未核验或非 CC0 来源（{n_unverified} 条 licence=None）："
+                   "商用发布前逐条人工确认")
     m = {"licence_summary": summary, "bgm": bgm_row, "sfx": sfx_rows}
     dst = out / "sfx_manifest.json"
     dst.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
