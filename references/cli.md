@@ -724,6 +724,17 @@
 | `--out` | — |
 | `--mg` | 另外真渲三张 MG 卡（stat/term/versus），需要 hyperframes |
 
+### `revise.py`
+*revise.py——对话式局部改片（R2 里程碑）：用户说人话，系统定位→改→只重渲必要内容。*
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | **必填** |
+| `--library` | — |
+| `--instruction` | **必填**　用户原话 |
+| `--apply` | 真正写盘；缺省只演练出 diff |
+| `--no-render` | 只改不渲（改完由 Agent 决定） |
+
 ### `scene_review.py`
 *场景自审：给一段场景视频（或成片里的一格）出一份「每条判据都带读数」的复核报告。*
 

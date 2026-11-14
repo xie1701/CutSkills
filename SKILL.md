@@ -122,6 +122,10 @@ python3 scripts/check_sfx.py --project <项目目录>
 python3 scripts/gate.py --project <项目目录>
 python3 scripts/review_sheet.py --project <项目目录>
 
+# 成片反馈后的对话式局部改片（R2）：说人话定位→改→自动守卫→只重渲必要内容
+python3 scripts/revise.py --project <项目目录> --library <素材库> --instruction "第3段的音效小声点"   # 演练
+python3 scripts/revise.py --project <项目目录> --library <素材库> --instruction "结尾那张卡换成少喂表格，多干正事" --apply
+
 # 交付：刷新可播放产出总表 / 一键启动 HyperFrames Studio 浏览器微调工程页
 python3 scripts/showcase.py
 python3 scripts/studio.py --project <项目目录>

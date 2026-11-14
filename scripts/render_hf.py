@@ -2615,6 +2615,14 @@ def gen_props_sfx(el: dict, proj: Path | None = None) -> list[dict]:
                 print(f"  ⚠ props.events[{name}] 的 gain_db 不是数字，用缺省档",
                       file=sys.stderr)
                 gain = CARD_SFX.get(name, (None, -6.0))[1]
+        # 对话式改片（R2）：元素级音效增减档「这段音效小声点」——
+        # revise.py 写 props.sfx_gain_offset，不改任务单、不破签收指纹。
+        off = (el.get("props") or {}).get("sfx_gain_offset")
+        if off is not None:
+            try:
+                gain = round(gain + float(off), 2)
+            except (TypeError, ValueError):
+                pass
         out.append({"t": start + t, "name": name, "gain_db": gain,
                     "for": f"ev-{name}"})
     return out
