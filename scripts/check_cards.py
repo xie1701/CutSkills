@@ -335,6 +335,11 @@ def audit(proj: Path, lib: Path | None = None) -> list[tuple[str, str]]:
     if not cards:
         if tl.get("axis") == "B" and not any(e.get("card") for e in (tl.get("elements") or [])):
             return []
+        # 零拍摄路线：全片没有实拍/图片素材，画面本体就是 gen 卡（大字/对比/步骤）。
+        # 要求再叠一层锚词卡是双卡打架，不判。
+        has_footage = any(e.get("kind") in ("clip", "image") for e in (tl.get("elements") or []))
+        if not has_footage:
+            return []
         return [("error", "一块卡都没有——先确认 plan_card 的「已使用」清单")]
 
     # 1. 时长与相邻

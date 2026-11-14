@@ -1752,7 +1752,7 @@ document.querySelectorAll(".gen").forEach((c) => {{
       {{ opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
          immediateRender: false }}, when);
   }});
-  // 文字接力（micro）：长卡的大字按台词气口分几段换着出，每段 {t} 由编导按字数占比算好。
+  // 文字接力（micro）：长卡的大字按台词气口分几段换着出，每段 data-t 由编导按字数占比算好。
   // 老段换新段时先收后弹，跟 MG 卡的进场同一条缓动，避免硬切换字。
   const mstack = c.querySelector(".mstack");
   if (mstack) {{
