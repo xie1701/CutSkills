@@ -1765,6 +1765,13 @@ document.querySelectorAll(".gen").forEach((c) => {{
         {{ opacity: 1, y: 0, duration: 0.3, ease: "power2.out", immediateRender: false }}, at);
     }});
   }}
+  // 长卡的呼吸感：子件都进场后，整卡做 1.2% 的慢呼吸（0.9s 一吸一呼），
+  // 画面不因为后半段没新事件就冻成一张静态图（实测 2s 一模一样被判「不是画面」）。
+  if (d > 3.0) {{
+    tl.to(c, {{ scale: 1.012, duration: 0.9, yoyo: true,
+                repeat: Math.max(1, Math.floor((d - 0.9) / 1.8)),
+                ease: "sine.inOut", immediateRender: false }}, t + 0.5);
+  }}
   // 天平：横杆先向下倾（只比原料价 → 左边沉），口径换成成品总价时，
   // 右边补上后落的矶码，横杆回平。形状即语义：一边沉一边轻＝不等价。
   const beam = c.querySelector(".beam");
@@ -2468,7 +2475,7 @@ def build_html(*, slug, W, H, FPS, total, videos, caps, cards, style, fonts, gra
 # whoosh 在无垫乐时抬 18 dB、有垫乐时只剩 8–9 dB）。90ms duck 只能管住入场那一瞬。
 CARD_SFX = {"keyword": ("pop-medium-in", 1.5), "behind": ("impact-light-firm", 1.0),
             "cutout": ("impact-light-firm", 1.0), "idcard": ("whoosh-medium-soft", 0.5),
-            "gen": ("appear-materialise", 0.0)}
+            "gen": ("appear-materialise", 2.0)}
 
 # 音效落在连续人声上，光靠调增益听不出来（实测只涨 1–3 dB）：得让声音给它让位。
 # 90ms、-6dB，耳朵听不出人声被压，但音效的瞬态就露出来了。
@@ -3167,6 +3174,7 @@ def main():
                              "asset": au.get("asset") or el.get("asset"),
                              "in": au.get("in"), "out": au.get("out"),
                              "audio": au, "medium": "talking",
+                             "card": el.get("card"),
                              "evidence": el.get("evidence")})
     active = sorted(carriers, key=lambda s: s["_start"])
     # 2026-11-09 换实现：按呼吸组切、去标点、单行、数字与否定词变色（scripts/subs.py）。
