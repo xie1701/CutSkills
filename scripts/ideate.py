@@ -118,7 +118,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "line": f"真正决定{core}成败的，从来不是最贵的那一层表面功夫，而是看不见的底层细节。",
                     "visual_mode": "talking",
                     "shoot_tip": "继续面对窗户自然光说话，手势自然比一个『1』",
-                    "card": {"kind": "keyword", "text": "胜负在底层细节", "on": "底层细节"},
+                    "card": {"kind": "keyword", "text": "看不见的底层细节", "on": "底层细节"},
                     "sfx": "pop",
                 },
                 {
@@ -223,7 +223,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "line": f"教你一招最简单的判断法：别听嘴上吹什么概念，直接让他拿实物小样现场比对。",
                     "visual_mode": "talking_or_gen",
                     "shoot_tip": "对镜头支招，像跟老朋友私底下聊天一样自然",
-                    "card": {"kind": "keyword", "text": "直接看实物小样", "on": "实物小样"},
+                    "card": {"kind": "keyword", "text": "直接拿实物小样", "on": "实物小样"},
                     "sticker": {"id": "bulb-idea", "pos": "top-left"},
                     "sfx": "pop",
                 },
