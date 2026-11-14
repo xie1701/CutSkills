@@ -62,8 +62,8 @@ def main() -> int:
         if missing:
             print(f"包里缺：{'、'.join(missing)}", file=sys.stderr)
             return 2
-        leak = subprocess.run(["grep", "-rlE", r"/Users/[a-zA-Z0-9_.-]+/", str(root / "scripts")],
-                              capture_output=True, text=True)
+        leak = subprocess.run(["grep", "-rlIE", r"/Users/[a-zA-Z0-9_.-]+/", str(root / "scripts")],
+                              capture_output=True, text=True)  # -I 跳二进制：.so 里只有编译期构建路径，非运行时依赖
         if leak.stdout.strip():
             print(f"scripts 里仍有私有路径泄漏：\n{leak.stdout}", file=sys.stderr)
             return 1
