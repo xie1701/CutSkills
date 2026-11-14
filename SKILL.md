@@ -130,6 +130,11 @@ python3 scripts/revise.py --project <项目目录> --library <素材库> --instr
 python3 scripts/showcase.py
 python3 scripts/studio.py --project <项目目录>
 
+# 内容循环辅助分析（R4）：用户主动提供发布后台导出的 CSV → 下一条内容建议（只给相对信号，不承诺播放量）
+# CSV 列表头中英兼容：日期/标题/播放/平均观看时长占比/点赞/评论/分享/收藏/涨粉/内容类型（可选）
+python3 scripts/insights.py --library <素材库> --csv 发布数据.csv
+# 产出 <素材库>/insights/report.md（人话版建议）+ metrics.json；样本 <5 条时只明说「样本不够」，不硬编建议
+
 # 收工必跑（渲 → 验 → 清）：回收全部可重建的临时切片与缓存，保留成片与真值源
 python3 scripts/tidy.py --apply
 ```
