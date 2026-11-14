@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import zipfile
@@ -27,6 +28,21 @@ REPO = HERE.parent
 # tests/（含 tests/fixtures/ 的回归夹具）必须随包发：selftest.py 与 scripts/test_*.py
 # 是交付物的一部分，用户拿到解压包后要能一条命令自检——夹具缺了它们必红。
 EXCLUDE_PREFIXES = ("docs/",)
+
+
+def _restore_modes(zpath: Path, root: Path) -> int:
+    """把 zip 里记的执行位补回磁盘（zipfile.extractall 不做这件事）。返回补了几个。"""
+    n = 0
+    with zipfile.ZipFile(zpath) as z:
+        for info in z.infolist():
+            mode = (info.external_attr >> 16) & 0o777
+            if not mode or not (mode & 0o100):
+                continue
+            f = root / info.filename
+            if f.is_file() and not os.access(f, os.X_OK):
+                f.chmod(0o755)
+                n += 1
+    return n
 
 
 def main() -> int:
@@ -94,6 +110,10 @@ def main() -> int:
             z.extractall(td)
             names = z.namelist()
         root = Path(td)
+        # zipfile.extractall **不还原权限位**（这是 Python 的已知行为，`unzip` 会还原）。
+        # 包里有可执行文件（scripts/native/person_mask 等），不补这一步就会验出假红：
+        # 「Permission denied」看起来像包坏了，其实只是解压方式不同。
+        restored = _restore_modes(zpath, root)
         missing = [f for f in ("SKILL.md", "GETTING-STARTED.md",
                                "config.example.json", "scripts/runtime.sh",
                                "scripts/doctor.py", "deps.json") if not (root / f).exists()]
@@ -108,7 +128,8 @@ def main() -> int:
         n_files = len([n for n in names if not n.endswith("/")])
         print(f"✅ {zpath}")
         print(f"   {n_files} 个文件 · {zpath.stat().st_size / 1e6:.1f} MB"
-              f"（已排除 {'、'.join(p.rstrip('/') for p in EXCLUDE_PREFIXES)} 共 {dropped} 项）")
+              f"（已排除 {'、'.join(p.rstrip('/') for p in EXCLUDE_PREFIXES)} 共 {dropped} 项）"
+              f" · 可执行 {restored} 个")
         print(f"   上手：解开后读 GETTING-STARTED.md（或整包丢给 AI 工位）")
     return 0
 
