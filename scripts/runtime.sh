@@ -242,8 +242,15 @@ cmd_install() {
       continue
     fi
     echo "  → 安装 pip $name"
-    if ! pip3 install --quiet --target "$ROOT/py" "$name$spec" 2>/tmp/cutskills-pip.err; then
-      # pip 走 SOCKS 代理常失败（缺 PySocks）。随包 vendor 里有就直接搬进来，
+    pip_ok=0
+    pip3 install --quiet --target "$ROOT/py" "$name$spec" 2>/tmp/cutskills-pip.err && pip_ok=1
+    if [ $pip_ok -eq 0 ]; then
+      # SOCKS 代理环境缺 PySocks 会让 pip 直接 OSError——剥掉代理再试一次（直连能到 PyPI 就成）
+      env -u all_proxy -u ALL_PROXY -u http_proxy -u https_proxy \
+           pip3 install --quiet --target "$ROOT/py" "$name$spec" 2>>/tmp/cutskills-pip.err && pip_ok=1
+    fi
+    if [ $pip_ok -eq 0 ]; then
+      # pip 走不通。随包 vendor 里有就直接搬进来，
       # 保持「所有依赖都在 $CUTSKILLS_HOME」这一条不破。
       if [ -d "$HERE/vendor/$name" ]; then
         cp -R "$HERE/vendor/$name" "$ROOT/py/" 2>/dev/null && \
