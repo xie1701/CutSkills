@@ -259,6 +259,8 @@ GEN_CSS = """
             opacity:0.92; line-height:1; }
 .gen .num { font-family:"SC-Big",sans-serif; font-weight:900; color:var(--accent,#F6EB34); line-height:1; }
 .gen blockquote { font-family:"SC-Big",sans-serif; font-weight:900; line-height:1.3; }
+.gen .mstack { display:grid; justify-items:center; align-content:center; width:100%; }
+.gen .mstack > * { grid-area:1/1; }
 .gen cite { font-family:"SC-Sub",sans-serif; font-style:normal; opacity:0.7; }
 .gen ol { list-style:none; width:100%; display:flex; flex-direction:column; gap:26px; }
 .gen ol li { display:flex; gap:26px; align-items:baseline; }
@@ -339,6 +341,17 @@ def gen_child_times(el: dict, amap: dict | None) -> list[float]:
     return [max(0.0, min(round(d - 0.25, 3), p_)) for p_ in peaks]
 
 
+def _micro_stages(el: dict, tpl_html: str) -> list[str]:
+    """micro 文字接力：把 {t,text} 序列渲染成同格叠放的换字层（GSAP 按 data-t 接力换字）。
+    长卡的大字按台词气口分几段换着出，避免整段死屏——判据与渲器共用同一份 micro。"""
+    out = []
+    for it in (el.get("micro") or []):
+        if isinstance(it, dict) and it.get("text") is not None:
+            out.append(str(tpl_html).replace("{t}", f"{float(it.get('t') or 0):.2f}")
+                       .replace("{}", esc(str(it["text"]))))
+    return out
+
+
 def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None) -> str:
     """一张代码画出来的整屏。**只吃参数，不吃素材**——库里没有的画面靠它补。"""
     tpl = el.get("template")
@@ -353,9 +366,16 @@ def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None
             f'{ct_attr}{carry_attr}>')
     body = ""
     if tpl == "keyword":
-        body = (f'<div class="big" style="font-size:{int(H * 0.105)}px">{esc(p.get("text"))}</div>'
-                + (f'<div class="sm" style="font-size:{int(H * 0.026)}px;margin-top:26px">'
-                   f'{esc(p.get("sub"))}</div>' if p.get("sub") else ""))
+        _kw_tpl = f'<div class="big" data-t="{{t}}" style="font-size:{int(H * 0.105)}px">{{}}</div>'
+        stg = _micro_stages(el, _kw_tpl)
+        if stg:
+            body = (f'<div class="mstack">{"".join(stg)}</div>'
+                    + (f'<div class="sm" style="font-size:{int(H * 0.026)}px;margin-top:26px">'
+                       f'{esc(p.get("sub"))}</div>' if p.get("sub") else ""))
+        else:
+            body = (f'<div class="big" style="font-size:{int(H * 0.105)}px">{esc(p.get("text"))}</div>'
+                    + (f'<div class="sm" style="font-size:{int(H * 0.026)}px;margin-top:26px">'
+                       f'{esc(p.get("sub"))}</div>' if p.get("sub") else ""))
     elif tpl == "compare":
         def fit_px(txt, max_px, max_chars=6, floor_px=0.028):
             """按字数缩字号：11 个字塞进半屏宽，用 0.052H 会折成五行。"""
@@ -573,9 +593,15 @@ def gen_html(el: dict, H: int, total: float = 0.0, ct: list[float] | None = None
         body = ((f'<div class="sm" style="font-size:{int(H * 0.024)}px;margin-bottom:44px">'
                  f'{esc(p.get("title"))}</div>' if p.get("title") else "") + f'<ol>{lis}</ol>')
     elif tpl == "quote":
-        body = (f'<blockquote style="font-size:{int(H * 0.042)}px">“{esc(p.get("text"))}”</blockquote>'
-                + (f'<cite style="font-size:{int(H * 0.024)}px;margin-top:40px">—— {esc(p.get("who"))}</cite>'
-                   if p.get("who") else ""))
+        _qt_tpl = f'<blockquote data-t="{{t}}" style="font-size:{int(H * 0.042)}px">{{}}</blockquote>'
+        stg = _micro_stages(el, _qt_tpl)
+        _cite = (f'<cite style="font-size:{int(H * 0.024)}px;margin-top:40px">—— {esc(p.get("who"))}</cite>'
+                 if p.get("who") else "")
+        if stg:
+            body = f'<div class="mstack">{"".join(stg)}</div>' + _cite
+        else:
+            body = (f'<blockquote style="font-size:{int(H * 0.042)}px">“{esc(p.get("text"))}”</blockquote>'
+                    + _cite)
     elif tpl == "chapter":
         body = (f'<div class="chn" style="font-size:{int(H * 0.19)}px">{esc(p.get("n"))}</div>'
                 f'<div class="big" style="font-size:{int(H * 0.042)}px;margin-top:18px">{esc(p.get("title"))}</div>')
@@ -1725,6 +1751,19 @@ document.querySelectorAll(".gen").forEach((c) => {{
       {{ opacity: 1, y: 0, duration: 0.28, ease: "power2.out",
          immediateRender: false }}, when);
   }});
+  // 文字接力（micro）：长卡的大字按台词气口分几段换着出，每段 {t} 由编导按字数占比算好。
+  // 老段换新段时先收后弹，跟 MG 卡的进场同一条缓动，避免硬切换字。
+  const mstack = c.querySelector(".mstack");
+  if (mstack) {{
+    const stg = Array.from(mstack.children);
+    stg.forEach((s, i) => {{
+      const at = t + parseFloat(s.dataset.t || 0);
+      tl.set(s, {{ opacity: 0 }}, t);
+      if (i > 0) tl.set(stg[i - 1], {{ opacity: 0 }}, at);
+      tl.fromTo(s, {{ opacity: 0, y: 18 }},
+        {{ opacity: 1, y: 0, duration: 0.3, ease: "power2.out", immediateRender: false }}, at);
+    }});
+  }}
   // 天平：横杆先向下倾（只比原料价 → 左边沉），口径换成成品总价时，
   // 右边补上后落的矶码，横杆回平。形状即语义：一边沉一边轻＝不等价。
   const beam = c.querySelector(".beam");

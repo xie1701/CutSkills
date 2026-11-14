@@ -148,7 +148,10 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                     out.append(("warning", f"#{n} 有 {gap:.1f}s 没有任何画面变化"
                                             f"（卡内微事件目标 ≤{_mg}s 一次）"))
         elif kind == "gen" and ver >= 5 and d > MICRO_GAP_MAX * 2:
-            out.append(("warning", f"#{n} {d:.1f}s 的 gen 没写 micro：整段画面是死的"))
+            # 只提醒「大字一张撑到底」的文字主卡和场景卡；compare/steps/flow 这类
+            # 卡型渲器原生就是子件逐条进场（.gen 块的 kids 逐个 fromTo），不是死卡。
+            if str(el.get("template") or "") in ("keyword", "quote", "number", "chapter", "scene"):
+                out.append(("warning", f"#{n} {d:.1f}s 的 gen 没写 micro：整段画面是死的"))
 
         # ---- 分类校验
         if kind in ("clip", "image"):
@@ -277,8 +280,12 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
     gen_s = sum(element_dur(e) for e in els
                 if e.get("kind") in ("gen", "silence") and e.get("track") != "overlay")
     if total and gen_s / total > 0.25:
-        out.append(("warning", f"代码生成占 {gen_s / total:.0%}（{gen_s:.1f}s），超过 25%"
-                               f"就开始像 PPT 了——要么补素材，要么砍论点"))
+        # 零拍摄路线（库里只有 AI 配音、没有任何实拍/图片素材）全片必然 100% 生成，
+        # 「补素材」的建议无从谈起，不判；有实拍库还大量用代码画面才提醒。
+        has_footage = any(e.get("kind") in ("clip", "image") for e in els)
+        if has_footage:
+            out.append(("warning", f"代码生成占 {gen_s / total:.0%}（{gen_s:.1f}s），超过 25%"
+                                   f"就开始像 PPT 了——要么补素材，要么砍论点"))
 
     roles = {e.get("role") for e in els}
     if "warrant" not in roles:

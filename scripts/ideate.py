@@ -342,12 +342,53 @@ def render_shoot_guide(idea: dict) -> str:
     return "\n".join(lines)
 
 
+MG_ROLE_OF = {"setup": "organization", "hook": "organization", "claim": "explanation",
+              "evidence": "evidence", "warrant": "explanation", "turn": "calibration",
+              "payoff": "action", "close": "consequence"}
+TEXT_CHAIN_TPLS = ("keyword", "quote")      # 渲器支持 micro 文字接力的卡型
+NUM_TPLS = {"compare", "number", "chart", "balance"}   # 数字卡：无出处时必须标 approx
+
+
+def _phrases(line: str) -> list[str]:
+    parts = [p.strip() for p in re.split(r"[，。！？；、,.!?;:]", str(line)) if p.strip()]
+    return parts or [str(line).strip()]
+
+
+def _micro_chain(line: str, dur: float) -> list[dict] | None:
+    """按台词标点气口把长卡大字拆成几段接力（渲器 .mstack 逐段换字）。
+    时刻按各短语字数占比分配，保证换字节奏跟配音语流一致。"""
+    parts = _phrases(line)
+    if len(parts) < 2:
+        return None
+    total = sum(len(p) for p in parts) or 1
+    out, cur = [], 0.0
+    for p in parts:
+        out.append({"t": round(cur, 2), "text": p})
+        cur += dur * len(p) / total
+    return out
+
+
+def _tpl_for_dur(dur: float, base: str, line: str) -> tuple[str, dict]:
+    """音频窗比这张卡能撑的上限还长 → 升级卡型，别让「会显得空」漏到成片。"""
+    tpl = base
+    props: dict = {}
+    if tpl == "keyword" and dur > 6.0:
+        if dur <= 7.0:
+            tpl = "quote"                  # 整句引言卡，能擕 7s
+        else:
+            ph = _phrases(line)
+            tpl = "steps" if dur <= 8.0 else "flow"
+            props = {"items": ph}
+    return tpl, props
+
+
 def ideation_to_plan(proj: Path, idea: dict, *, vo_asset: str | None = None,
                      vo_spans: list[tuple[float, float]] | None = None) -> tuple[Path, Path]:
     """把选定的选题脚本转成 brief.json + plan.json（支持零实拍纯代码画面 + AI 配音时间窗）。"""
     sel = int(idea.get("selected_proposal") or 1)
     prop = next((p for p in idea["proposals"] if p["index"] == sel), idea["proposals"][0])
     beats_in = prop["beats"]
+    who = str(idea.get("persona") or "").strip() or "内行人"
 
     segments = []
     beats_meta = []
@@ -364,16 +405,30 @@ def ideation_to_plan(proj: Path, idea: dict, *, vo_asset: str | None = None,
         cur_t = round(cur_t + dur, 3)
 
         fb = b.get("code_fallback") or {"template": "keyword", "props": {"text": b["line"][:7]}}
+        tpl = str(fb.get("template") or "keyword")
+        up_tpl, up_props = _tpl_for_dur(dur, tpl, b["line"])
+        if up_tpl != tpl:
+            tpl = up_tpl
+        props = dict(fb.get("props") or {})
+        props.update(up_props or {})
+        if tpl == "quote" and not props.get("text"):
+            props = {"text": b["line"], "who": who}
         seg: dict = {
             "kind": "gen",
-            "template": fb["template"],
-            "props": fb["props"],
+            "template": tpl,
+            "props": props,
             "dur": dur,
             "beat": n,
             "role": b.get("role") or "claim",
+            "mg_role": MG_ROLE_OF.get(str(b.get("role") or "")),
             "evidence": b["line"],
             "why": f"{b.get('phase') or '叙事段落'}：代码动效承载主视觉",
         }
+        micro = _micro_chain(b["line"], dur) if tpl in TEXT_CHAIN_TPLS else None
+        if micro:
+            seg["micro"] = micro
+        if tpl in NUM_TPLS:
+            seg["approx"] = True      # 零拍摄路线没有可引用出处，画面标「示意」
         if vo_asset:
             seg["audio"] = {"asset": vo_asset, "in": round(ain, 3), "out": round(aout, 3)}
         if b.get("card"):
