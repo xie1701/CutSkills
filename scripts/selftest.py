@@ -338,9 +338,13 @@ def main() -> int:
     must("文档与 Schema 自检零红零黄", "🔴 0 · 🟡 0" in (r.stdout or ""), (r.stdout or "")[-240:])
 
     print("⑦ 仓库卫生与深底判据回归")
-    r = sh(["git", "-C", str(ROOT), "ls-files", "references"])
-    bad = [ln for ln in (r.stdout or "").splitlines() if "/work/" in ln]
-    must("references 不夹带 work 中间物", r.returncode == 0 and not bad)
+    # 判据本身不依赖 git：分发包解开后不是 git 仓，也必须能自检（BRIEF：任何电脑一条命令复用）。
+    # 口径不变——references 下任何路径带 `/work/` 就算夹带中间物；直接走文件系统，
+    # 连未跟踪的脏文件也一起查，只严不松。
+    ref_dir = ROOT / "references"
+    ref_files = [p for p in ref_dir.rglob("*") if p.is_file()] if ref_dir.exists() else []
+    bad = [str(p.relative_to(ROOT)) for p in ref_files if "/work/" in p.relative_to(ROOT).as_posix()]
+    must("references 不夹带 work 中间物", not bad, "、".join(bad[:3]))
     must("深底判据正负样本", _dark_judge_negative())
 
     print(f"⑧ 离线契约与历史 NG 回归单测（共 {len(OFFLINE_TESTS)} 支）")

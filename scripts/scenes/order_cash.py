@@ -1,6 +1,6 @@
 """订单越多现金越紧 —— 方案 P1 · 案例 B（situational）。
 
-一句口播：「订单多了，老板更忙了，最后现金却更紧。」（追溯见 `references/scene-specs/scene-order-cash.json`）
+一句口播：「订单多了，老板更忙了，最后现金却更紧。」（追溯见 `tests/fixtures/scene-specs/scene-order-cash.json`）
 
 **为什么这一格非画不可**：库里拍不到「票据在涨、现金在掉」这两件事**同时**发生
 （原则 B14：补镜只打库里没有、也拍不出来的关系）。这里要替的不是某个现场的实拍，

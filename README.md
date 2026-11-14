@@ -126,7 +126,6 @@ HyperFrames 真渲（render_hf.py · 调色/字幕/花字/贴纸/动效卡/音�
 | `styles/` | 字体、调色、包装包预览样张 |
 | `assets/audio/` | 内置 CC0 音乐与音效迷你包（免版权，可商用） |
 | `references/` | 全部规范文档（选题系统 / 字幕规则 / 时间轴 Schema / 15 道判据原则库…） |
-| `docs/ai-collab/` | 多 AI 工位协作骨架（分支协议 / 交接单 / 任务看板） |
 
 ## ✅ 质量保障
 

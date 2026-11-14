@@ -182,7 +182,8 @@ def extract_own(src: Path, t0: float, t1: float, dst: Path, *, fps: int = 30,
     if hdr and not has_zscale():
         raise SystemExit(
             "素材是 HDR，但这支 ffmpeg 没有 zscale，压出来的片子会偏亮偏灰。\n"
-            "装法见 references/ffmpeg-zimg.md，或加 --extractor hf 退回旧路径。")
+            "装法见 bash scripts/runtime.sh install（依赖版本见 deps.json），"
+            "或加 --extractor hf 退回旧路径。")
     # 先在原分辨率上缩放到画布大小再裁（`object-fit: cover` 的等价操作），
     # 顺序很重要：zscale 在 4K 上跑一段要 60 秒，缩到 1080×1920 之后是十几秒，
     # 而且裁掉的边本来就是浏览器里看不见的。

@@ -14,7 +14,7 @@
 `check_subs.semantic_judge()`、`lexicon.fix_text()`、`lint_transcript.scan_magnitudes()`，
 测试自己一个判据都不写。
 
-样本：`references/negative-samples/semantic-ouyang-2026-11-13.json`
+样本：`tests/fixtures/negative-samples/semantic-ouyang-2026-11-13.json`
 （三片 `out/subs.json` 逐字复制，2026-11-13 实读）。跑法：
 
     python3 scripts/test_semantic_check.py
@@ -33,7 +33,7 @@ import check_subs          # noqa: E402
 import lexicon             # noqa: E402
 import lint_transcript as LT  # noqa: E402
 
-FIX = HERE.parent / "references" / "negative-samples" / "semantic-ouyang-2026-11-13.json"
+FIX = HERE.parent / "tests" / "fixtures" / "negative-samples" / "semantic-ouyang-2026-11-13.json"
 
 # 三片里真实存在的东西。错字是 Jerry 2026-11-13 对着成片判的，不是测试自己挑的：
 #   a#13「大约有十万米高」（应为十几米）

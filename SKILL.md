@@ -33,10 +33,10 @@ CutSkills 是一套**跨电脑可复用、代码驱动、面向非专业用户**
 1. **黄金前 3 秒强钩子**：严禁「大家好我是…」废话开场！用十大钩子模型（[topic-system.md](references/topic-system.md)）配合开场冲击推镜（`vfx: "punch_zoom"`）+ 顶部磨砂悬念标题条（`title_bar`）瞬间锁住划屏手指。
 2. **跳切推近与零废片裁剪**：自动剔除「三二一开机」场记口令（`cue_guard.py`）、语气词与重复重说（`speech_hygiene.py`）；长口播按呼吸气口自动做同源无痕跳切推近（1.0x ↔ 1.14x），切点避开晃动帧（`stability.py`），严守音画锁死同源。
 3. **高颜值无标点呼吸字幕**：采用校准字宽的 `得意黑` / `思源黑体`（[fonts.yaml](styles/fonts.yaml)、[typography.md](references/typography.md)），单排无标点、按真静音拆呼吸组（[subtitle-rules.md](references/subtitle-rules.md)），绝不切断粤语/普通话固定词。
-4. **锚词花字与修辞同构 MG 动效卡**：重点词放大撑满 70% 屏宽（支持人物抠像脑后穿插 `behind` [background-removal.md](references/background-removal.md)），复杂关系自动匹配 7 类代码动效卡（`stat` 数字滚动 / `proportion` 比例条 / `day-night` 时段接力 / `versus` 对抗 / `steps` 步骤 / `term` 释义 / `chips` 招牌名牌，见 [mg-library.md](references/mg-library.md)）；没见过的主题用**场景锻造闭环**从对话直接长出新场景（[scene-forge.md](references/scene-forge.md)：任务单 → AI 写代码 → 沙箱受限渲染 → 量化自审 → 签收），及物理天平/代码连续场景（[scene-art-standard.md](references/scene-art-standard.md)）。
+4. **锚词花字与修辞同构 MG 动效卡**：重点词放大撑满 70% 屏宽（支持人物抠像脑后穿插 `behind`），复杂关系自动匹配 7 类代码动效卡（`stat` 数字滚动 / `proportion` 比例条 / `day-night` 时段接力 / `versus` 对抗 / `steps` 步骤 / `term` 释义 / `chips` 招牌名牌，见 [mg-library.md](references/mg-library.md)）；没见过的主题用**场景锻造闭环**从对话直接长出新场景（[scene-forge.md](references/scene-forge.md)：任务单 → AI 写代码 → 沙箱受限渲染 → 量化自审 → 签收），及物理天平/代码连续场景（[scene-art-standard.md](references/scene-art-standard.md)）。
 5. **16 款矢量动态情绪贴纸**：拒绝廉价糊脸贴图，用 `stickers.py` 内置多层受光 SVG 矢量徽章 + GSAP 弹簧微摆动画，自动落在四角安全区，绝不遮脸或撞字幕。
 6. **先声夺人与鼓点卡点节奏**：画面跟着声音块重音走（[audio-first.md](references/audio-first.md)、[rhythm-bands.md](references/rhythm-bands.md)），弹性镜头自动吸附 CC0 配乐鼓点（`beat_sync.py`），每处花字/贴纸/切镜精准配 CC0 音效并自动轮换变体防听觉疲劳（[sfx.md](references/sfx.md)）。
-7. **五套正交视觉包装包 + 电影感逐镜调色**：支持对话一键切换 `P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（暗调极简）、`P4-canton-warm`（餐饮烟火）、`P5-viral-pop`（百万博主高赞网感），见 [styles/catalog.json](styles/catalog.json) 与 [talking-head-v1.yaml](styles/talking-head-v1.yaml)。HDR 素材自动色调映射（[ffmpeg-zimg.md](references/ffmpeg-zimg.md)）并逐镜拉平亮度色温（`shot_match.py`）。
+7. **五套正交视觉包装包 + 电影感逐镜调色**：支持对话一键切换 `P1-warm`（暖实拍）、`P2-paper`（纸感双语）、`P3-dark`（暗调极简）、`P4-canton-warm`（餐饮烟火）、`P5-viral-pop`（百万博主高赞网感），见 [styles/catalog.json](styles/catalog.json) 与 [talking-head-v1.yaml](styles/talking-head-v1.yaml)。HDR 素材自动色调映射（自编带 zscale 的 ffmpeg，`bash scripts/runtime.sh install` 装）并逐镜拉平亮度色温（`shot_match.py`）。
 8. **广播级响度与全自动像素门禁**：人声 `12:1` 侧链压低背景音乐，整片响度精准归一至 `-14 LUFS ±1 / ≤ -1 dBTP`；渲染前后过十五道专业判据（[editorial-packaging-principles.md](references/editorial-packaging-principles.md)）。
 
 ---
@@ -66,7 +66,7 @@ python3 scripts/voiceover.py --project <项目目录> --library <素材库> --fr
 python3 scripts/ideate.py --project <项目目录> --to-plan --vo-asset "_vo/<项目名>.wav"
 ```
 
-### 2. 素材库多模态索引与清洗（入口 B，架构见 [index-schema.md](references/index-schema.md)、[library-hygiene.md](references/library-hygiene.md)）
+### 2. 素材库多模态索引与清洗（入口 B，架构见 [index-schema.md](references/index-schema.md)）
 
 ```bash
 # 多模态探针 + 抽帧 + 语音词级转写（增量建库，不改动用户原文件）
@@ -142,10 +142,6 @@ python3 scripts/tidy.py --apply
 ---
 
 ## 四、判词口径与自检门禁（Measure, Don't Narrate）
-
-> 端到端验收的实验记录与读数见 [r3-eval-2026-11-14.md](references/r3-eval-2026-11-14.md)
-> （10 段陌生口播全链路：10/10 门禁零红、音效 50/50、响度全部 −14±0.1 LUFS）；
-> R1 三条黄金样片与 R2 对话式改片的验收读数见 [r1-r2-eval-2026-11-15.md](references/r1-r2-eval-2026-11-15.md)。
 
 1. **几何靠量，动静靠剖面**：视觉大模型只用来检查「字读不读得清、画面有没有穿帮」，**绝不用视觉模型目测几何坐标或动效节奏**。几何上下关系一律用 `scripts/measure_geom.py` 量像素带，场景动静一律用 `scripts/measure_motion.py` 与 `scripts/scene_review.py` 量帧间差分，面板可读性一律用 `scripts/measure_panel.py` 量 `ΔL ≥ 12`。
 2. **第三方品牌询问原则**：实拍画面检出其它品牌字样（`scripts/brand_safety.py`）时，先询问用户是否属于正常工具/场景出镜；无需避开时用结构化核销行记入 `decisions.md`（`scripts/log_decision.py`），不盲目打码裁切。

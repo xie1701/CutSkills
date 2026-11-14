@@ -84,7 +84,7 @@ def main() -> int:
             add(OK, f"{b} → {p}（{why}）")
         else:
             add(BAD, f"{b} 缺失（{why}）——ffmpeg 建议 brew install ffmpeg zimg，"
-                     f"HDR 素材要自编带 zimg 的版本，见 references/ffmpeg-zimg.md")
+                     f"HDR 素材要自编带 zimg 的版本——bash scripts/runtime.sh install 会装它")
     coli = which("coli")
     if coli:
         add(OK, f"coli → {coli}（本地 ASR，字级时间戳）")
@@ -95,7 +95,7 @@ def main() -> int:
     if ffz.exists():
         r = subprocess.run([str(ffz), "-version"], capture_output=True, text=True)
         add(OK if r.returncode == 0 else BAD,
-            f"自编 ffmpeg（HDR→SDR）{'真跑通过' if r.returncode == 0 else '装了但跑不起来（brew 把动态库换掉了，见 references/ffmpeg-zimg.md）'}")
+            f"自编 ffmpeg（HDR→SDR）{'真跑通过' if r.returncode == 0 else '装了但跑不起来（brew 把动态库换掉了，重跑 bash scripts/runtime.sh install 修）'}")
 
     # ---- 4) 前端运行时
     from render_hf import GSAP_CANDIDATES  # noqa: E402

@@ -33,7 +33,7 @@ export npm_config_prefix="$ROOT/npm"
 export npm_config_cache="$ROOT/npm-cache"
 export NODE_PATH="$ROOT/npm/node_modules${NODE_PATH:+:$NODE_PATH}"
 # 自编的带 zscale 的 ffmpeg 排在系统前面：素材里的 HLG / 杜比视界要靠它转 SDR，
-# 系统 brew 的 ffmpeg 没有 libzimg，压出来偏亮偏灰（原因见 references/ffmpeg-zimg.md）。
+# 系统 brew 的 ffmpeg 没有 libzimg，压出来偏亮偏灰。
 if [ -x "$ROOT/opt/ffmpeg-zimg/bin/ffmpeg" ]; then
   export CUTSKILLS_FFMPEG="$ROOT/opt/ffmpeg-zimg/bin/ffmpeg"
 fi
@@ -129,11 +129,11 @@ cmd_check() {
       done
       if [ -n "$miss" ]; then
         echo "  ！动态库找不到：$miss"
-        echo "    brew 把 formula 换掉了。按 references/ffmpeg-zimg.md 重装缺的那几个。"
+        echo "    brew 把 formula 换掉了。重跑 bash scripts/runtime.sh install 重装缺的那几个。"
       fi
     else
       echo "  ！跑不起来：$(echo "$out" | head -2 | tr '\n' ' ')"
-      echo "    修法见 references/ffmpeg-zimg.md。没有它，HDR 素材压出来偏亮偏灰。"
+      echo "    修法：重跑 bash scripts/runtime.sh install。没有它，HDR 素材压出来偏亮偏灰。"
     fi
   fi
   # 前端运行时 gsap：2026-11-13 复核撞上——render_hf 里写死的 vendor 路径

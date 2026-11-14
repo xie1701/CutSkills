@@ -17,7 +17,7 @@
      （「量不出」不等于「没有停顿」）；
   ④ 停顿恰好压在门槛上时按严格判：probe 报 0.299s → 放行，0.300s → 判红。
 
-样本：`references/negative-samples/hold-breath-groups.json`（真实素材窗口）。
+样本：`tests/fixtures/negative-samples/hold-breath-groups.json`（真实素材窗口）。
 断言全部走产线函数——`check_subs.make_hold_probe()` / `hold_judge()` /
 `longest_pause()`，测试自己一个判据都不写。跑法：
 
@@ -35,7 +35,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import check_subs  # noqa: E402
 
-FIX = HERE.parent / "references" / "negative-samples" / "hold-breath-groups.json"
+FIX = HERE.parent / "tests" / "fixtures" / "negative-samples" / "hold-breath-groups.json"
 
 
 def _case_project(root: Path, case: dict) -> Path:

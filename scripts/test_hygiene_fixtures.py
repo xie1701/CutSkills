@@ -2,7 +2,7 @@
 """负样本夹具的**真音频**验证：判据在真声音上还能不能抓住。
 
 `test_speech_hygiene.py` 用的是文字真值（秒级、无依赖），跑得快；
-这个用 references/negative-samples/hygiene/ 里的真音频走一遍 ASR，慢（每段约 10 秒），
+这个用 tests/fixtures/negative-samples/hygiene/ 里的真音频走一遍 ASR，慢（每段约 10 秒），
 所以只在 `selftest --slow` 或手动跑。
 
 它守的是另一件事：**判据不是只会认我自己写的例句**。ASR 把「唔系唔系」抄成什么样、
@@ -23,7 +23,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 import speech_hygiene as SH  # noqa: E402
 
-FIX = ROOT / "references" / "negative-samples" / "hygiene"
+FIX = ROOT / "tests" / "fixtures" / "negative-samples" / "hygiene"
 
 
 def asr(wav: Path) -> list[tuple[str, float]]:

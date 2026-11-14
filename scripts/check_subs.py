@@ -49,7 +49,7 @@ HOLD_MIN, HOLD_MAX = 0.8, 3.2
 # 实测（2026-11-13，现行 subs.py 产出的 ground-01）：4 条 3.30–4.38s 的长条里，
 # 1 条窗口静音 0.00s（真一口气讲完，旧判据在这里是**误报**）；
 # 另外 3 条有 0.46–1.22s 真静音（ASR 把停顿算进了某个字的时长里）——那三条该判红。
-# 样本与实测读数：references/negative-samples/hold-breath-groups.md。
+# 样本与实测读数：tests/fixtures/negative-samples/hold-breath-groups.md。
 #
 # 所以：窗口内**实量**不到 ≥BREATH_MIN 的停顿 → 这是一口气没断，上限放到 4.5s；
 #       窗口内量到停顿却仍撑过 3.2s → 那才是「话停了字还赖着」，照旧判红。

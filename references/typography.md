@@ -110,5 +110,5 @@ python3 scripts/verify_film.py --project <项目> --style styles/talking-head-v1
 所以拆条时也先拿 `silence.py` 把字的起止从静音里拉出来（`subs.retime_off_silence()`），
 再按 `subs.BREATH_MIN = 0.30` / `subs.MAX_HOLD = 3.2` 断。
 两边同一个数：裁判量的是 0.30s，产线断的也是 0.30s。
-实现与负样本见 [subtitle-rules.md](subtitle-rules.md) 与
-[negative-samples/breath-split.md](negative-samples/breath-split.md)。
+实现与负样本见 [subtitle-rules.md](subtitle-rules.md)——回归样本（`breath-split.md`
+与真素材窗口）随测试夹具留在开发仓的 `tests/fixtures/`，不随分发包外发。

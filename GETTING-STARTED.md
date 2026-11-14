@@ -11,7 +11,7 @@
 |---|---|---|
 | `python3 ≥ 3.10` | 编导、识别与验收脚本 | `brew install python` |
 | `node ≥ 20` | HyperFrames 浏览器动效渲染 | `brew install node` |
-| `ffmpeg ≥ 6` | 音视频切段、调色与响度混音 | `brew install ffmpeg zimg`（若有 iPhone HDR 素材，按 `references/ffmpeg-zimg.md` 编译带 zscale 版更佳） |
+| `ffmpeg ≥ 6` | 音视频切段、调色与响度混音 | `brew install ffmpeg zimg`（若有 iPhone HDR 素材，`bash scripts/runtime.sh install` 会另装带 zscale 的自编版） |
 
 ## 第 1 步 · 一键安装运行时依赖（集中存放，绝不污染全局）
 
