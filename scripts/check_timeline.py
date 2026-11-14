@@ -231,6 +231,12 @@ def check(tl: dict, index: dict, *, strict: bool = False, decisions_text: str | 
                     if lim is None:
                         continue
                     if isinstance(v, str) and len(v) > int(lim):
+                        # micro 接力卡（keyword 大字分屏换字）：上屏单位是每一段 stage，
+                        # props.text 只是原文串联——每段都达标就放行，不按全文判。
+                        stages = [str(it.get("text") or "") for it in (el.get("micro") or [])
+                                  if isinstance(it, dict) and it.get("text") is not None]
+                        if stages and all(len(s) <= int(lim) for s in stages):
+                            continue
                         out.append(("error", f"#{n} {tpl} props.{k} {len(v)} 字，上限 {lim}"))
                 if el.get("source") != "generated":
                     out.append(("error", f"#{n} 是代码生成的，source 必须写 generated"))
