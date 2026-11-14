@@ -108,7 +108,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "line": lead_hook,
                     "visual_mode": "talking_or_gen",
                     "shoot_tip": "对着镜头直接说第一句，眼神笃定，前0.5秒别低头看稿",
-                    "code_fallback": {"template": "keyword", "props": {"text": f"别盲目做{core[:4]}", "sub": "90%的人第一步就错了"}},
+                    "code_fallback": {"template": "keyword", "props": {"text": f"别盲目做{_short_core(core, 5)}", "sub": "90%的人第一步就错了"}},
                     "sticker": {"id": "bang", "pos": "top-right"},
                     "vfx": "punch_zoom",
                     "sfx": "impact",
@@ -148,7 +148,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "sfx": "ding",
                 },
             ]
-            title_bar = {"top": f"做{core[:6]}前必看", "main": "90%踩过的隐形坑"}
+            title_bar = {"top": f"做{_short_core(core)}前必看", "main": "90%踩过的隐形坑"}
         elif st["stream"] == "bucket_persona":
             beats = [
                 {
@@ -190,7 +190,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "sfx": "shimmer",
                 },
             ]
-            title_bar = {"top": f"{who[:8]}真话", "main": f"{core[:6]}死磕标准"}
+            title_bar = {"top": f"{who[:8]}真话", "main": f"{_short_core(core)}死磕标准"}
         else:
             beats = [
                 {
@@ -237,7 +237,7 @@ def build_proposals(topic: str, persona: str, audience: str, duration_s: int) ->
                     "sfx": "ding",
                 },
             ]
-            title_bar = {"top": "内行帮你算笔账", "main": f"{core[:6]}怎么花钱最值"}
+            title_bar = {"top": "内行帮你算笔账", "main": f"{_short_core(core)}怎么花钱最值"}
 
         proposals.append({
             "index": idx,
@@ -347,6 +347,27 @@ MG_ROLE_OF = {"setup": "organization", "hook": "organization", "claim": "explana
               "payoff": "action", "close": "consequence"}
 TEXT_CHAIN_TPLS = ("keyword", "quote")      # 渲器支持 micro 文字接力的卡型
 NUM_TPLS = {"compare", "number", "chart", "balance"}   # 数字卡：无出处时必须标 approx
+
+
+def _short_core(core: str, max_len: int = 8) -> str:
+    """标题条/短文案用：把选题核心截到 max_len 内，但只在词界断（jieba），
+    不出现「600平纯手」这种半截词。"""
+    core = str(core or "").strip()
+    if len(core) <= max_len:
+        return core
+    try:
+        import jieba
+        cur = ""
+        for w in jieba.lcut(core):
+            w = w.strip()
+            if not w:
+                continue
+            if cur and len(cur) + len(w) > max_len:
+                break
+            cur += w
+        return cur or core[:max_len]
+    except Exception:
+        return core[:max_len]
 
 
 def _phrases(line: str) -> list[str]:

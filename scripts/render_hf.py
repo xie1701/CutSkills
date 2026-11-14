@@ -790,6 +790,7 @@ def get_audio_cell(lib: Path, proj: Path, seg: dict) -> dict | None:
     tag = f"aud-{Path(aid).stem[-14:]}_{s_in:.2f}-{s_out:.2f}".replace(".", "p")
     tag = "".join(c if c.isalnum() or c in "-_" else "_" for c in tag)
     dst = proj / "hf" / "clips" / f"{tag}.m4a"
+    dst.parent.mkdir(parents=True, exist_ok=True)   # 全新零拍摄项目首次渲染时 clips/ 还不存在
     if not dst.exists() or dst.stat().st_size < 2048:
         src = lib / aid
         if not src.exists():
