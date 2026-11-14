@@ -10,6 +10,11 @@
   - `python3 scripts/audit_skill.py`：`OK · 🔴 0 · 🟡 0 · 🟢 8`
   - `python3 scripts/selftest.py`：`exit 0`（端到端真渲染 + 31 支离线与真音频回归单测全过）
   - `python3 scripts/pack_dist.py`：`exit 0`（全仓零私有家目录路径泄漏）
+- **陌生人全流程实测（GitHub 干净克隆 `/tmp/stranger-cutskills` + 零拍摄库，2026-11-14）**：
+  - 选题 → AI 配音 → 时间轴 → 拍板 → 真渲 → 验收全部跑通，路上修掉 10+ 个真问题已回推主干
+  - `verify_film`：🟢 35 · 🟡 2 · 🔴 0（🟡 为信息性：节奏中位 7.22s 属零拍摄长卡型、P5 深色卡底在无配音间隙被「黑帧」探针误读）
+  - `check_sfx`：5/5 处净抬升 ≥ 2.5dB（gen 卡入场音效用瞬态硬的 impact-light-firm +3.5dB，shimmer 类在人声起句上会被盖住）
+  - 长 gen 卡需 1.6s 周期 8% 轻亮度脉冲：帧差判据的地板（2s 窗内必有一次 ≥0.6 均值差）量不到温和慢缩放
 
 ---
 
