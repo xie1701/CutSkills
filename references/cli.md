@@ -426,7 +426,8 @@
 
 | 参数 | 说明 |
 |---|---|
-| `--scene` | （默认 'phase'） |
+| `--scene` | 场景名；--scenes-dir 接进来的项目级场景也能用（手工校验，不用 choices）（默认 'phase'） |
+| `--scenes-dir` | 额外的场景源码目录（项目 scenes/）；AI 新写的场景从这里接进注册表，渲染本身应走 scene_sandbox.py（拒网 + rlimit），不要直接裸跑本脚本 |
 | `--out` | **必填** |
 | `--dur` | （默认 5.0） |
 | `--fps` | 跟成片一致（talking-head-v1 是 30）（默认 30） |
@@ -734,6 +735,19 @@
 | `--json` | 报告路径（默认 <out>/scene-review/review.json） |
 | `--median-band` | 帧差中位的合格区间 y0:y1，默认 1.2:6.0（代码场景口径）。实拍/手持/推镜段给 6:20——底片帧差天然 8–13，用场景口径会恒假红 |
 
+### `scene_sandbox.py`
+*场景沙箱：AI 写的场景代码在**受限子进程**里渲染，不在主进程里裸跑。*
+
+| 参数 | 说明 |
+|---|---|
+| `--scenes-dir` | **必填**　场景源码目录（项目 scenes/） |
+| `--scene` | **必填** |
+| `--out` | **必填** |
+| `--dur` | （默认 5.0） |
+| `--fps` | （默认 30） |
+| `--size` | （默认 '1080x1920'） |
+| `--marks` | — |
+
 ### `scene_spec.py`
 *scene_spec.json——单个补镜画面的生产任务单（AI 视听方案 2026-11-14 · P0）。*
 
@@ -876,6 +890,11 @@
 
 ### `test_scene_review.py`
 *契约测试：`scene_review.py` 的四条判据真的抓得住——自造样例，不依赖真片。*
+
+（无参数）
+
+### `test_scene_sandbox.py`
+*scene_sandbox.py 的合同测试（评审 P1-06 落地）：*
 
 （无参数）
 
